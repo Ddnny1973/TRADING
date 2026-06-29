@@ -3,10 +3,11 @@ Binance API client wrapper
 Handles all HTTP requests to Binance Futures API
 """
 
-import aiohttp
 import asyncio
+import uuid
 from decimal import Decimal
 from typing import Dict, Any, Optional
+import aiohttp
 from app.core.security import BinanceSecurityManager
 from app.core.binance_time import BinanceTimeSync
 from app.core.config import settings
@@ -98,27 +99,41 @@ class BinanceClient:
             print(f"Error fetching mark price: {e}")
         return None
 
+    async def _get_order_by_client_id(self, symbol: str, client_order_id: str) -> Optional[Dict[str, Any]]:
+        """Query an order by its clientOrderId to resolve -1007 ambiguity"""
+        try:
+            params = {
+                "symbol": symbol,
+                "origClientOrderId": client_order_id,
+                "timestamp": self.time_sync.get_adjusted_time(),
+                "recvWindow": settings.BINANCE_RECV_WINDOW
+            }
+            params["signature"] = self.security.generate_signature(params)
+            url = f"{self.base_url}/fapi/v1/order"
+            headers = self.security.get_headers()
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, headers=headers) as response:
+                    if response.status == 200:
+                        return await response.json()
+        except Exception as e:
+            print(f"Exception checking order status: {e}")
+        return None
+
     async def place_limit_order(self, symbol: str, side: str, quantity: float,
                                price: float, time_in_force: str = "GTC",
                                max_retries: int = 3) -> Optional[Dict[str, Any]]:
         """
-        Place a limit order on Binance Futures with retry on 502 gateway errors
+        Place a limit order on Binance Futures.
 
-        Args:
-            symbol: Trading pair
-            side: BUY or SELL
-            quantity: Order quantity
-            price: Limit price
-            time_in_force: Time in force (GTC, IOC, FOK)
-            max_retries: Retries allowed on 502 (safe — order never reached matching engine)
-
-        Returns:
-            Order response or None if failed
+        - 502: order never reached Binance → safe to retry with new clientOrderId.
+        - 408/-1007: status unknown → query by clientOrderId before retrying
+          to avoid duplicate orders.
         """
         url = f"{self.base_url}/fapi/v1/order"
         headers = self.security.get_headers()
 
         for attempt in range(1, max_retries + 1):
+            client_order_id = str(uuid.uuid4()).replace("-", "")[:32]
             try:
                 params = {
                     "symbol": symbol,
@@ -127,6 +142,7 @@ class BinanceClient:
                     "timeInForce": time_in_force,
                     "quantity": str(quantity),
                     "price": str(price),
+                    "newClientOrderId": client_order_id,
                     "timestamp": self.time_sync.get_adjusted_time(),
                     "recvWindow": settings.BINANCE_RECV_WINDOW
                 }
@@ -142,6 +158,14 @@ class BinanceClient:
 
                         if response.status == 502 and attempt < max_retries:
                             await asyncio.sleep(attempt * 1.5)
+                            continue
+
+                        if response.status == 408 and attempt < max_retries:
+                            await asyncio.sleep(2.0)
+                            existing = await self._get_order_by_client_id(symbol, client_order_id)
+                            if existing and "orderId" in existing:
+                                print(f"Order {client_order_id} confirmed placed after 408")
+                                return existing
                             continue
 
                         return None
