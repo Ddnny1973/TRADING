@@ -3,13 +3,16 @@ Grid service
 Orchestrates grid calculation, order execution on Binance, and local persistence
 """
 
+import asyncio
 import uuid
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 from typing import Any, Dict, List, Optional
 
 from app.database.connection import get_sqlite_connection
 from app.services.binance_client import BinanceClient
 from app.services.grid_engine import GridEngine, GridType
+
+ORDER_PLACEMENT_DELAY_SECONDS = 0.3
 
 
 class GridService:
@@ -17,6 +20,13 @@ class GridService:
 
     def __init__(self):
         self.binance = BinanceClient()
+
+    @staticmethod
+    def _snap_down(value: Decimal, step: Decimal) -> Decimal:
+        """Floor value to the nearest multiple of step (Binance tickSize/stepSize)"""
+        if step <= 0:
+            return value
+        return (value / step).to_integral_value(rounding=ROUND_DOWN) * step
 
     async def create_grid(self, symbol: str, lower_price: float, upper_price: float,
                            levels: int, grid_type: str, quantity_per_order: float) -> Dict[str, Any]:
@@ -37,6 +47,21 @@ class GridService:
             raise ValueError(f"Could not fetch current price for {symbol}")
         current_price = Decimal(str(price_data["price"]))
 
+        filters = await self.binance.get_symbol_filters(symbol)
+        if not filters:
+            raise ValueError(f"Could not fetch exchange filters for {symbol}")
+
+        quantized_qty = self._snap_down(Decimal(str(quantity_per_order)), filters["step_size"])
+        if quantized_qty <= 0:
+            raise ValueError("quantity_per_order is smaller than the minimum step size for this symbol")
+
+        min_notional_price = min(price_levels)
+        if min_notional_price * quantized_qty < filters["min_notional"]:
+            raise ValueError(
+                f"quantity_per_order too small: order notional must be at least "
+                f"{filters['min_notional']} (got {min_notional_price * quantized_qty})"
+            )
+
         grid_id = str(uuid.uuid4())
         conn = get_sqlite_connection()
         try:
@@ -47,17 +72,22 @@ class GridService:
                 (grid_id, symbol, str(engine.lower_price), str(engine.upper_price), levels, "RUNNING")
             )
 
-            for level_price in price_levels:
-                side = "BUY" if level_price < current_price else "SELL"
+            for i, level_price in enumerate(price_levels):
+                quantized_price = self._snap_down(level_price, filters["tick_size"])
+                side = "BUY" if quantized_price < current_price else "SELL"
+
+                if i > 0:
+                    await asyncio.sleep(ORDER_PLACEMENT_DELAY_SECONDS)
+
                 order = await self.binance.place_limit_order(
-                    symbol=symbol, side=side, quantity=quantity_per_order, price=level_price
+                    symbol=symbol, side=side, quantity=quantized_qty, price=quantized_price
                 )
                 if not order or "orderId" not in order:
                     continue
                 cursor.execute(
                     """INSERT INTO grid_orders (id, grid_id, price, quantity, side, type, status)
                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (str(order["orderId"]), grid_id, str(level_price), str(quantity_per_order), side, "LIMIT", "NEW")
+                    (str(order["orderId"]), grid_id, str(quantized_price), str(quantized_qty), side, "LIMIT", "NEW")
                 )
 
             conn.commit()

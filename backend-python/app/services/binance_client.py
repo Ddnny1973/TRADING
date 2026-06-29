@@ -5,6 +5,7 @@ Handles all HTTP requests to Binance Futures API
 
 import aiohttp
 import asyncio
+from decimal import Decimal
 from typing import Dict, Any, Optional
 from app.core.security import BinanceSecurityManager
 from app.core.binance_time import BinanceTimeSync
@@ -45,7 +46,38 @@ class BinanceClient:
         except Exception as e:
             print(f"Error fetching exchange info: {e}")
         return None
-    
+
+    async def get_symbol_filters(self, symbol: str) -> Optional[Dict[str, Decimal]]:
+        """
+        Get price/quantity/notional filters for a symbol (tickSize, stepSize, minNotional)
+
+        Args:
+            symbol: Trading pair (e.g., BTCUSDT)
+
+        Returns:
+            Dict with 'tick_size', 'step_size', 'min_notional' as Decimal, or None if not found
+        """
+        info = await self.get_exchange_info(symbol)
+        if not info:
+            return None
+
+        for symbol_info in info.get("symbols", []):
+            if symbol_info.get("symbol") != symbol:
+                continue
+
+            filters = {f["filterType"]: f for f in symbol_info.get("filters", [])}
+            price_filter = filters.get("PRICE_FILTER", {})
+            lot_size = filters.get("LOT_SIZE", {})
+            min_notional = filters.get("MIN_NOTIONAL", {})
+
+            return {
+                "tick_size": Decimal(price_filter.get("tickSize", "0.00000001")),
+                "step_size": Decimal(lot_size.get("stepSize", "0.00000001")),
+                "min_notional": Decimal(min_notional.get("notional", min_notional.get("minNotional", "0")))
+            }
+
+        return None
+
     async def get_mark_price(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
         Get current mark price for a symbol
