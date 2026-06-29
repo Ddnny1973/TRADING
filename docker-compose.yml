@@ -9,7 +9,7 @@ services:
       - REDIS_HOST=redis-trading
       - POSTGRES_HOST=postgres-trading
     ports:
-      - "8000:8000"
+      - "8043:8000"
     depends_on:
       - redis-trading
       - postgres-trading
@@ -36,7 +36,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
     ports:
-      - "9034:5432"
+      - "9043:5432"
     volumes:
       - ./postgres-trading-data:/var/lib/postgresql/data
     networks:
