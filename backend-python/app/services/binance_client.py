@@ -46,7 +46,27 @@ class BinanceClient:
             print(f"Error fetching exchange info: {e}")
         return None
     
-    async def place_limit_order(self, symbol: str, side: str, quantity: float, 
+    async def get_mark_price(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        Get current mark price for a symbol
+
+        Args:
+            symbol: Trading pair (e.g., BTCUSDT)
+
+        Returns:
+            Dict with 'price' key or None if request fails
+        """
+        try:
+            url = f"{self.base_url}/fapi/v1/ticker/price"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params={"symbol": symbol}) as response:
+                    if response.status == 200:
+                        return await response.json()
+        except Exception as e:
+            print(f"Error fetching mark price: {e}")
+        return None
+
+    async def place_limit_order(self, symbol: str, side: str, quantity: float,
                                price: float, time_in_force: str = "GTC") -> Optional[Dict[str, Any]]:
         """
         Place a limit order on Binance Futures

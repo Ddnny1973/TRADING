@@ -3,6 +3,8 @@ FastAPI Application - Grid Trading Hybrid Backend
 Main entry point for the trading engine microservice
 """
 
+from typing import List
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
@@ -10,6 +12,10 @@ from contextlib import asynccontextmanager
 # Import configuration and services
 from app.core.config import settings
 from app.database.connection import init_db
+from app.schemas.grid_schema import GridRequest, GridResponse, GridDetailResponse
+from app.services.grid_service import GridService
+
+grid_service = GridService()
 
 
 @asynccontextmanager
@@ -61,13 +67,45 @@ async def root():
 
 
 # ==========================================
-# GRID TRADING ENDPOINTS (TO BE IMPLEMENTED)
+# GRID TRADING ENDPOINTS
 # ==========================================
 
-# TODO: Implement grid creation endpoint
-# TODO: Implement grid status endpoint
-# TODO: Implement grid execution endpoint
-# TODO: Implement order management endpoints
+@app.post("/api/v1/grids", response_model=GridDetailResponse, tags=["Grids"])
+async def create_grid(request: GridRequest):
+    """Calculate grid levels, place orders on Binance and persist the grid"""
+    grid = await grid_service.create_grid(
+        symbol=request.symbol,
+        lower_price=request.lower_price,
+        upper_price=request.upper_price,
+        levels=request.levels,
+        grid_type=request.grid_type,
+        quantity_per_order=request.quantity_per_order
+    )
+    return grid
+
+
+@app.get("/api/v1/grids", response_model=List[GridResponse], tags=["Grids"])
+async def list_grids():
+    """List all grids"""
+    return grid_service.list_grids()
+
+
+@app.get("/api/v1/grids/{grid_id}", response_model=GridDetailResponse, tags=["Grids"])
+async def get_grid(grid_id: str):
+    """Get grid details including its orders"""
+    grid = grid_service.get_grid(grid_id)
+    if not grid:
+        raise HTTPException(status_code=404, detail="Grid not found")
+    return grid
+
+
+@app.delete("/api/v1/grids/{grid_id}", response_model=GridDetailResponse, tags=["Grids"])
+async def cancel_grid(grid_id: str):
+    """Cancel all open orders for a grid and stop it"""
+    grid = await grid_service.cancel_grid(grid_id)
+    if not grid:
+        raise HTTPException(status_code=404, detail="Grid not found")
+    return grid
 
 
 # ==========================================
