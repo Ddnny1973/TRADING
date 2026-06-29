@@ -8,8 +8,11 @@ services:
     environment:
       - REDIS_HOST=redis-trading
       - POSTGRES_HOST=postgres-trading
+      - SQLITE_DATA_DIR=/app/data
     ports:
       - "8043:8000"
+    volumes:
+      - ./backend-data:/app/data
     depends_on:
       - redis-trading
       - postgres-trading

@@ -3,6 +3,7 @@ Database connection management
 Handles SQLite and PostgreSQL connections
 """
 
+import os
 import sqlite3
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -13,9 +14,12 @@ from app.core.config import settings
 # SQLite Connection (Local Grid Storage)
 # ==========================================
 
+SQLITE_DB_PATH = os.path.join(os.getenv("SQLITE_DATA_DIR", "."), "grid_trading.db")
+
+
 def get_sqlite_connection():
     """Get SQLite connection for local grid storage"""
-    conn = sqlite3.connect('grid_trading.db')
+    conn = sqlite3.connect(SQLITE_DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 

@@ -44,6 +44,7 @@ wheels/
 .docker/
 redis-trading-data/
 postgres-trading-data/
+backend-data/
 
 # Logs
 logs/
