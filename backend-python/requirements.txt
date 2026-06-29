@@ -10,7 +10,7 @@ psycopg2-binary==2.9.9
 redis==5.0.1
 numpy==1.26.2
 cryptography==41.0.7
-pyjwt==2.8.1
+pyjwt==2.8.0
 pytest==7.4.3
 pytest-asyncio==0.21.1
 python-multipart==0.0.6
