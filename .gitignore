@@ -42,6 +42,8 @@ wheels/
 
 # Docker
 .docker/
+redis-trading-data/
+postgres-trading-data/
 
 # Logs
 logs/

@@ -1,0 +1,49 @@
+services:
+  backend-python:
+    build:
+      context: ./backend-python
+    container_name: trading-backend
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=redis-trading
+      - POSTGRES_HOST=postgres-trading
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis-trading
+      - postgres-trading
+    networks:
+      - default
+      - infra_shared
+    restart: unless-stopped
+
+  redis-trading:
+    image: redis:7-alpine
+    container_name: redis-trading
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - ./redis-trading-data:/data
+    networks:
+      - default
+    restart: unless-stopped
+
+  postgres-trading:
+    image: postgres:15
+    container_name: postgres-trading
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    ports:
+      - "9034:5432"
+    volumes:
+      - ./postgres-trading-data:/var/lib/postgresql/data
+    networks:
+      - default
+    restart: unless-stopped
+
+networks:
+  default:
+  infra_shared:
+    external: true

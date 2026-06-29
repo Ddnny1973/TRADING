@@ -58,6 +58,9 @@ services:
       - redis
       - pgvectordb
 
+    networks:
+      - default
+      - infra_shared
 
     restart: unless-stopped
 
@@ -217,6 +220,7 @@ volumes:
   wppapi_ai_tmp:
   wppapi_ai_2_tmp:
 
-#networks:
-#  n8n-network:
-#    driver: bridge
+networks:
+  default:
+  infra_shared:
+    external: true
