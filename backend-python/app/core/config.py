@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # ==========================================
     BINANCE_API_KEY: str
     BINANCE_API_SECRET: str
-    BINANCE_TESTNET_URL: str = "https://testnet.binancefuture.com"
+    BINANCE_TESTNET_URL: str = "https://demo-fapi.binance.com"
     BINANCE_RECV_WINDOW: int = 5000
     
     # ==========================================
