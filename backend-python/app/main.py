@@ -11,15 +11,6 @@ from contextlib import asynccontextmanager
 from app.core.config import settings
 from app.database.connection import init_db
 
-# Create FastAPI app
-app = FastAPI(
-    title="Grid Trading Hybrid API",
-    description="Backend microservice for autonomous grid trading execution",
-    version="0.1.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc"
-)
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -36,6 +27,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Grid Trading Hybrid API",
+    description="Backend microservice for autonomous grid trading execution",
+    version="0.1.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
     lifespan=lifespan
 )
 
