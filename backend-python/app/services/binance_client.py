@@ -99,47 +99,58 @@ class BinanceClient:
         return None
 
     async def place_limit_order(self, symbol: str, side: str, quantity: float,
-                               price: float, time_in_force: str = "GTC") -> Optional[Dict[str, Any]]:
+                               price: float, time_in_force: str = "GTC",
+                               max_retries: int = 3) -> Optional[Dict[str, Any]]:
         """
-        Place a limit order on Binance Futures
-        
+        Place a limit order on Binance Futures with retry on 502 gateway errors
+
         Args:
             symbol: Trading pair
             side: BUY or SELL
             quantity: Order quantity
             price: Limit price
             time_in_force: Time in force (GTC, IOC, FOK)
-        
+            max_retries: Retries allowed on 502 (safe — order never reached matching engine)
+
         Returns:
             Order response or None if failed
         """
-        try:
-            params = {
-                "symbol": symbol,
-                "side": side,
-                "type": "LIMIT",
-                "timeInForce": time_in_force,
-                "quantity": str(quantity),
-                "price": str(price),
-                "timestamp": self.time_sync.get_adjusted_time(),
-                "recvWindow": settings.BINANCE_RECV_WINDOW
-            }
-            
-            params["signature"] = self.security.generate_signature(params)
-            
-            url = f"{self.base_url}/fapi/v1/order"
-            headers = self.security.get_headers()
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, params=params, headers=headers) as response:
-                    if response.status in [200, 201]:
-                        return await response.json()
-                    else:
+        url = f"{self.base_url}/fapi/v1/order"
+        headers = self.security.get_headers()
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                params = {
+                    "symbol": symbol,
+                    "side": side,
+                    "type": "LIMIT",
+                    "timeInForce": time_in_force,
+                    "quantity": str(quantity),
+                    "price": str(price),
+                    "timestamp": self.time_sync.get_adjusted_time(),
+                    "recvWindow": settings.BINANCE_RECV_WINDOW
+                }
+                params["signature"] = self.security.generate_signature(params)
+
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(url, params=params, headers=headers) as response:
+                        if response.status in [200, 201]:
+                            return await response.json()
+
                         error_text = await response.text()
                         print(f"Error placing order: {response.status} - {error_text}")
-        except Exception as e:
-            print(f"Exception placing order: {e}")
-        
+
+                        if response.status == 502 and attempt < max_retries:
+                            await asyncio.sleep(attempt * 1.5)
+                            continue
+
+                        return None
+
+            except Exception as e:
+                print(f"Exception placing order (attempt {attempt}): {e}")
+                if attempt < max_retries:
+                    await asyncio.sleep(attempt * 1.5)
+
         return None
     
     async def cancel_order(self, symbol: str, order_id: int) -> Optional[Dict[str, Any]]:
