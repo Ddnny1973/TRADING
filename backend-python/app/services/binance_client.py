@@ -40,7 +40,8 @@ class BinanceClient:
         """
         try:
             url = f"{self.base_url}/fapi/v1/exchangeInfo"
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url, params={"symbol": symbol}) as response:
                     if response.status == 200:
                         return await response.json()
@@ -91,7 +92,8 @@ class BinanceClient:
         """
         try:
             url = f"{self.base_url}/fapi/v1/ticker/price"
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url, params={"symbol": symbol}) as response:
                     if response.status == 200:
                         return await response.json()
@@ -111,7 +113,8 @@ class BinanceClient:
             params["signature"] = self.security.generate_signature(params)
             url = f"{self.base_url}/fapi/v1/order"
             headers = self.security.get_headers()
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url, params=params, headers=headers) as response:
                     if response.status == 200:
                         return await response.json()
@@ -148,7 +151,8 @@ class BinanceClient:
                 }
                 params["signature"] = self.security.generate_signature(params)
 
-                async with aiohttp.ClientSession() as session:
+                timeout = aiohttp.ClientTimeout(total=15)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
                     async with session.post(url, params=params, headers=headers) as response:
                         if response.status in [200, 201]:
                             return await response.json()
@@ -201,7 +205,8 @@ class BinanceClient:
             url = f"{self.base_url}/fapi/v1/order"
             headers = self.security.get_headers()
             
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.delete(url, params=params, headers=headers) as response:
                     if response.status == 200:
                         return await response.json()
@@ -234,7 +239,8 @@ class BinanceClient:
             url = f"{self.base_url}/fapi/v1/order"
             headers = self.security.get_headers()
             
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url, params=params, headers=headers) as response:
                     if response.status == 200:
                         return await response.json()

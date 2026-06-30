@@ -26,6 +26,11 @@ async def lifespan(app: FastAPI):
     # Startup
     print("🚀 Starting Grid Trading Backend...")
     init_db()
+    server_time = await grid_service.binance.time_sync.sync_time()
+    if server_time:
+        print(f"✅ Time synced with Binance. Offset: {grid_service.binance.time_sync.time_offset}ms")
+    else:
+        print("⚠️  Could not sync time with Binance. Using local clock.")
     yield
     # Shutdown
     print("🛑 Shutting down Grid Trading Backend...")

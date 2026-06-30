@@ -33,7 +33,8 @@ class BinanceTimeSync:
             Server time in milliseconds or None if sync fails
         """
         try:
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 url = f"{self.testnet_url}/fapi/v1/time"
                 async with session.get(url) as response:
                     if response.status == 200:

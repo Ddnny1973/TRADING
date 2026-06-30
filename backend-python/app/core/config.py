@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     BINANCE_API_KEY: str
     BINANCE_API_SECRET: str
     BINANCE_TESTNET_URL: str = "https://demo-fapi.binance.com"
-    BINANCE_RECV_WINDOW: int = 5000
+    BINANCE_RECV_WINDOW: int = 10000
     
     # ==========================================
     # FASTAPI CONFIGURATION
