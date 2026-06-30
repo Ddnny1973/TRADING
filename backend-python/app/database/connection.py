@@ -8,6 +8,7 @@ import sqlite3
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
+from app.database.models import Base
 
 
 # ==========================================
@@ -78,9 +79,20 @@ def init_sqlite_tables():
             upper_price NUMERIC NOT NULL,
             levels INTEGER NOT NULL,
             status TEXT NOT NULL,
+            stop_loss NUMERIC,
+            take_profit NUMERIC,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+    # Lightweight migration for DBs created before stop_loss/take_profit existed.
+    # No migration framework in this project yet - ALTER TABLE is idempotent-ish
+    # here because sqlite3 raises OperationalError if the column already exists.
+    for column_def in ("stop_loss NUMERIC", "take_profit NUMERIC"):
+        try:
+            cursor.execute(f"ALTER TABLE grids ADD COLUMN {column_def}")
+        except sqlite3.OperationalError:
+            pass
     
     # Create grid_orders table
     cursor.execute('''
@@ -102,9 +114,11 @@ def init_sqlite_tables():
 
 
 def init_postgres_tables():
-    """Create PostgreSQL tables for analytics"""
-    # TODO: Implement PostgreSQL table creation
-    pass
+    """Create PostgreSQL tables for analytics (historical_grid_logs, etc.)"""
+    if postgres_engine is None:
+        print("Warning: PostgreSQL engine not available, skipping table creation")
+        return
+    Base.metadata.create_all(bind=postgres_engine)
 
 
 def get_db_session():

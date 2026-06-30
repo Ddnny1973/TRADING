@@ -11,11 +11,41 @@ class GridRequest(BaseModel):
     """Schema for grid creation request"""
 
     symbol: str = Field(..., description="Trading pair (e.g., BTCUSDT)")
-    lower_price: float = Field(..., description="Grid lower price limit")
-    upper_price: float = Field(..., description="Grid upper price limit")
+    lower_price: Optional[float] = Field(
+        default=None,
+        description="Grid lower price limit. Omit together with upper_price to "
+                     "calculate both automatically from ATR."
+    )
+    upper_price: Optional[float] = Field(
+        default=None,
+        description="Grid upper price limit. Omit together with lower_price to "
+                     "calculate both automatically from ATR."
+    )
     levels: int = Field(default=10, description="Number of grid levels")
     grid_type: str = Field(default="GEOMETRIC", description="Grid type: GEOMETRIC or ARITHMETIC")
     quantity_per_order: float = Field(..., description="Order quantity placed at each grid level")
+    stop_loss: Optional[float] = Field(
+        default=None,
+        description="Quote-currency PnL threshold (positive number) - grid auto-closes when "
+                     "total_pnl <= -stop_loss. Omit to disable."
+    )
+    take_profit: Optional[float] = Field(
+        default=None,
+        description="Quote-currency PnL threshold (positive number) - grid auto-closes when "
+                     "total_pnl >= take_profit. Omit to disable."
+    )
+    atr_period: int = Field(
+        default=14,
+        description="Number of True Range values used for ATR when bounds are calculated automatically"
+    )
+    atr_multiplier: float = Field(
+        default=2.0,
+        description="ATR multiplier controlling the width of automatically-calculated bounds"
+    )
+    klines_interval: str = Field(
+        default="4h",
+        description="Kline interval used for automatic ATR calculation (e.g. 4h, 1h, 1d)"
+    )
 
     class Config:
         json_schema_extra = {
@@ -39,6 +69,8 @@ class GridResponse(BaseModel):
     upper_price: float
     levels: int
     status: str
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
     created_at: datetime
     
     class Config:
@@ -65,3 +97,24 @@ class GridDetailResponse(GridResponse):
     """Schema for grid response including its orders"""
 
     orders: list[OrderResponse] = []
+
+
+class GridPnlResponse(BaseModel):
+    """Schema for grid PnL response (output of calculate_grid_pnl)"""
+
+    grid_id: str
+    symbol: str
+    current_price: float
+    realized_pnl: float
+    unrealized_pnl: float
+    total_pnl: float
+    net_position_qty: float
+    filled_buy_qty: float
+    filled_sell_qty: float
+
+
+class GridCloseCheckResponse(BaseModel):
+    """Schema for the response of check_sl_tp / close_grid_if_triggered"""
+
+    triggered: Optional[str] = None
+    grid: GridDetailResponse

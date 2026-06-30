@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 # Import configuration and services
 from app.core.config import settings
 from app.database.connection import init_db
-from app.schemas.grid_schema import GridRequest, GridResponse, GridDetailResponse
+from app.schemas.grid_schema import GridRequest, GridResponse, GridDetailResponse, GridPnlResponse, GridCloseCheckResponse
 from app.services.grid_service import GridService
 
 grid_service = GridService()
@@ -78,14 +78,24 @@ async def root():
 
 @app.post("/api/v1/grids", response_model=GridDetailResponse, tags=["Grids"])
 async def create_grid(request: GridRequest):
-    """Calculate grid levels, place orders on Binance and persist the grid"""
+    """
+    Calculate grid levels, place orders on Binance and persist the grid.
+
+    Omit lower_price and upper_price together to have them calculated
+    automatically from ATR (atr_period / atr_multiplier / klines_interval).
+    """
     grid = await grid_service.create_grid(
         symbol=request.symbol,
-        lower_price=request.lower_price,
-        upper_price=request.upper_price,
         levels=request.levels,
         grid_type=request.grid_type,
-        quantity_per_order=request.quantity_per_order
+        quantity_per_order=request.quantity_per_order,
+        lower_price=request.lower_price,
+        upper_price=request.upper_price,
+        atr_period=request.atr_period,
+        atr_multiplier=request.atr_multiplier,
+        klines_interval=request.klines_interval,
+        stop_loss=request.stop_loss,
+        take_profit=request.take_profit,
     )
     return grid
 
@@ -112,6 +122,47 @@ async def cancel_grid(grid_id: str):
     if not grid:
         raise HTTPException(status_code=404, detail="Grid not found")
     return grid
+
+
+@app.post("/api/v1/grids/{grid_id}/refresh", response_model=GridDetailResponse, tags=["Grids"])
+async def refresh_grid_orders(grid_id: str):
+    """
+    Pull the latest order status from Binance for this grid's open orders
+    and update local state. Intended to be called periodically by the
+    external orchestrator (cron/workflow), not on an internal timer.
+    """
+    grid = await grid_service.refresh_order_status(grid_id)
+    if not grid:
+        raise HTTPException(status_code=404, detail="Grid not found")
+    return grid
+
+
+@app.get("/api/v1/grids/{grid_id}/pnl", response_model=GridPnlResponse, tags=["Grids"])
+async def get_grid_pnl(grid_id: str):
+    """
+    Compute realized/unrealized PnL for a grid from its current local order
+    state. Call POST /api/v1/grids/{grid_id}/refresh first to make sure
+    fills are up to date.
+    """
+    pnl = await grid_service.get_grid_pnl(grid_id)
+    if not pnl:
+        raise HTTPException(status_code=404, detail="Grid not found")
+    return pnl
+
+
+@app.post("/api/v1/grids/{grid_id}/check-close", response_model=GridCloseCheckResponse, tags=["Grids"])
+async def check_close_grid(grid_id: str):
+    """
+    Compare current PnL against the grid's stop_loss/take_profit and cancel
+    it automatically if triggered. Call POST .../refresh first if the
+    decision needs up to date fills - this endpoint does not refresh on its
+    own. Intended to be polled periodically by the external orchestrator,
+    same as .../refresh (see roadmap Fase 3.3).
+    """
+    result = await grid_service.close_grid_if_triggered(grid_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Grid not found")
+    return result
 
 
 # ==========================================

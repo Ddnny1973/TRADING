@@ -5,15 +5,19 @@ Orchestrates grid calculation, order execution on Binance, and local persistence
 
 import asyncio
 import uuid
+from datetime import datetime
 from decimal import ROUND_DOWN, Decimal
 from typing import Any, Dict, List, Optional
 
-from app.database.connection import get_sqlite_connection
+from app.database.connection import get_sqlite_connection, SessionLocal
+from app.database.models import HistoricalGridLog
 from app.services.binance_client import BinanceClient
 from app.services.grid_engine import GridEngine, GridType
+from app.services.indicators import calculate_atr, calculate_grid_bounds, calculate_grid_pnl, check_sl_tp
 
 _BATCH_SIZE = 5
 _INTER_BATCH_DELAY_SECONDS = 0.5
+_TERMINAL_ORDER_STATUSES = {"FILLED", "CANCELED", "REJECTED", "EXPIRED"}
 
 
 class GridService:
@@ -29,24 +33,52 @@ class GridService:
             return value
         return (value / step).to_integral_value(rounding=ROUND_DOWN) * step
 
-    async def create_grid(self, symbol: str, lower_price: float, upper_price: float,
-                           levels: int, grid_type: str, quantity_per_order: float) -> Dict[str, Any]:
+    async def create_grid(self, symbol: str, levels: int, grid_type: str, quantity_per_order: float,
+                           lower_price: Optional[float] = None, upper_price: Optional[float] = None,
+                           atr_period: int = 14, atr_multiplier: float = 2.0,
+                           klines_interval: str = "4h",
+                           stop_loss: Optional[float] = None,
+                           take_profit: Optional[float] = None) -> Dict[str, Any]:
         """
-        Calculate grid levels, place LIMIT orders on Binance and persist the grid
+        Calculate grid levels, place LIMIT orders on Binance and persist the grid.
+
+        Bounds can be supplied manually (lower_price + upper_price together) or
+        left out entirely so they are derived deterministically from ATR
+        (calculate_atr + calculate_grid_bounds). Mixing the two (only one of the
+        two prices given) is rejected. This is what lets an external orchestrator
+        create a grid by sending only {symbol, levels, grid_type, quantity_per_order}.
 
         Raises:
-            ValueError: if prices are invalid or current price cannot be fetched
+            ValueError: if prices/bounds are invalid, or current price/klines
+                        cannot be fetched
         """
-        if lower_price >= upper_price:
-            raise ValueError("lower_price must be less than upper_price")
-
-        engine = GridEngine(symbol, lower_price, upper_price, levels, GridType(grid_type))
-        price_levels = engine.calculate_grid_levels()
+        manual_bounds_given = lower_price is not None or upper_price is not None
+        manual_bounds_complete = lower_price is not None and upper_price is not None
+        if manual_bounds_given and not manual_bounds_complete:
+            raise ValueError(
+                "Provide lower_price and upper_price together, or omit both so "
+                "they are calculated automatically from ATR"
+            )
 
         price_data = await self.binance.get_mark_price(symbol)
         if not price_data or "price" not in price_data:
             raise ValueError(f"Could not fetch current price for {symbol}")
         current_price = Decimal(str(price_data["price"]))
+
+        if not manual_bounds_complete:
+            klines = await self.binance.get_klines(symbol, interval=klines_interval, limit=atr_period + 1)
+            if not klines:
+                raise ValueError(f"Could not fetch klines for {symbol} to compute ATR-based bounds")
+            atr = calculate_atr(klines, period=atr_period)
+            bounds = calculate_grid_bounds(current_price, atr, Decimal(str(atr_multiplier)))
+            lower_price = float(bounds["lower_price"])
+            upper_price = float(bounds["upper_price"])
+
+        if lower_price >= upper_price:
+            raise ValueError("lower_price must be less than upper_price")
+
+        engine = GridEngine(symbol, lower_price, upper_price, levels, GridType(grid_type))
+        price_levels = engine.calculate_grid_levels()
 
         filters = await self.binance.get_symbol_filters(symbol)
         if not filters:
@@ -109,9 +141,11 @@ class GridService:
         try:
             cursor = conn.cursor()
             cursor.execute(
-                """INSERT INTO grids (id, symbol, lower_price, upper_price, levels, status)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (grid_id, symbol, str(engine.lower_price), str(engine.upper_price), levels, "RUNNING")
+                """INSERT INTO grids (id, symbol, lower_price, upper_price, levels, status, stop_loss, take_profit)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (grid_id, symbol, str(engine.lower_price), str(engine.upper_price), levels, "RUNNING",
+                 str(stop_loss) if stop_loss is not None else None,
+                 str(take_profit) if take_profit is not None else None)
             )
             for spec, order in order_results:
                 if not order or "orderId" not in order:
@@ -127,6 +161,76 @@ class GridService:
             conn.close()
 
         return self.get_grid(grid_id)
+
+    async def refresh_order_status(self, grid_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Query Binance for the current status of every non-terminal order in
+        a grid and update grid_orders in SQLite to match (NEW,
+        PARTIALLY_FILLED, FILLED, CANCELED, REJECTED, EXPIRED - Binance's
+        own status values, stored as-is).
+
+        Pure pass-through of Binance's reported state: it does not interpret
+        or act on the result (no PnL, no SL/TP check, no cancellation). Meant
+        to be called periodically by the external orchestrator before
+        get_grid_pnl / a future check_sl_tp run (see roadmap Fase 3.3: the
+        polling trigger itself lives outside this service, not in an
+        internal loop).
+
+        Returns:
+            Updated grid (with orders) or None if grid_id does not exist.
+        """
+        grid = self.get_grid(grid_id)
+        if not grid:
+            return None
+
+        open_orders = [o for o in grid["orders"] if o["status"] not in _TERMINAL_ORDER_STATUSES]
+        if not open_orders:
+            return grid
+
+        conn = get_sqlite_connection()
+        try:
+            cursor = conn.cursor()
+            for order in open_orders:
+                remote = await self.binance.get_order_status(grid["symbol"], int(order["id"]))
+                if not remote or "status" not in remote:
+                    continue  # Binance unreachable/unknown - leave local status untouched
+                new_status = remote["status"]
+                if new_status != order["status"]:
+                    cursor.execute(
+                        "UPDATE grid_orders SET status = ? WHERE id = ?",
+                        (new_status, order["id"])
+                    )
+            conn.commit()
+        finally:
+            conn.close()
+
+        return self.get_grid(grid_id)
+
+    async def get_grid_pnl(self, grid_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch a grid's current orders + mark price and compute PnL via the
+        pure calculate_grid_pnl(). Does not call refresh_order_status() -
+        call that first if you need PnL based on up to date fill status.
+
+        Raises:
+            ValueError: if current price cannot be fetched
+        """
+        grid = self.get_grid(grid_id)
+        if not grid:
+            return None
+
+        price_data = await self.binance.get_mark_price(grid["symbol"])
+        if not price_data or "price" not in price_data:
+            raise ValueError(f"Could not fetch current price for {grid['symbol']}")
+        current_price = Decimal(str(price_data["price"]))
+
+        pnl = calculate_grid_pnl(grid["orders"], current_price)
+        return {
+            "grid_id": grid_id,
+            "symbol": grid["symbol"],
+            "current_price": current_price,
+            **pnl,
+        }
 
     def list_grids(self) -> List[Dict[str, Any]]:
         """List all grids"""
@@ -157,11 +261,25 @@ class GridService:
         finally:
             conn.close()
 
-    async def cancel_grid(self, grid_id: str) -> Optional[Dict[str, Any]]:
-        """Cancel all open orders for a grid and mark it as canceled"""
+    async def cancel_grid(self, grid_id: str, trigger_condition: str = "MANUAL") -> Optional[Dict[str, Any]]:
+        """
+        Cancel all open orders for a grid and mark it as canceled.
+
+        Also records the closure in the Postgres historical_grid_logs table
+        (Fase 4.4) with the grid's final PnL and trigger_condition
+        ("MANUAL" by default, or "STOP_LOSS"/"TAKE_PROFIT" when called from
+        close_grid_if_triggered). Logging failures are non-fatal: the grid
+        is still canceled on Binance/SQLite even if Postgres is unreachable.
+        """
         grid = self.get_grid(grid_id)
         if not grid:
             return None
+
+        final_pnl = None
+        try:
+            final_pnl = await self.get_grid_pnl(grid_id)
+        except ValueError:
+            pass  # current price unavailable - log without PnL rather than failing the cancel
 
         conn = get_sqlite_connection()
         try:
@@ -177,4 +295,77 @@ class GridService:
         finally:
             conn.close()
 
-        return self.get_grid(grid_id)
+        closed_grid = self.get_grid(grid_id)
+        self._log_grid_closure(closed_grid, final_pnl, trigger_condition)
+        return closed_grid
+
+    def _log_grid_closure(self, grid: Dict[str, Any], pnl: Optional[Dict[str, Any]],
+                           trigger_condition: str) -> None:
+        """
+        Best-effort write to historical_grid_logs (Postgres). Never raises -
+        a logging failure must not block a cancellation that already
+        happened on Binance/SQLite.
+        """
+        if SessionLocal is None:
+            print("Warning: PostgreSQL not available, skipping historical_grid_logs write")
+            return
+
+        opened_at_raw = grid.get("created_at")
+        opened_at = None
+        if isinstance(opened_at_raw, datetime):
+            opened_at = opened_at_raw
+        elif opened_at_raw:
+            try:
+                opened_at = datetime.strptime(str(opened_at_raw), "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                opened_at = None
+
+        total_pnl = pnl["total_pnl"] if pnl else Decimal("0")
+
+        session = SessionLocal()
+        try:
+            log_entry = HistoricalGridLog(
+                grid_id=grid["id"],
+                symbol=grid["symbol"],
+                total_pnl=total_pnl,
+                trigger_condition=trigger_condition,
+                opened_at=opened_at,
+                closed_at=datetime.utcnow(),
+            )
+            session.merge(log_entry)  # grid_id is UNIQUE -> idempotent if logged twice
+            session.commit()
+        except Exception as e:
+            print(f"Warning: could not write historical_grid_logs for grid {grid['id']}: {e}")
+            session.rollback()
+        finally:
+            session.close()
+
+    async def close_grid_if_triggered(self, grid_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Compare the grid's current PnL against its configured stop_loss/
+        take_profit (check_sl_tp) and, if triggered, cancel it and log the
+        closure. Does not call refresh_order_status() first - call that
+        beforehand if the decision needs up to date fills.
+
+        Returns:
+            {"grid": <grid dict>, "triggered": "STOP_LOSS" | "TAKE_PROFIT" | None}
+            or None if grid_id does not exist.
+        """
+        grid = self.get_grid(grid_id)
+        if not grid:
+            return None
+
+        if grid["status"] != "RUNNING":
+            return {"grid": grid, "triggered": None}
+
+        pnl = await self.get_grid_pnl(grid_id)
+
+        stop_loss = Decimal(str(grid["stop_loss"])) if grid.get("stop_loss") is not None else None
+        take_profit = Decimal(str(grid["take_profit"])) if grid.get("take_profit") is not None else None
+
+        trigger = check_sl_tp(pnl["total_pnl"], stop_loss, take_profit)
+        if trigger is None:
+            return {"grid": grid, "triggered": None}
+
+        closed_grid = await self.cancel_grid(grid_id, trigger_condition=trigger)
+        return {"grid": closed_grid, "triggered": trigger}
