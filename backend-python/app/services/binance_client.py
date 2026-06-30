@@ -4,9 +4,10 @@ Handles all HTTP requests to Binance Futures API
 """
 
 import asyncio
+import json
 import uuid
 from decimal import Decimal
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 import aiohttp
 from app.core.security import BinanceSecurityManager
 from app.core.binance_time import BinanceTimeSync
@@ -180,7 +181,66 @@ class BinanceClient:
                     await asyncio.sleep(attempt * 1.5)
 
         return None
-    
+
+    async def place_batch_orders(self, orders: List[Dict[str, Any]],
+                                  max_retries: int = 3) -> List[Optional[Dict[str, Any]]]:
+        """
+        Place up to 5 LIMIT orders in a single /fapi/v1/batchOrders request.
+        Each element of `orders` must have: symbol, side, quantity, price.
+        Returns a list aligned with the input (None for items that failed).
+        """
+        url = f"{self.base_url}/fapi/v1/batchOrders"
+        headers = self.security.get_headers()
+
+        for attempt in range(1, max_retries + 1):
+            batch_payload = [
+                {
+                    "symbol": o["symbol"],
+                    "side": o["side"],
+                    "type": "LIMIT",
+                    "timeInForce": "GTC",
+                    "quantity": str(o["quantity"]),
+                    "price": str(o["price"]),
+                    "newClientOrderId": str(uuid.uuid4()).replace("-", "")[:32],
+                }
+                for o in orders
+            ]
+            params = {
+                "batchOrders": json.dumps(batch_payload, separators=(",", ":")),
+                "timestamp": self.time_sync.get_adjusted_time(),
+                "recvWindow": settings.BINANCE_RECV_WINDOW,
+            }
+            params["signature"] = self.security.generate_signature(params)
+
+            try:
+                timeout = aiohttp.ClientTimeout(total=20)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.post(url, params=params, headers=headers) as response:
+                        if response.status in [200, 201]:
+                            results = await response.json()
+                            return results if isinstance(results, list) else [None] * len(orders)
+
+                        error_text = await response.text()
+                        print(f"batchOrders error {response.status}: {error_text}")
+
+                        if response.status in [429, 418]:
+                            retry_after = int(response.headers.get("Retry-After", 60))
+                            await asyncio.sleep(retry_after)
+                            continue
+
+                        if response.status == 502 and attempt < max_retries:
+                            await asyncio.sleep(attempt * 1.5)
+                            continue
+
+                        return [None] * len(orders)
+
+            except Exception as e:
+                print(f"Exception in batchOrders (attempt {attempt}): {e}")
+                if attempt < max_retries:
+                    await asyncio.sleep(attempt * 1.5)
+
+        return [None] * len(orders)
+
     async def cancel_order(self, symbol: str, order_id: int) -> Optional[Dict[str, Any]]:
         """
         Cancel an order on Binance Futures

@@ -12,7 +12,8 @@ from app.database.connection import get_sqlite_connection
 from app.services.binance_client import BinanceClient
 from app.services.grid_engine import GridEngine, GridType
 
-ORDER_PLACEMENT_DELAY_SECONDS = 0.3
+_BATCH_SIZE = 5
+_INTER_BATCH_DELAY_SECONDS = 0.5
 
 
 class GridService:
@@ -62,6 +63,47 @@ class GridService:
                 f"{filters['min_notional']} (got {min_notional_price * quantized_qty})"
             )
 
+        # Anti-duplicate guard (R-07): one RUNNING grid per symbol at a time
+        conn_check = get_sqlite_connection()
+        try:
+            cursor_check = conn_check.cursor()
+            cursor_check.execute(
+                "SELECT id FROM grids WHERE symbol = ? AND status = 'RUNNING'", (symbol,)
+            )
+            existing = cursor_check.fetchone()
+            if existing:
+                raise ValueError(
+                    f"A RUNNING grid for {symbol} already exists (id: {existing['id']}). "
+                    "Cancel it before creating a new one."
+                )
+        finally:
+            conn_check.close()
+
+        # Build order specs for every grid level
+        order_specs = []
+        for level_price in price_levels:
+            quantized_price = self._snap_down(level_price, filters["tick_size"])
+            side = "BUY" if quantized_price < current_price else "SELL"
+            order_specs.append({
+                "symbol": symbol,
+                "side": side,
+                "quantity": quantized_qty,
+                "price": quantized_price,
+            })
+
+        # Place orders in batches of _BATCH_SIZE
+        order_results: List[tuple] = []
+        for batch_start in range(0, len(order_specs), _BATCH_SIZE):
+            if batch_start > 0:
+                await asyncio.sleep(_INTER_BATCH_DELAY_SECONDS)
+            batch = order_specs[batch_start:batch_start + _BATCH_SIZE]
+            results = await self.binance.place_batch_orders(batch)
+            if results:
+                order_results.extend(zip(batch, results))
+            else:
+                order_results.extend((spec, None) for spec in batch)
+
+        # Persist grid and all placed orders in a single DB transaction
         grid_id = str(uuid.uuid4())
         conn = get_sqlite_connection()
         try:
@@ -71,25 +113,15 @@ class GridService:
                    VALUES (?, ?, ?, ?, ?, ?)""",
                 (grid_id, symbol, str(engine.lower_price), str(engine.upper_price), levels, "RUNNING")
             )
-
-            for i, level_price in enumerate(price_levels):
-                quantized_price = self._snap_down(level_price, filters["tick_size"])
-                side = "BUY" if quantized_price < current_price else "SELL"
-
-                if i > 0:
-                    await asyncio.sleep(ORDER_PLACEMENT_DELAY_SECONDS)
-
-                order = await self.binance.place_limit_order(
-                    symbol=symbol, side=side, quantity=quantized_qty, price=quantized_price
-                )
+            for spec, order in order_results:
                 if not order or "orderId" not in order:
                     continue
                 cursor.execute(
                     """INSERT INTO grid_orders (id, grid_id, price, quantity, side, type, status)
                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (str(order["orderId"]), grid_id, str(quantized_price), str(quantized_qty), side, "LIMIT", "NEW")
+                    (str(order["orderId"]), grid_id, str(spec["price"]), str(spec["quantity"]),
+                     spec["side"], "LIMIT", "NEW")
                 )
-
             conn.commit()
         finally:
             conn.close()
