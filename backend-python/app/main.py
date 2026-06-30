@@ -37,7 +37,8 @@ app = FastAPI(
     version="0.1.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
-    lifespan=lifespan
+    lifespan=lifespan,
+    servers=[{"url": "/", "description": "Current server"}]
 )
 
 
