@@ -102,6 +102,53 @@ class BinanceClient:
             print(f"Error fetching mark price: {e}")
         return None
 
+    async def get_klines(self, symbol: str, interval: str = "4h",
+                          limit: int = 15) -> Optional[List[Dict[str, Any]]]:
+        """
+        Get historical candlestick (kline) data for a symbol.
+        Public endpoint - no signature required.
+
+        Args:
+            symbol: Trading pair (e.g., BTCUSDT)
+            interval: Kline interval (1m, 5m, 1h, 4h, 1d, etc.)
+            limit: Number of candles to fetch (max 1500 per Binance docs).
+                   Default 15 covers an ATR(14) calculation
+                   (14 true-range periods + 1 reference close).
+
+        Returns:
+            List of candles ordered oldest -> newest, each parsed into a
+            dict with Decimal values, or None if the request fails.
+        """
+        try:
+            url = f"{self.base_url}/fapi/v1/klines"
+            params = {"symbol": symbol, "interval": interval, "limit": limit}
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url, params=params) as response:
+                    if response.status == 200:
+                        raw_klines = await response.json()
+                        return [self._parse_kline(k) for k in raw_klines]
+                    error_text = await response.text()
+                    print(f"Error fetching klines: {response.status} - {error_text}")
+        except Exception as e:
+            print(f"Error fetching klines: {e}")
+        return None
+
+    @staticmethod
+    def _parse_kline(raw: List[Any]) -> Dict[str, Any]:
+        """Convert a raw Binance kline array into a dict with Decimal values"""
+        return {
+            "open_time": raw[0],
+            "open": Decimal(raw[1]),
+            "high": Decimal(raw[2]),
+            "low": Decimal(raw[3]),
+            "close": Decimal(raw[4]),
+            "volume": Decimal(raw[5]),
+            "close_time": raw[6],
+            "quote_volume": Decimal(raw[7]),
+            "num_trades": raw[8],
+        }
+
     async def _get_order_by_client_id(self, symbol: str, client_order_id: str) -> Optional[Dict[str, Any]]:
         """Query an order by its clientOrderId to resolve -1007 ambiguity"""
         try:
