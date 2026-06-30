@@ -4,6 +4,7 @@
 ```
 http://localhost:8000
 ```
+(o el puerto mapeado en `docker-compose.yml`, p. ej. `8043` en despliegue)
 
 ## Health & Status
 
@@ -11,9 +12,9 @@ http://localhost:8000
 ```
 GET /health
 ```
-**Description:** Returns service health status for Docker healthcheck
+**Descripción:** Estado del servicio para el healthcheck de Docker.
 
-**Response:**
+**Respuesta:**
 ```json
 {
   "status": "healthy",
@@ -26,9 +27,9 @@ GET /health
 ```
 GET /
 ```
-**Description:** Returns API metadata and documentation links
+**Descripción:** Metadata del servicio y enlace a documentación.
 
-**Response:**
+**Respuesta:**
 ```json
 {
   "service": "Grid Trading Hybrid - Backend",
@@ -40,33 +41,84 @@ GET /
 
 ---
 
-## Grid Trading Endpoints (Phase 1)
+## Grid Trading Endpoints (implementados)
 
-*The following endpoints are planned for Phase 1 implementation:*
-
-### Create Grid
+### Crear Grid
 ```
 POST /api/v1/grids
 ```
+Calcula los niveles, coloca las órdenes LIMIT en Binance (en lotes de hasta 5) y persiste el grid en SQLite.
 
-### List Grids
+**Body:**
+```json
+{
+  "symbol": "BTCUSDT",
+  "lower_price": 40000.0,
+  "upper_price": 45000.0,
+  "levels": 10,
+  "grid_type": "GEOMETRIC",
+  "quantity_per_order": 0.001,
+  "stop_loss": null,
+  "take_profit": null,
+  "atr_period": 14,
+  "atr_multiplier": 2.0,
+  "klines_interval": "4h"
+}
+```
+- `lower_price`/`upper_price` son opcionales: si se omiten **ambos**, se calculan automáticamente a partir del ATR(`atr_period`) de las velas `klines_interval`. Enviar solo uno de los dos → `400`.
+- `stop_loss`/`take_profit`: umbral de PnL (en moneda de cotización) para auto-cierre vía `/check-close`. Opcionales.
+- Solo puede existir **un grid `RUNNING` por símbolo a la vez** — crear otro mientras el anterior sigue activo devuelve `400`.
+
+**Respuesta:** `200` — `GridDetailResponse` (grid + `orders[]`). Errores de validación de negocio (bounds incompletos, cantidad/levels inválidos, símbolo no encontrado en Binance, grid duplicado) devuelven `400` con `detail`.
+
+### Listar Grids
 ```
 GET /api/v1/grids
 ```
+**Respuesta:** `200` — array de `GridResponse` (sin `orders[]`).
 
-### Get Grid Details
+### Detalle de Grid
 ```
 GET /api/v1/grids/{grid_id}
 ```
+**Respuesta:** `200` — `GridDetailResponse` (incluye `orders[]`). `404` si no existe.
 
-### Cancel Grid
+### Cancelar Grid
 ```
 DELETE /api/v1/grids/{grid_id}
 ```
+Cancela en Binance todas las órdenes del grid en estado `NEW` y marca el grid como `CANCELED`. Registra el cierre en `historical_grid_logs` (Postgres) con `trigger_condition = "MANUAL"`; el fallo al escribir en Postgres no bloquea la cancelación. Idempotente: repetir la llamada sobre un grid ya `CANCELED` devuelve `200` sin error.
+
+**Respuesta:** `200` — `GridDetailResponse`. `404` si no existe.
+
+### Refrescar estado de órdenes
+```
+POST /api/v1/grids/{grid_id}/refresh
+```
+Consulta en Binance el estado actual de cada orden no terminal del grid y actualiza SQLite. No interpreta el resultado (no calcula PnL ni evalúa SL/TP). Pensado para ser invocado periódicamente por un orquestador externo — no hay scheduler interno.
+
+**Respuesta:** `200` — `GridDetailResponse`. `404` si no existe.
+
+### PnL del Grid
+```
+GET /api/v1/grids/{grid_id}/pnl
+```
+Calcula PnL realizado/no realizado a partir del estado local de las órdenes (solo cuentan las `FILLED`) y el mark price actual. No llama a `/refresh` automáticamente.
+
+**Respuesta:** `200` — `GridPnlResponse` (`realized_pnl`, `unrealized_pnl`, `total_pnl`, `net_position_qty`, `filled_buy_qty`, `filled_sell_qty`, `current_price`). `404` si no existe.
+
+### Chequear cierre por SL/TP
+```
+POST /api/v1/grids/{grid_id}/check-close
+```
+Compara el PnL actual contra `stop_loss`/`take_profit` del grid; si se dispara, cancela el grid (mismo efecto que `DELETE`, con `trigger_condition = "STOP_LOSS"` o `"TAKE_PROFIT"`). Si el grid ya no está `RUNNING`, responde `triggered: null` sin recalcular PnL. No llama a `/refresh` automáticamente.
+
+**Respuesta:** `200` — `{"triggered": "STOP_LOSS" | "TAKE_PROFIT" | null, "grid": GridDetailResponse}`. `404` si no existe.
 
 ---
 
-## Documentation
+## Documentación
 
 - **Swagger UI:** `/api/docs`
 - **ReDoc:** `/api/redoc`
+- **Plan de pruebas manual (Swagger):** [`manual-test-plan-swagger.md`](./manual-test-plan-swagger.md)
