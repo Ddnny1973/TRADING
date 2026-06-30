@@ -1,0 +1,36 @@
+name: Deploy to Server
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: # permite lanzarlo manualmente desde GitHub
+
+jobs:
+  deploy:
+    name: Deploy via SSH
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SERVER_PORT }}
+          script: |
+            set -e
+            cd /data/odoo/43
+
+            echo "==> Pulling latest code..."
+            git pull origin main
+
+            echo "==> Rebuilding backend-python..."
+            docker compose build --no-cache backend-python
+
+            echo "==> Restarting services..."
+            docker compose up -d
+
+            echo "==> Status:"
+            docker compose ps
