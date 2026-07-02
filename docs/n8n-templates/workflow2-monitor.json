@@ -1,0 +1,254 @@
+{
+  "name": "Workflow 2 - Grid Monitor & Close",
+  "description": "Monitors running grids every 15 minutes, syncs order status from Binance, evaluates SL/TP conditions, notifies on events",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "intervalValue": 15,
+              "triggerAtMinute": null,
+              "triggerAtHour": null,
+              "triggerAtDayOfMonth": null,
+              "triggerAtMonthDay": null
+            }
+          ]
+        }
+      },
+      "id": "1",
+      "name": "Cron: Every 15 min",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [250, 100]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "{{ $env.BACKEND_URL }}/api/v1/grids?status=RUNNING",
+        "authentication": "none",
+        "returnFullResponse": false
+      },
+      "id": "2",
+      "name": "List Running Grids",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [450, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": [
+            {
+              "key": "length",
+              "operator": "gt",
+              "value": 0,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "id": "3",
+      "name": "IF: Any grids running?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [650, 100]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "4",
+      "name": "Split in Batches (Sequential)",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [850, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.BACKEND_URL }}/api/v1/grids/{{ $json.id }}/refresh",
+        "authentication": "none",
+        "continueOnFail": true,
+        "returnFullResponse": true
+      },
+      "id": "5",
+      "name": "Refresh Orders (POST)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1050, 50]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": [
+            {
+              "key": "body.error",
+              "operator": "exists",
+              "type": "any"
+            }
+          ]
+        }
+      },
+      "id": "6",
+      "name": "IF: Refresh failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1250, 50]
+    },
+    {
+      "parameters": {
+        "chatId": "{{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "⚠️ REFRESH FAILED - Grid {{ $json.id }} ({{ $json.symbol }})\n\nError: {{ $json.statusCode }} - {{ $json.body.error || $json.statusMessage }}\n\nGrid will be retried in next cycle (15 min).",
+        "parseMode": "HTML"
+      },
+      "id": "6a",
+      "name": "Notify: Refresh Error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1400, 20]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.BACKEND_URL }}/api/v1/grids/{{ $json.id }}/check-close",
+        "authentication": "none",
+        "continueOnFail": true,
+        "returnFullResponse": true
+      },
+      "id": "7",
+      "name": "Check Close (POST)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1250, 150]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": [
+            {
+              "key": "body.error",
+              "operator": "exists",
+              "type": "any"
+            }
+          ]
+        }
+      },
+      "id": "8",
+      "name": "IF: Check-close failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1450, 150]
+    },
+    {
+      "parameters": {
+        "chatId": "{{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "⚠️ CHECK-CLOSE FAILED - Grid {{ $json.id }} ({{ $json.symbol }})\n\nError: {{ $json.statusCode }} - {{ $json.body.error || $json.statusMessage }}\n\nGrid will be retried in next cycle (15 min).",
+        "parseMode": "HTML"
+      },
+      "id": "8a",
+      "name": "Notify: Check-close Error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1600, 120]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": [
+            {
+              "key": "body.triggered",
+              "operator": "notEmpty",
+              "type": "any"
+            }
+          ]
+        }
+      },
+      "id": "9",
+      "name": "IF: Grid closed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1600, 250]
+    },
+    {
+      "parameters": {
+        "chatId": "{{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "🔒 GRID CLOSED - {{ $json.body.grid.symbol }}\n\n📌 Trigger: {{ $json.body.triggered }}\n📊 Total PnL: {{ $json.body.grid.total_pnl }} USDT\n🆔 Grid ID: {{ $json.body.grid.id }}\n\nThe grid has been automatically closed.",
+        "parseMode": "HTML"
+      },
+      "id": "9a",
+      "name": "Notify: Grid Closed",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1750, 220]
+    },
+    {
+      "parameters": {
+        "waitTime": 1.5
+      },
+      "id": "10",
+      "name": "Wait (1.5s between items)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.2,
+      "position": [1750, 350]
+    },
+    {
+      "parameters": {
+        "loopNode": "4"
+      },
+      "id": "11",
+      "name": "Loop back to Split",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1900, 350]
+    }
+  ],
+  "connections": {
+    "1": {
+      "main": [[{ "node": "2", "type": "main", "index": 0 }]]
+    },
+    "2": {
+      "main": [[{ "node": "3", "type": "main", "index": 0 }]]
+    },
+    "3": {
+      "main": [[{ "node": "4", "type": "main", "index": 0 }], []]
+    },
+    "4": {
+      "main": [[{ "node": "5", "type": "main", "index": 0 }]]
+    },
+    "5": {
+      "main": [[{ "node": "6", "type": "main", "index": 0 }]]
+    },
+    "6": {
+      "main": [[{ "node": "7", "type": "main", "index": 0 }], [{ "node": "6a", "type": "main", "index": 0 }]]
+    },
+    "6a": {
+      "main": [[{ "node": "10", "type": "main", "index": 0 }]]
+    },
+    "7": {
+      "main": [[{ "node": "8", "type": "main", "index": 0 }]]
+    },
+    "8": {
+      "main": [[{ "node": "9", "type": "main", "index": 0 }], [{ "node": "8a", "type": "main", "index": 0 }]]
+    },
+    "8a": {
+      "main": [[{ "node": "10", "type": "main", "index": 0 }]]
+    },
+    "9": {
+      "main": [[{ "node": "9a", "type": "main", "index": 0 }], [{ "node": "10", "type": "main", "index": 0 }]]
+    },
+    "9a": {
+      "main": [[{ "node": "10", "type": "main", "index": 0 }]]
+    },
+    "10": {
+      "main": [[{ "node": "11", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "saveDataExecution": "all",
+    "saveManualExecutions": true,
+    "timezone": "UTC"
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "name": "Workflow 1 - Market Decision (Grid Launch)",
+  "description": "AI-driven workflow: analyzes market conditions and decides whether to launch a grid with dynamic sizing",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Start (Manual/Webhook)",
+      "type": "n8n-nodes-base.trigger",
+      "typeVersion": 1,
+      "position": [250, 100]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "{{ $env.BACKEND_URL }}/api/v1/market-analysis/{{ $json.symbol || 'BTCUSDT' }}?risk_pct=0.02&levels=10",
+        "authentication": "none",
+        "returnFullResponse": false
+      },
+      "id": "2",
+      "name": "Market Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [450, 100]
+    },
+    {
+      "parameters": {
+        "model": "claude-opus-4-8",
+        "jsonMode": true,
+        "options": {
+          "temperature": 0.5
+        },
+        "systemPrompt": "Eres el módulo de decisión de un bot de grid trading en Binance Futures.\nRecibes datos de mercado ya calculados (no los recalcules). Tu única\ntarea es decidir si conviene lanzar un grid ahora y con qué parámetros.\n\nReglas de criterio:\n- Si atr_pct (ATR/current_price) es muy bajo (<0.3%), el rango será demasiado\n  angosto para capturar movimiento -> considera no lanzar.\n- Si atr_pct es muy alto (>2%), el mercado puede estar en tendencia fuerte,\n  no lateral -> grids funcionan peor -> considera no lanzar o reducir\n  gridCount.\n- gridCount razonable: entre 5 y 20 según el ATR.\n  Ejemplo: si atr_pct ~0.5%, usa 10-15 levels.\n  Si atr_pct ~1.5%, usa 8-12 levels (menos levels en mercados volátiles).\n- Siempre explica tu razonamiento en el campo \"reasoning\" ANTES de\n  fijar \"launch\".\n- lowerLimit/upperLimit: puedes ajustar los suggested_* si tienes razón\n  fundamental, pero generalmente respeta los sugeridos.\n\nResponde ÚNICAMENTE en JSON válido, sin texto adicional.",
+        "prompt": "Analiza estos datos de mercado y decide si lanzar un grid:\n\n{{ JSON.stringify($json) }}"
+      },
+      "id": "3",
+      "name": "AI Decision (Claude)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [650, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": [
+            {
+              "key": "launch",
+              "operator": "equals",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        }
+      },
+      "id": "4",
+      "name": "IF: Launch = true?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [850, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ $env.BACKEND_URL }}/api/v1/grids",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParametersJson": "{\n  \"symbol\": \"{{ $json.symbol }}\",\n  \"lower_price\": {{ $json.lowerLimit }},\n  \"upper_price\": {{ $json.upperLimit }},\n  \"levels\": {{ $json.gridCount }},\n  \"grid_type\": \"GEOMETRIC\",\n  \"quantity_per_order\": {{ $node['Market Analysis'].json.suggested_quantity_per_order || 0.001 }},\n  \"atr_period\": 14,\n  \"atr_multiplier\": 2.0,\n  \"klines_interval\": \"4h\",\n  \"stop_loss\": null,\n  \"take_profit\": null,\n  \"max_duration_hours\": null\n}"
+      },
+      "id": "5",
+      "name": "Create Grid (POST)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1050, 50]
+    },
+    {
+      "parameters": {
+        "chatId": "{{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "✅ Grid launched: {{ $json.symbol }}\n\n📊 Parameters:\n  • Levels: {{ $json.levels }}\n  • Range: {{ $json.lower_price }} - {{ $json.upper_price }}\n  • Quantity/order: {{ $json.orders[0].quantity || 'N/A' }}\n  • Status: {{ $json.status }}\n  • ID: {{ $json.id }}\n\n💡 AI Reasoning:\n{{ $node['AI Decision (Claude)'].json.reasoning }}"
+      },
+      "id": "6a",
+      "name": "Notify: Grid Launched (Telegram)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1050, 150]
+    },
+    {
+      "parameters": {
+        "text": "⏭️ Grid NOT launched for {{ $node['Market Analysis'].json.symbol }}\n\n💡 AI Reasoning:\n{{ $node['AI Decision (Claude)'].json.reasoning }}"
+      },
+      "id": "6b",
+      "name": "Notify: Skipped (No Launch)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1050, 250]
+    }
+  ],
+  "connections": {
+    "1": {
+      "main": [[{ "node": "2", "type": "main", "index": 0 }]]
+    },
+    "2": {
+      "main": [[{ "node": "3", "type": "main", "index": 0 }]]
+    },
+    "3": {
+      "main": [[{ "node": "4", "type": "main", "index": 0 }]]
+    },
+    "4": {
+      "main": [
+        [{ "node": "5", "type": "main", "index": 0 }],
+        [{ "node": "6b", "type": "main", "index": 0 }]
+      ]
+    },
+    "5": {
+      "main": [[{ "node": "6a", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "saveDataExecution": "all",
+    "saveManualExecutions": true,
+    "timezone": "UTC"
+  }
+}

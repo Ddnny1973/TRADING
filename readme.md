@@ -250,6 +250,7 @@ TRADING/
     ├── manual-test-plan-swagger.md  # Plan de pruebas manuales via Swagger UI (revisado y corregido)
     ├── n8n-integration-strategy.md      # Estrategia de reintentos/idempotencia para n8n
     ├── workflow1-market-decision.md     # Workflow 1: decisión automática de lanzar grid (AI-driven, con sizing dinámico)
+    ├── workflow2-monitor.md             # Workflow 2: monitoreo cada 15 min, refresh de órdenes, evalúa SL/TP, notificaciones
     ├── grid-expiration-strategy.md      # Estrategia de expiración de grids (Opción A implementada, Opción B documentada)
     ├── position-sizing-formula.md       # Fórmula de cálculo de quantity per order (risk_pct-based, sin leverage, 1-2% recomendado)
     └── development-guide.md
@@ -267,7 +268,8 @@ TRADING/
 - [x] Stop Loss / Take Profit por grid
 - [x] Colocación de órdenes por lotes (batch) y reintentos ante errores de gateway
 - [x] Suite de Tests automatizada (54 pruebas, `pytest backend-python/`)
-- [ ] Integrar n8n Workflows (consume `GET /api/v1/market-analysis` para decidir si crear grid vía `POST /api/v1/grids`, con manejo de reintentos — ver [n8n-integration-strategy.md](docs/n8n-integration-strategy.md))
+- [ ] Integrar n8n Workflow 1 (consume `GET /api/v1/market-analysis` para decidir si crear grid vía `POST /api/v1/grids`, con manejo de reintentos — ver [workflow1-market-decision.md](docs/workflow1-market-decision.md) y [n8n-integration-strategy.md](docs/n8n-integration-strategy.md))
+- [ ] Integrar n8n Workflow 2 (monitorea grids cada 15 min, sincroniza órdenes, evalúa SL/TP — ver [workflow2-monitor.md](docs/workflow2-monitor.md))
 - [ ] Establecer Rate Limit Manager (Redis) — contenedor desplegado, sin lógica de rate limiting en el código aún
 - [ ] Notificaciones Telegram / WhatsApp
 - [ ] Streaming de mercado vía WebSocket (hoy es polling REST)
