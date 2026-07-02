@@ -138,6 +138,7 @@ class MarketAnalysisResponse(BaseModel):
     suggested_lower_price: float
     suggested_upper_price: float
     suggested_range: float  # upper - lower
+    suggested_quantity_per_order: Optional[float] = None  # Included if risk_pct param provided
 
     class Config:
         json_schema_extra = {
@@ -151,5 +152,6 @@ class MarketAnalysisResponse(BaseModel):
                 "suggested_lower_price": 42100.0,
                 "suggested_upper_price": 42900.0,
                 "suggested_range": 800.0,
+                "suggested_quantity_per_order": 0.001,
             }
         }

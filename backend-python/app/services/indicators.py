@@ -226,3 +226,66 @@ def check_sl_tp(
     if take_profit is not None and total_pnl >= take_profit:
         return "TAKE_PROFIT"
     return None
+
+
+def calculate_position_size(
+    available_balance: Decimal,
+    risk_pct: Decimal,
+    levels: int,
+    lower_price: Decimal,
+    upper_price: Decimal,
+) -> Decimal:
+    """
+    Calculate position size (quantity per order) based on available balance and risk tolerance.
+
+    Pure function, no I/O, deterministic sizing rule. No leverage assumed (1× notional).
+
+    Formula:
+        capital_a_arriesgar = available_balance * risk_pct
+        precio_promedio = (lower_price + upper_price) / 2
+        quantity_per_order = capital_a_arriesgar / (levels * precio_promedio)
+
+    This allocates risk_pct of your balance across all grid levels at the average price
+    (midpoint between lower and upper bounds).
+
+    Real-world example:
+      - available_balance = $10,000 USDT
+      - risk_pct = 0.02 (2% risk per grid)
+      - levels = 10
+      - lower_price = $42,100
+      - upper_price = $42,900
+      - Calculation:
+        - capital_a_arriesgar = 10000 * 0.02 = $200
+        - precio_promedio = (42100 + 42900) / 2 = $42,500
+        - quantity_per_order = 200 / (10 * 42500) = 200 / 425000 ≈ 0.00047 BTC
+
+    Args:
+        available_balance: USDT balance available for trading (Decimal).
+        risk_pct: Fraction of balance to risk per grid (0.01 = 1%, 0.02 = 2%).
+                  Recommended range: 0.01 to 0.02 (1-2% per grid for safety).
+        levels: Number of grid levels (buy orders).
+        lower_price: Lower bound of the grid in quote currency (Decimal).
+        upper_price: Upper bound of the grid in quote currency (Decimal).
+
+    Returns:
+        Quantity per order (Decimal), represents how much base asset per grid level.
+
+    Raises:
+        ValueError: if inputs are non-positive or invalid.
+    """
+    if available_balance <= 0:
+        raise ValueError("available_balance debe ser > 0")
+    if risk_pct <= 0 or risk_pct > 1:
+        raise ValueError("risk_pct debe estar entre 0 y 1")
+    if levels < 1:
+        raise ValueError("levels debe ser >= 1")
+    if lower_price <= 0 or upper_price <= 0:
+        raise ValueError("lower_price y upper_price deben ser > 0")
+    if lower_price >= upper_price:
+        raise ValueError("lower_price debe ser < upper_price")
+
+    capital_a_arriesgar = available_balance * risk_pct
+    precio_promedio = (lower_price + upper_price) / Decimal(2)
+    quantity = capital_a_arriesgar / (Decimal(levels) * precio_promedio)
+
+    return quantity

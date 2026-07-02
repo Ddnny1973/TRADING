@@ -361,5 +361,46 @@ class BinanceClient:
                         return await response.json()
         except Exception as e:
             print(f"Error getting order status: {e}")
-        
+
+        return None
+
+    async def get_account_balance(self) -> Optional[Dict[str, Any]]:
+        """
+        Get account balance information from Binance Futures.
+
+        Calls /fapi/v2/balance to retrieve wallet balance per asset.
+        For sizing calculations, focus on USDT balance (collateral).
+
+        Returns:
+            Dict with balance data, or None if failed.
+            Example:
+            {
+              "balances": [
+                {"asset": "USDT", "balance": "10000.50", "availableBalance": "9500.00"},
+                {"asset": "BTC", "balance": "0.5", "availableBalance": "0.5"},
+                ...
+              ]
+            }
+        """
+        try:
+            params = {
+                "timestamp": self.time_sync.get_adjusted_time(),
+                "recvWindow": settings.BINANCE_RECV_WINDOW
+            }
+            params["signature"] = self.security.generate_signature(params)
+
+            url = f"{self.base_url}/fapi/v2/balance"
+            headers = self.security.get_headers()
+
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url, params=params, headers=headers) as response:
+                    if response.status == 200:
+                        raw_balances = await response.json()
+                        return {"balances": raw_balances}
+                    error_text = await response.text()
+                    print(f"Error fetching account balance: {response.status} - {error_text}")
+        except Exception as e:
+            print(f"Error fetching account balance: {e}")
+
         return None

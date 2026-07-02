@@ -47,12 +47,14 @@ GET /
 ```
 GET /api/v1/market-analysis/{symbol}
 ```
-Consulta el precio actual, calcula ATR, y sugiere bounds para un grid sin crear órdenes. Pensado para que orquestadores (n8n, agentes IA) evalúen condiciones antes de decidir si lanzar un grid. No toca Binance más que para leer datos públicos.
+Consulta el precio actual, calcula ATR, y sugiere bounds para un grid sin crear órdenes. Pensado para que orquestadores (n8n, agentes IA) evalúen condiciones antes de decidir si lanzar un grid.
 
-**Parámetros query:**
+**Parámetros query (todos opcionales):**
 - `atr_period` (int, default 14): períodos de True Range para ATR
 - `atr_multiplier` (float, default 2.0): multiplicador del ATR para ancho del grid
 - `klines_interval` (str, default "4h"): intervalo de velas para ATR
+- `risk_pct` (float, default from `DEFAULT_RISK_PCT` in config.py): fracción del balance a arriesgar (0.01 = 1%, 0.02 = 2%). Sobreescribe el default si se proporciona. Si se proporciona `levels`, calcula `suggested_quantity_per_order`.
+- `levels` (int, optional): número de niveles del grid. Si se proporciona, dispara el cálculo de quantity usando `risk_pct` (default o parámetro).
 
 **Respuesta:** `200` — `MarketAnalysisResponse`:
 ```json
@@ -65,9 +67,33 @@ Consulta el precio actual, calcula ATR, y sugiere bounds para un grid sin crear 
   "klines_interval": "4h",
   "suggested_lower_price": 42100.0,
   "suggested_upper_price": 42900.0,
-  "suggested_range": 800.0
+  "suggested_range": 800.0,
+  "suggested_quantity_per_order": 0.001
 }
 ```
+
+**Fórmula de sizing (sin leverage, 1-2% riesgo recomendado):**
+```
+capital_a_arriesgar = balance_disponible * risk_pct
+precio_promedio = (suggested_lower_price + suggested_upper_price) / 2
+suggested_quantity_per_order = capital_a_arriesgar / (levels * precio_promedio)
+```
+
+**Ejemplo numérico:**
+- Balance disponible: $10,000 USDT
+- risk_pct: 0.02 (2%)
+- levels: 10
+- suggested_lower_price: 42,100 USDT
+- suggested_upper_price: 42,900 USDT
+- Cálculo:
+  - capital_a_arriesgar = 10,000 × 0.02 = $200
+  - precio_promedio = (42,100 + 42,900) / 2 = $42,500
+  - quantity_per_order = 200 / (10 × 42,500) ≈ **0.00047 BTC**
+
+**Ejemplos de uso:**
+- `GET /api/v1/market-analysis/BTCUSDT` → solo análisis de mercado (ATR, bounds), sin quantity
+- `GET /api/v1/market-analysis/BTCUSDT?levels=10` → incluye quantity basada en `DEFAULT_RISK_PCT` (default 0.02 = 2%) ÷ 10 niveles ÷ precio promedio
+- `GET /api/v1/market-analysis/BTCUSDT?risk_pct=0.015&levels=10` → incluye quantity con risk custom (1.5% en lugar del default 2%)
 
 ---
 

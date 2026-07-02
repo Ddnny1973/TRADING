@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     DEFAULT_GRID_SYMBOL: str = "BTCUSDT"
     DEFAULT_GRID_LEVELS: int = 10
     DEFAULT_GRID_TYPE: str = "GEOMETRIC"  # GEOMETRIC or ARITHMETIC
+    DEFAULT_RISK_PCT: float = 0.02  # Default risk per grid: 2% (1-2% recomendado)
     
     # ==========================================
     # NOTIFICATION CONFIGURATION

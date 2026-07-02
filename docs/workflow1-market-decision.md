@@ -37,7 +37,11 @@ O si es cron, valores fijos:
 atr_period=14
 atr_multiplier=2.0
 klines_interval=4h
+risk_pct=0.02
+levels=10
 ```
+
+(Nota: `risk_pct` y `levels` son opcionales. Si se omiten, no se calcula `suggested_quantity_per_order`. Si se proporcionan juntos, el backend consulta el balance y calcula la cantidad.)
 
 **Response (entrada al nodo de IA):**
 ```json
@@ -49,9 +53,12 @@ klines_interval=4h
   "klines_interval": "4h",
   "suggested_lower_price": 42100.0,
   "suggested_upper_price": 42900.0,
-  "suggested_range": 800.0
+  "suggested_range": 800.0,
+  "suggested_quantity_per_order": 0.001
 }
 ```
+
+**Nota:** El endpoint ahora calcula `suggested_quantity_per_order` automáticamente si proporcionas `risk_pct` y `levels`. Esto es útil porque evita que la IA tenga que hacer cálculos de sizing — puede reutilizar el valor sugerido o ajustarlo según su criterio.
 
 ---
 
@@ -241,20 +248,49 @@ Reasoning: {reasoning}
 
 ---
 
-## Decisión: quantity_per_order
+## Decisión: quantity_per_order — Ahora con Sizing Dinámico ✅
 
-**Propuesta:** Fijar `quantity_per_order: 0.001` BTC por ahora (≈ $42.50 notional a precio actual).
+**Status actual:** El endpoint `/api/v1/market-analysis` ahora calcula automáticamente `suggested_quantity_per_order` si proporcionas `risk_pct` y `levels`.
 
-**Razones:**
-1. **Simple:** no necesita lógica de sizing
-2. **Seguro:** es un volumen pequeño, manejable incluso con margen bajo
-3. **Funcional:** es suficiente para probar el flujo end-to-end
-4. **Escalable:** cambiar a valor dinámico después (% del balance, Kelly criterion, etc.)
+### Fórmula de sizing (sin leverage, 1-2% riesgo):
 
-**Futuro (Workflow 2 o mejora):**
-- Consultar balance de cuenta via `/fapi/v1/account`
-- Calcular quantity basado en % de riesgo (ej. 1% del balance)
-- Ajustar según apalancamiento disponible
+```
+capital_a_arriesgar = balance_disponible * risk_pct
+precio_promedio = (lower_price + upper_price) / 2
+quantity_per_order = capital_a_arriesgar / (levels * precio_promedio)
+```
+
+### Flujo en n8n:
+
+**Nodo 2 (Market Analysis):**
+```
+GET /api/v1/market-analysis/BTCUSDT?risk_pct=0.02&levels=10
+```
+
+**Response incluye:**
+```json
+{
+  "suggested_lower_price": 42100.0,
+  "suggested_upper_price": 42900.0,
+  "suggested_quantity_per_order": 0.00047
+}
+```
+
+**Nodo 3 (AI Decision):**
+La IA recibe `suggested_quantity_per_order` ya calculado. Puede:
+- Reutilizarlo tal cual (confianza en el algoritmo)
+- Ajustarlo según su criterio (ej. si la volatilidad es extrema, reduce un 50%)
+
+### Beneficios:
+- ✅ **Sizing seguro:** basado en % del balance, no en volumen fijo
+- ✅ **Sin apalancamiento:** 1× notional, riesgo controlado en 1-2% por grid
+- ✅ **Adaptativo:** si el balance crece, quantity crece automáticamente
+- ✅ **Simple:** la IA no necesita hacer cálculos, solo evaluar si la sugerencia es razonable
+
+### Rango recomendado de risk_pct:
+- **Conservative (1%):** `risk_pct=0.01` — cantidad pequeña, bajo riesgo
+- **Normal (2%):** `risk_pct=0.02` — balance entre riesgo y oportunidad (recomendado)
+- **Aggressive (3-5%):** `risk_pct=0.03+` — mayor exposición, solo si tienes experiencia
 
 ---
 

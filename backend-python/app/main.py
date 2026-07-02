@@ -14,7 +14,7 @@ from app.core.config import settings
 from app.database.connection import init_db
 from app.schemas.grid_schema import GridRequest, GridResponse, GridDetailResponse, GridPnlResponse, GridCloseCheckResponse, MarketAnalysisResponse
 from app.services.grid_service import GridService
-from app.services.indicators import calculate_atr, calculate_grid_bounds
+from app.services.indicators import calculate_atr, calculate_grid_bounds, calculate_position_size
 from decimal import Decimal
 
 grid_service = GridService()
@@ -80,25 +80,29 @@ async def root():
 
 @app.get("/api/v1/market-analysis/{symbol}", response_model=MarketAnalysisResponse, tags=["Analysis"])
 async def analyze_market(symbol: str, atr_period: int = 14, atr_multiplier: float = 2.0,
-                        klines_interval: str = "4h"):
+                        klines_interval: str = "4h", risk_pct: float = None, levels: int = None):
     """
     Analyze market conditions for a symbol without placing any orders.
 
-    Returns current price, ATR, and suggested grid bounds. Useful for
-    orchestrators (n8n, AI agents) to evaluate market conditions before
-    deciding whether to launch a grid via POST /api/v1/grids.
+    Returns current price, ATR, and suggested grid bounds. If risk_pct and levels
+    are provided, also calculates suggested_quantity_per_order based on account balance.
 
     Args:
         symbol: Trading pair (e.g., BTCUSDT)
         atr_period: Number of True Range periods for ATR (default 14)
         atr_multiplier: ATR multiplier for grid width (default 2.0)
         klines_interval: Kline interval for ATR calculation (default "4h")
+        risk_pct: Risk as fraction (0.01 = 1%). If provided with levels,
+                 calculates quantity_per_order. Omit to skip.
+        levels: Number of grid levels. Required if risk_pct is provided.
 
     Returns:
-        MarketAnalysisResponse with current price, ATR, and suggested bounds.
+        MarketAnalysisResponse with current price, ATR, bounds,
+        and optionally suggested_quantity_per_order.
 
     Raises:
-        ValueError (400): if current price or klines cannot be fetched
+        ValueError (400): if current price/klines cannot be fetched, or if
+                         risk_pct provided without levels (or vice versa)
     """
     price_data = await grid_service.binance.get_mark_price(symbol)
     if not price_data or "price" not in price_data:
@@ -112,7 +116,7 @@ async def analyze_market(symbol: str, atr_period: int = 14, atr_multiplier: floa
     atr = calculate_atr(klines, period=atr_period)
     bounds = calculate_grid_bounds(current_price, atr, Decimal(str(atr_multiplier)))
 
-    return {
+    response = {
         "symbol": symbol,
         "current_price": float(current_price),
         "atr": float(atr),
@@ -123,6 +127,35 @@ async def analyze_market(symbol: str, atr_period: int = 14, atr_multiplier: floa
         "suggested_upper_price": float(bounds["upper_price"]),
         "suggested_range": float(bounds["upper_price"] - bounds["lower_price"]),
     }
+
+    # Calculate suggested quantity if levels provided (risk_pct has default)
+    if levels is not None:
+        effective_risk_pct = risk_pct if risk_pct is not None else settings.DEFAULT_RISK_PCT
+
+        balance_data = await grid_service.binance.get_account_balance()
+        if not balance_data or "balances" not in balance_data:
+            raise ValueError(f"Could not fetch account balance for {symbol}")
+
+        # Find USDT balance
+        usdt_balance = None
+        for balance_item in balance_data["balances"]:
+            if balance_item.get("asset") == "USDT":
+                usdt_balance = Decimal(str(balance_item.get("availableBalance", 0)))
+                break
+
+        if usdt_balance is None or usdt_balance <= 0:
+            raise ValueError("No available USDT balance in account")
+
+        quantity = calculate_position_size(
+            usdt_balance,
+            Decimal(str(effective_risk_pct)),
+            levels,
+            Decimal(str(bounds["lower_price"])),
+            Decimal(str(bounds["upper_price"]))
+        )
+        response["suggested_quantity_per_order"] = float(quantity)
+
+    return response
 
 
 # ==========================================

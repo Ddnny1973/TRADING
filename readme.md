@@ -27,7 +27,8 @@ El **Grid Trading Híbrido** es un sistema autónomo distribuido que ejecuta est
 **Características clave:**
 - ✅ Ejecución de órdenes de Alta Precisión Financiera (`Decimal` + `ROUND_DOWN`, filtros tickSize/stepSize/minNotional)
 - ✅ Motor de Grid autónomo (geométrico/aritmético) con cálculo de bounds automático vía ATR
-- ✅ Análisis de mercado de solo lectura (`GET /api/v1/market-analysis/{symbol}`) — ATR, bounds sugeridos, sin crear órdenes (para orquestadores / agentes IA)
+- ✅ Análisis de mercado de solo lectura (`GET /api/v1/market-analysis/{symbol}?risk_pct=0.02&levels=10`) — ATR, bounds sugeridos, quantity sugerida basada en balance, sin crear órdenes (para orquestadores / agentes IA)
+- ✅ Sizing dinámico seguro (1-2% riesgo, sin leverage) — `calculate_position_size()` determinística: `quantity = (balance × risk_pct) / (levels × precio_promedio)`; sincroniza con `/fapi/v2/balance` de Binance
 - ✅ Stop Loss / Take Profit por grid, evaluados bajo demanda (`/check-close`)
 - ✅ Cálculo de PnL realizado/no realizado por grid
 - ✅ Colocación de órdenes por lotes (batch orders) con reintentos ante errores de gateway y protección contra duplicados (clientOrderId)
@@ -247,9 +248,10 @@ TRADING/
     ├── arquitectura.md
     ├── api-endpoints.md           # Referencia actualizada de endpoints implementados
     ├── manual-test-plan-swagger.md  # Plan de pruebas manuales via Swagger UI (revisado y corregido)
-    ├── n8n-integration-strategy.md  # Estrategia de reintentos/idempotencia para n8n
-    ├── workflow1-market-decision.md # Workflow 1: decisión automática de lanzar grid (AI-driven)
-    ├── grid-expiration-strategy.md  # Estrategia de expiración de grids (Opción A implementada, Opción B documentada)
+    ├── n8n-integration-strategy.md      # Estrategia de reintentos/idempotencia para n8n
+    ├── workflow1-market-decision.md     # Workflow 1: decisión automática de lanzar grid (AI-driven, con sizing dinámico)
+    ├── grid-expiration-strategy.md      # Estrategia de expiración de grids (Opción A implementada, Opción B documentada)
+    ├── position-sizing-formula.md       # Fórmula de cálculo de quantity per order (risk_pct-based, sin leverage, 1-2% recomendado)
     └── development-guide.md
 ```
 
