@@ -149,6 +149,7 @@ class GridService:
             )
             for spec, order in order_results:
                 if not order or "orderId" not in order:
+                    print(f"Order skipped — Binance response: {order} | spec: price={spec['price']} side={spec['side']}")
                     continue
                 cursor.execute(
                     """INSERT INTO grid_orders (id, grid_id, price, quantity, side, type, status)
