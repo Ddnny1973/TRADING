@@ -181,14 +181,20 @@ $json.launch === true
   "levels": {{ $json.gridCount }},
   "grid_type": "GEOMETRIC",
   "quantity_per_order": 0.001,
+  "atr_period": 14,
+  "atr_multiplier": 2.0,
+  "klines_interval": "4h",
   "stop_loss": null,
-  "take_profit": null
+  "take_profit": null,
+  "max_duration_hours": null
 }
 ```
 
 **Notas:**
 - `quantity_per_order: 0.001` = 1 miliBTC ≈ $42.50 notional (escalable después)
 - `grid_type: GEOMETRIC` — espaciado logarítmico (recomendado)
+- `atr_period`, `atr_multiplier`, `klines_interval` — parámetros usados por el AI node, repetir aquí para que el backend recalcule bounds/duration si es necesario
+- `max_duration_hours: null` — se calcula automáticamente como 4× (klines_interval × atr_period). Ver [grid-expiration-strategy.md](./grid-expiration-strategy.md) para detalles
 - `stop_loss`, `take_profit` → null por ahora (agregar después si se necesita)
 
 **Expected Response (200):**

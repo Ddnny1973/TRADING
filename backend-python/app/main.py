@@ -149,6 +149,7 @@ async def create_grid(request: GridRequest):
         klines_interval=request.klines_interval,
         stop_loss=request.stop_loss,
         take_profit=request.take_profit,
+        max_duration_hours=request.max_duration_hours,
     )
     return grid
 

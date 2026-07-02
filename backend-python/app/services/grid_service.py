@@ -33,12 +33,51 @@ class GridService:
             return value
         return (value / step).to_integral_value(rounding=ROUND_DOWN) * step
 
+    @staticmethod
+    def _calculate_max_duration_hours(klines_interval: str, atr_period: int) -> float:
+        """
+        Calculate max grid duration deterministically from klines_interval and atr_period.
+
+        Rule: max_duration = 4x (klines_interval * atr_period)
+        - klines_interval → hours
+        - atr_period (e.g., 14) → number of candles, each interval-wide
+        - Product → total hours in ATR calculation window
+        - 4x → assume that after 4x the ATR window, market has evolved enough
+          to warrant recalculation
+
+        Examples:
+          - "4h" + atr(14) → 56h window → 224h max_duration (~9 days)
+          - "1h" + atr(14) → 14h window → 56h max_duration (~2.3 days)
+          - "1d" + atr(14) → 14d window → 56d max_duration (~2 months)
+        """
+        interval_to_hours = {
+            "1m": 1 / 60,
+            "3m": 3 / 60,
+            "5m": 5 / 60,
+            "15m": 15 / 60,
+            "30m": 30 / 60,
+            "1h": 1,
+            "2h": 2,
+            "4h": 4,
+            "6h": 6,
+            "8h": 8,
+            "12h": 12,
+            "1d": 24,
+            "3d": 24 * 3,
+            "1w": 24 * 7,
+        }
+        interval_hours = interval_to_hours.get(klines_interval, 4.0)  # default 4h if unknown
+        atr_window_hours = interval_hours * atr_period
+        max_duration_hours = atr_window_hours * 4
+        return max_duration_hours
+
     async def create_grid(self, symbol: str, levels: int, grid_type: str, quantity_per_order: float,
                            lower_price: Optional[float] = None, upper_price: Optional[float] = None,
                            atr_period: int = 14, atr_multiplier: float = 2.0,
                            klines_interval: str = "4h",
                            stop_loss: Optional[float] = None,
-                           take_profit: Optional[float] = None) -> Dict[str, Any]:
+                           take_profit: Optional[float] = None,
+                           max_duration_hours: Optional[float] = None) -> Dict[str, Any]:
         """
         Calculate grid levels, place LIMIT orders on Binance and persist the grid.
 
@@ -47,6 +86,11 @@ class GridService:
         (calculate_atr + calculate_grid_bounds). Mixing the two (only one of the
         two prices given) is rejected. This is what lets an external orchestrator
         create a grid by sending only {symbol, levels, grid_type, quantity_per_order}.
+
+        max_duration_hours: If omitted, calculated automatically from
+                           klines_interval and atr_period as 4x the ATR window.
+                           Represents the maximum hours the grid should run before
+                           reevaluation is recommended.
 
         Raises:
             ValueError: if prices/bounds are invalid, or current price/klines
@@ -135,17 +179,22 @@ class GridService:
             else:
                 order_results.extend((spec, None) for spec in batch)
 
+        # Calculate max_duration_hours if not provided (Opción A: rule-based)
+        if max_duration_hours is None:
+            max_duration_hours = self._calculate_max_duration_hours(klines_interval, atr_period)
+
         # Persist grid and all placed orders in a single DB transaction
         grid_id = str(uuid.uuid4())
         conn = get_sqlite_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
-                """INSERT INTO grids (id, symbol, lower_price, upper_price, levels, status, stop_loss, take_profit)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO grids (id, symbol, lower_price, upper_price, levels, status, stop_loss, take_profit, max_duration_hours)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (grid_id, symbol, str(engine.lower_price), str(engine.upper_price), levels, "RUNNING",
                  str(stop_loss) if stop_loss is not None else None,
-                 str(take_profit) if take_profit is not None else None)
+                 str(take_profit) if take_profit is not None else None,
+                 str(max_duration_hours) if max_duration_hours is not None else None)
             )
             orders_placed = 0
             for spec, order in order_results:

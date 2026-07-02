@@ -46,6 +46,11 @@ class GridRequest(BaseModel):
         default="4h",
         description="Kline interval used for automatic ATR calculation (e.g. 4h, 1h, 1d)"
     )
+    max_duration_hours: Optional[float] = Field(
+        default=None,
+        description="Maximum duration for the grid in hours. If omitted, calculated automatically "
+                     "as 4x (klines_interval * atr_period). E.g., 4h interval + ATR(14) → ~56h history → 224h max_duration."
+    )
 
     class Config:
         json_schema_extra = {
@@ -62,7 +67,7 @@ class GridRequest(BaseModel):
 
 class GridResponse(BaseModel):
     """Schema for grid response"""
-    
+
     id: str
     symbol: str
     lower_price: float
@@ -71,8 +76,9 @@ class GridResponse(BaseModel):
     status: str
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
+    max_duration_hours: Optional[float] = None
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
 

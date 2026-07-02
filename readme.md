@@ -249,6 +249,7 @@ TRADING/
     ├── manual-test-plan-swagger.md  # Plan de pruebas manuales via Swagger UI (revisado y corregido)
     ├── n8n-integration-strategy.md  # Estrategia de reintentos/idempotencia para n8n
     ├── workflow1-market-decision.md # Workflow 1: decisión automática de lanzar grid (AI-driven)
+    ├── grid-expiration-strategy.md  # Estrategia de expiración de grids (Opción A implementada, Opción B documentada)
     └── development-guide.md
 ```
 

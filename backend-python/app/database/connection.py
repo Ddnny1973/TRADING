@@ -73,10 +73,11 @@ def init_sqlite_tables():
         "status TEXT NOT NULL, "
         "stop_loss NUMERIC, "
         "take_profit NUMERIC, "
+        "max_duration_hours NUMERIC, "
         "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
     )
 
-    for column_def in ("stop_loss NUMERIC", "take_profit NUMERIC"):
+    for column_def in ("stop_loss NUMERIC", "take_profit NUMERIC", "max_duration_hours NUMERIC"):
         try:
             cursor.execute(f"ALTER TABLE grids ADD COLUMN {column_def}")
         except sqlite3.OperationalError:
