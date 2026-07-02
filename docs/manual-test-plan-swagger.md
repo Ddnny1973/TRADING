@@ -71,7 +71,7 @@ Esperado: **400** — `quantity_per_order is smaller than the minimum step size.
   "upper_price": 0.50,
   "levels": 0,
   "grid_type": "GEOMETRIC",
-  "quantity_per_order": 10
+  "quantity_per_order": 20
 }
 ```
 Esperado: **200** (no 400) — `GridEngine` trata `levels < 2` como caso especial y crea un grid de exactamente **2** órdenes (`lower_price` y `upper_price`), ignorando el `0`/`1` enviado. `orders[]` tendrá longitud 2, no 0. → Guardar `id` como `GRID_E` si se quiere usar luego; si no, cancelarlo para no dejar ruido (`DELETE`).

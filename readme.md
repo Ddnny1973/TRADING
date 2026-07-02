@@ -231,13 +231,24 @@ TRADING/
 ├── .github/workflows/
 │   └── deploy.yml                 # CI/CD de despliegue
 │
+├── tests/                         # Suite de pruebas automatizada
+│   ├── conftest.py                # Fixtures: DB aislada por test, Binance mockeado, env vars stub
+│   ├── test_api_grids.py          # Pruebas de endpoints (equivalente automatizado del plan Swagger)
+│   ├── test_indicators.py         # Pruebas unitarias de ATR, PnL, SL/TP
+│   ├── test_grid_engine.py        # Pruebas unitarias del motor de grid
+│   ├── test_binance_client.py     # Pruebas unitarias de parseo de klines y firma HMAC
+│   └── test_grid_service_logging.py  # Pruebas del registro en historical_grid_logs (Postgres mockeado)
+│
+├── pytest.ini                     # Configuración de pytest (pythonpath = ., testpaths = tests)
+│
 └── docs/                          # Documentación técnica
     ├── arquitectura.md
-    ├── api-endpoints.md
-    └── development-guide.md
+    ├── api-endpoints.md           # Referencia actualizada de endpoints implementados
+    ├── development-guide.md
+    └── manual-test-plan-swagger.md  # Plan de pruebas manuales via Swagger UI (revisado y corregido)
 ```
 
-**Pendiente de crear:** `n8n-workflows/` (orquestación) y `tests/` (suite de pruebas automatizadas) — no existen aún en el repo.
+**Pendiente de crear:** `n8n-workflows/` (orquestación, workflows de n8n).
 
 ---
 
@@ -248,6 +259,7 @@ TRADING/
 - [x] Desarrollar Motor de Grid (cálculo de niveles + bounds automáticos por ATR)
 - [x] Stop Loss / Take Profit por grid
 - [x] Colocación de órdenes por lotes (batch) y reintentos ante errores de gateway
+- [x] Suite de Tests automatizada (54 pruebas, `pytest backend-python/`)
 - [ ] Integrar n8n Workflows
 - [ ] Establecer Rate Limit Manager (Redis) — contenedor desplegado, sin lógica de rate limiting en el código aún
 - [ ] Notificaciones Telegram / WhatsApp

@@ -134,7 +134,7 @@ def test_create_grid_levels_zero_returns_two_level_grid(client):
     grid - it does not reject levels=0.
     """
     response = create_grid(client, symbol="ADAUSDT", lower_price=0.30, upper_price=0.50,
-                            levels=0, quantity_per_order=10)
+                            levels=0, quantity_per_order=20)  # 0.30 * 20 = 6 >= mocked min_notional (5)
     assert response.status_code == 200
 
     data = response.json()
