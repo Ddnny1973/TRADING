@@ -27,9 +27,11 @@ El **Grid Trading Híbrido** es un sistema autónomo distribuido que ejecuta est
 **Características clave:**
 - ✅ Ejecución de órdenes de Alta Precisión Financiera (`Decimal` + `ROUND_DOWN`, filtros tickSize/stepSize/minNotional)
 - ✅ Motor de Grid autónomo (geométrico/aritmético) con cálculo de bounds automático vía ATR
+- ✅ Análisis de mercado de solo lectura (`GET /api/v1/market-analysis/{symbol}`) — ATR, bounds sugeridos, sin crear órdenes (para orquestadores / agentes IA)
 - ✅ Stop Loss / Take Profit por grid, evaluados bajo demanda (`/check-close`)
 - ✅ Cálculo de PnL realizado/no realizado por grid
 - ✅ Colocación de órdenes por lotes (batch orders) con reintentos ante errores de gateway y protección contra duplicados (clientOrderId)
+- ✅ Validación — fallar (400) si ninguna orden se coloca (margen insuficiente, filtros de símbolo, etc.)
 - ⏳ Orquestación Inteligente con n8n + IA *(planeado, no implementado)*
 - ⏳ Gestión de API Rate Limits en Tiempo Real con Redis *(contenedor desplegado, sin uso activo en el código aún)*
 - ⏳ Notificaciones en Tiempo Real (Telegram + WhatsApp) *(planeado, no implementado)*
@@ -260,7 +262,7 @@ TRADING/
 - [x] Stop Loss / Take Profit por grid
 - [x] Colocación de órdenes por lotes (batch) y reintentos ante errores de gateway
 - [x] Suite de Tests automatizada (54 pruebas, `pytest backend-python/`)
-- [ ] Integrar n8n Workflows
+- [ ] Integrar n8n Workflows (consume `GET /api/v1/market-analysis` para decidir si crear grid vía `POST /api/v1/grids`)
 - [ ] Establecer Rate Limit Manager (Redis) — contenedor desplegado, sin lógica de rate limiting en el código aún
 - [ ] Notificaciones Telegram / WhatsApp
 - [ ] Streaming de mercado vía WebSocket (hoy es polling REST)

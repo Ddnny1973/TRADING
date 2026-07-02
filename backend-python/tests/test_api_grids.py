@@ -61,6 +61,66 @@ def test_root(client):
 
 
 # ---------------------------------------------------------------------------
+# 1.5 Market Analysis (read-only)
+# ---------------------------------------------------------------------------
+
+def test_market_analysis_returns_atr_and_bounds(client, mock_binance):
+    mock_binance["get_klines"].return_value = make_klines(
+        base_price=Decimal(DEFAULT_PRICE), spread=Decimal("100")
+    )
+
+    response = client.get("/api/v1/market-analysis/BTCUSDT")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["symbol"] == "BTCUSDT"
+    assert data["current_price"] == 42500.0
+    assert data["atr"] == 200.0  # spread=100 -> TR=200, 14 candles -> ATR=200
+    assert data["atr_period"] == 14
+    assert data["atr_multiplier"] == 2.0
+    assert data["suggested_lower_price"] == 42100.0  # 42500 - 200*2
+    assert data["suggested_upper_price"] == 42900.0  # 42500 + 200*2
+    assert data["suggested_range"] == 800.0
+
+
+def test_market_analysis_custom_parameters(client, mock_binance):
+    mock_binance["get_klines"].return_value = make_klines(
+        base_price=Decimal("100"), spread=Decimal("10")
+    )
+
+    response = client.get(
+        "/api/v1/market-analysis/ETHUSDT?atr_period=7&atr_multiplier=1.5&klines_interval=1h"
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["atr_period"] == 7
+    assert data["atr_multiplier"] == 1.5
+    assert data["klines_interval"] == "1h"
+    # atr should still be 20 (constant TR=20 per candle)
+    assert data["atr"] == 20.0
+    # bounds: 100 +/- 20*1.5 = [70, 130]
+    assert data["suggested_lower_price"] == 70.0
+    assert data["suggested_upper_price"] == 130.0
+
+
+def test_market_analysis_missing_price_returns_400(client, mock_binance):
+    mock_binance["get_mark_price"].return_value = None
+
+    response = client.get("/api/v1/market-analysis/BTCUSDT")
+    assert response.status_code == 400
+    assert "Could not fetch current price" in response.json()["detail"]
+
+
+def test_market_analysis_missing_klines_returns_400(client, mock_binance):
+    mock_binance["get_klines"].return_value = None
+
+    response = client.get("/api/v1/market-analysis/BTCUSDT")
+    assert response.status_code == 400
+    assert "Could not fetch klines" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
 # 2. Creación de grids
 # ---------------------------------------------------------------------------
 

@@ -41,6 +41,36 @@ GET /
 
 ---
 
+## Market Analysis (read-only, implementado)
+
+### Analizar condiciones de mercado
+```
+GET /api/v1/market-analysis/{symbol}
+```
+Consulta el precio actual, calcula ATR, y sugiere bounds para un grid sin crear órdenes. Pensado para que orquestadores (n8n, agentes IA) evalúen condiciones antes de decidir si lanzar un grid. No toca Binance más que para leer datos públicos.
+
+**Parámetros query:**
+- `atr_period` (int, default 14): períodos de True Range para ATR
+- `atr_multiplier` (float, default 2.0): multiplicador del ATR para ancho del grid
+- `klines_interval` (str, default "4h"): intervalo de velas para ATR
+
+**Respuesta:** `200` — `MarketAnalysisResponse`:
+```json
+{
+  "symbol": "BTCUSDT",
+  "current_price": 42500.0,
+  "atr": 200.0,
+  "atr_period": 14,
+  "atr_multiplier": 2.0,
+  "klines_interval": "4h",
+  "suggested_lower_price": 42100.0,
+  "suggested_upper_price": 42900.0,
+  "suggested_range": 800.0
+}
+```
+
+---
+
 ## Grid Trading Endpoints (implementados)
 
 ### Crear Grid

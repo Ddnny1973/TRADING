@@ -118,3 +118,32 @@ class GridCloseCheckResponse(BaseModel):
 
     triggered: Optional[str] = None
     grid: GridDetailResponse
+
+
+class MarketAnalysisResponse(BaseModel):
+    """Schema for GET /api/v1/market-analysis/{symbol} - read-only market analysis"""
+
+    symbol: str
+    current_price: float
+    atr: float
+    atr_period: int
+    atr_multiplier: float
+    klines_interval: str
+    suggested_lower_price: float
+    suggested_upper_price: float
+    suggested_range: float  # upper - lower
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "symbol": "BTCUSDT",
+                "current_price": 42500.0,
+                "atr": 200.0,
+                "atr_period": 14,
+                "atr_multiplier": 2.0,
+                "klines_interval": "4h",
+                "suggested_lower_price": 42100.0,
+                "suggested_upper_price": 42900.0,
+                "suggested_range": 800.0,
+            }
+        }

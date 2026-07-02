@@ -12,8 +12,10 @@ from contextlib import asynccontextmanager
 # Import configuration and services
 from app.core.config import settings
 from app.database.connection import init_db
-from app.schemas.grid_schema import GridRequest, GridResponse, GridDetailResponse, GridPnlResponse, GridCloseCheckResponse
+from app.schemas.grid_schema import GridRequest, GridResponse, GridDetailResponse, GridPnlResponse, GridCloseCheckResponse, MarketAnalysisResponse
 from app.services.grid_service import GridService
+from app.services.indicators import calculate_atr, calculate_grid_bounds
+from decimal import Decimal
 
 grid_service = GridService()
 
@@ -69,6 +71,57 @@ async def root():
         "status": "ready",
         "api_version": "v1",
         "docs": "/api/docs"
+    }
+
+
+# ==========================================
+# MARKET ANALYSIS ENDPOINTS (read-only)
+# ==========================================
+
+@app.get("/api/v1/market-analysis/{symbol}", response_model=MarketAnalysisResponse, tags=["Analysis"])
+async def analyze_market(symbol: str, atr_period: int = 14, atr_multiplier: float = 2.0,
+                        klines_interval: str = "4h"):
+    """
+    Analyze market conditions for a symbol without placing any orders.
+
+    Returns current price, ATR, and suggested grid bounds. Useful for
+    orchestrators (n8n, AI agents) to evaluate market conditions before
+    deciding whether to launch a grid via POST /api/v1/grids.
+
+    Args:
+        symbol: Trading pair (e.g., BTCUSDT)
+        atr_period: Number of True Range periods for ATR (default 14)
+        atr_multiplier: ATR multiplier for grid width (default 2.0)
+        klines_interval: Kline interval for ATR calculation (default "4h")
+
+    Returns:
+        MarketAnalysisResponse with current price, ATR, and suggested bounds.
+
+    Raises:
+        ValueError (400): if current price or klines cannot be fetched
+    """
+    price_data = await grid_service.binance.get_mark_price(symbol)
+    if not price_data or "price" not in price_data:
+        raise ValueError(f"Could not fetch current price for {symbol}")
+    current_price = Decimal(str(price_data["price"]))
+
+    klines = await grid_service.binance.get_klines(symbol, interval=klines_interval, limit=atr_period + 1)
+    if not klines:
+        raise ValueError(f"Could not fetch klines for {symbol} to compute ATR")
+
+    atr = calculate_atr(klines, period=atr_period)
+    bounds = calculate_grid_bounds(current_price, atr, Decimal(str(atr_multiplier)))
+
+    return {
+        "symbol": symbol,
+        "current_price": float(current_price),
+        "atr": float(atr),
+        "atr_period": atr_period,
+        "atr_multiplier": atr_multiplier,
+        "klines_interval": klines_interval,
+        "suggested_lower_price": float(bounds["lower_price"]),
+        "suggested_upper_price": float(bounds["upper_price"]),
+        "suggested_range": float(bounds["upper_price"] - bounds["lower_price"]),
     }
 
 

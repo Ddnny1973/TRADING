@@ -147,6 +147,7 @@ class GridService:
                  str(stop_loss) if stop_loss is not None else None,
                  str(take_profit) if take_profit is not None else None)
             )
+            orders_placed = 0
             for spec, order in order_results:
                 if not order or "orderId" not in order:
                     print(f"Order skipped — Binance response: {order} | spec: price={spec['price']} side={spec['side']}")
@@ -157,6 +158,18 @@ class GridService:
                     (str(order["orderId"]), grid_id, str(spec["price"]), str(spec["quantity"]),
                      spec["side"], "LIMIT", "NEW")
                 )
+                orders_placed += 1
+
+            if orders_placed == 0:
+                # Transaction is not committed — the grids INSERT above will be
+                # rolled back automatically when conn.close() runs in the finally block.
+                raise ValueError(
+                    f"No orders were placed on Binance — all {len(order_results)} levels were rejected. "
+                    "Common causes: insufficient margin (-2019, reduce quantity_per_order or add funds "
+                    "to your Futures account), invalid price/quantity filters, or exchange connectivity issues. "
+                    "Check container logs for the per-order Binance error codes."
+                )
+
             conn.commit()
         finally:
             conn.close()
