@@ -2,6 +2,7 @@ services:
   backend-python:
     build:
       context: ./backend-python
+      network: host
     container_name: trading-backend
     env_file:
       - .env
