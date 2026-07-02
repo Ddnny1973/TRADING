@@ -324,15 +324,22 @@ class GridService:
 
         session = SessionLocal()
         try:
-            log_entry = HistoricalGridLog(
-                grid_id=grid["id"],
-                symbol=grid["symbol"],
-                total_pnl=total_pnl,
-                trigger_condition=trigger_condition,
-                opened_at=opened_at,
-                closed_at=datetime.utcnow(),
-            )
-            session.merge(log_entry)  # grid_id is UNIQUE -> idempotent if logged twice
+            existing = session.query(HistoricalGridLog).filter_by(grid_id=grid["id"]).first()
+            if existing:
+                # Grid was already logged (e.g. cancelled twice) - update in place
+                existing.closed_at = datetime.utcnow()
+                existing.trigger_condition = trigger_condition
+                existing.total_pnl = total_pnl
+            else:
+                log_entry = HistoricalGridLog(
+                    grid_id=grid["id"],
+                    symbol=grid["symbol"],
+                    total_pnl=total_pnl,
+                    trigger_condition=trigger_condition,
+                    opened_at=opened_at,
+                    closed_at=datetime.utcnow(),
+                )
+                session.add(log_entry)
             session.commit()
         except Exception as e:
             print(f"Warning: could not write historical_grid_logs for grid {grid['id']}: {e}")

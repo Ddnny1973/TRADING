@@ -12,25 +12,24 @@ from typing import Optional
 class BinanceTimeSync:
     """
     Manages time synchronization with Binance servers
-    to avoid authentication errors due to clock skew
+    to avoid authentication errors due to clock skew.
+
+    sync_if_stale() re-syncs automatically when the last sync is older than
+    max_age_seconds (default 30 min). Call it before any signed request that
+    runs in a long-lived container.
     """
-    
+
     def __init__(self, testnet_url: str):
-        """
-        Initialize time synchronizer
-        
-        Args:
-            testnet_url: Binance Testnet API base URL
-        """
         self.testnet_url = testnet_url
-        self.time_offset = 0  # Time difference in milliseconds
-    
+        self.time_offset = 0          # milliseconds
+        self._last_sync_at: Optional[float] = None  # local time.time() of last sync
+
     async def sync_time(self) -> Optional[int]:
         """
-        Synchronize local time with Binance server
-        
+        Synchronize local time with Binance server.
+
         Returns:
-            Server time in milliseconds or None if sync fails
+            Server time in milliseconds or None if sync fails.
         """
         try:
             timeout = aiohttp.ClientTimeout(total=10)
@@ -41,20 +40,29 @@ class BinanceTimeSync:
                         data = await response.json()
                         server_time = data.get('serverTime')
                         local_time = int(time.time() * 1000)
-                        
-                        # Calculate time offset
                         self.time_offset = server_time - local_time
+                        self._last_sync_at = time.time()
                         return server_time
         except Exception as e:
             print(f"Error syncing with Binance: {e}")
-        
         return None
-    
+
+    async def sync_if_stale(self, max_age_seconds: int = 1800) -> None:
+        """
+        Re-sync only if last sync was more than max_age_seconds ago (default 30 min).
+        Safe to call before every signed request - cheap no-op when fresh.
+        """
+        if (
+            self._last_sync_at is None
+            or (time.time() - self._last_sync_at) > max_age_seconds
+        ):
+            await self.sync_time()
+
     def get_adjusted_time(self) -> int:
         """
-        Get current time adjusted for Binance server offset
-        
+        Get current time adjusted for Binance server offset.
+
         Returns:
-            Adjusted Unix timestamp in milliseconds
+            Adjusted Unix timestamp in milliseconds.
         """
         return int(time.time() * 1000) + self.time_offset

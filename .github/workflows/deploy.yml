@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch: # permite lanzarlo manualmente desde GitHub
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -29,8 +29,27 @@ jobs:
             echo "==> Rebuilding backend-python..."
             docker compose build --no-cache backend-python
 
-            echo "==> Restarting services..."
-            docker compose up -d
+            echo "==> Restarting backend-python only (postgres/redis not touched)..."
+            docker compose up -d backend-python
+
+            echo "==> Cleaning dangling images..."
+            docker image prune -f
+
+            echo "==> Waiting for backend to become healthy..."
+            for i in $(seq 1 15); do
+              STATUS=$(docker inspect --format='{{.State.Health.Status}}' trading-backend 2>/dev/null || echo "starting")
+              echo "  attempt $i: $STATUS"
+              if [ "$STATUS" = "healthy" ]; then
+                echo "  Backend is healthy."
+                break
+              fi
+              if [ "$i" = "15" ]; then
+                echo "  ERROR: backend did not become healthy after 30s"
+                docker logs trading-backend --tail 30
+                exit 1
+              fi
+              sleep 2
+            done
 
             echo "==> Status:"
             docker compose ps

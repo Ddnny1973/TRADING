@@ -239,6 +239,9 @@ class BinanceClient:
         url = f"{self.base_url}/fapi/v1/batchOrders"
         headers = self.security.get_headers()
 
+        # Re-sync clock if stale (avoids -1022 in long-running containers)
+        await self.time_sync.sync_if_stale()
+
         for attempt in range(1, max_retries + 1):
             batch_payload = [
                 {
