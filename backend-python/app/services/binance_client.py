@@ -9,6 +9,7 @@ import uuid
 from decimal import Decimal
 from typing import Dict, Any, List, Optional
 import aiohttp
+from urllib.parse import urlencode
 from app.core.security import BinanceSecurityManager
 from app.core.binance_time import BinanceTimeSync
 from app.core.config import settings
@@ -255,17 +256,21 @@ class BinanceClient:
                 }
                 for o in orders
             ]
-            params = {
+            raw_params = {
                 "batchOrders": json.dumps(batch_payload, separators=(",", ":")),
                 "timestamp": self.time_sync.get_adjusted_time(),
                 "recvWindow": settings.BINANCE_RECV_WINDOW,
             }
-            params["signature"] = self.security.generate_signature(params)
+            # urlencode encodes ':' as %3A inside the JSON string; aiohttp's
+            # yarl leaves ':' raw in query-param values, producing a different
+            # string than what we signed -> -1022.  Sending the pre-encoded
+            # string as form body (data=) guarantees signed == sent.
+            body = urlencode(raw_params) + "&signature=" + self.security.generate_signature(raw_params)
 
             try:
                 timeout = aiohttp.ClientTimeout(total=20)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.post(url, params=params, headers=headers) as response:
+                    async with session.post(url, data=body, headers=headers) as response:
                         if response.status in [200, 201]:
                             results = await response.json()
                             return results if isinstance(results, list) else [None] * len(orders)
