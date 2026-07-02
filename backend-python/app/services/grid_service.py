@@ -246,12 +246,23 @@ class GridService:
             **pnl,
         }
 
-    def list_grids(self) -> List[Dict[str, Any]]:
-        """List all grids"""
+    def list_grids(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        List grids, optionally filtered by status.
+
+        Args:
+            status: Filter by status (RUNNING, CANCELED, etc.). None = all grids.
+
+        Returns:
+            List of grid dicts ordered by creation date (newest first).
+        """
         conn = get_sqlite_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM grids ORDER BY created_at DESC")
+            if status:
+                cursor.execute("SELECT * FROM grids WHERE status = ? ORDER BY created_at DESC", (status,))
+            else:
+                cursor.execute("SELECT * FROM grids ORDER BY created_at DESC")
             return [dict(row) for row in cursor.fetchall()]
         finally:
             conn.close()

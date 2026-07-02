@@ -154,9 +154,18 @@ async def create_grid(request: GridRequest):
 
 
 @app.get("/api/v1/grids", response_model=List[GridResponse], tags=["Grids"])
-async def list_grids():
-    """List all grids"""
-    return grid_service.list_grids()
+async def list_grids(status: str = None):
+    """
+    List all grids, optionally filtered by status.
+
+    Query params:
+        status (optional): Filter by status — RUNNING, CANCELED, etc.
+                          Omit to list all grids regardless of status.
+
+    Returns:
+        List of GridResponse (grid info without orders).
+    """
+    return grid_service.list_grids(status=status)
 
 
 @app.get("/api/v1/grids/{grid_id}", response_model=GridDetailResponse, tags=["Grids"])

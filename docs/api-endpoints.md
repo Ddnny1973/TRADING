@@ -105,7 +105,31 @@ Calcula los niveles, coloca las órdenes LIMIT en Binance (en lotes de hasta 5) 
 ```
 GET /api/v1/grids
 ```
-**Respuesta:** `200` — array de `GridResponse` (sin `orders[]`).
+
+**Query params:**
+- `status` (optional): Filtrar por estado — `RUNNING`, `CANCELED`, etc. Omitir para listar todos.
+
+**Respuesta:** `200` — array de `GridResponse` (sin `orders[]`). Ejemplo:
+```json
+[
+  {
+    "id": "grid-123",
+    "symbol": "BTCUSDT",
+    "lower_price": 40000.0,
+    "upper_price": 45000.0,
+    "levels": 10,
+    "status": "RUNNING",
+    "stop_loss": null,
+    "take_profit": null,
+    "created_at": "2026-07-02T10:30:00"
+  }
+]
+```
+
+**Ejemplos:**
+- `GET /api/v1/grids` → todos los grids
+- `GET /api/v1/grids?status=RUNNING` → solo grids activos (para monitoreo)
+- `GET /api/v1/grids?status=CANCELED` → grids cerrados
 
 ### Detalle de Grid
 ```
