@@ -1,0 +1,448 @@
+{
+  "name": "Workflow 1 - Market Decision (Grid Launch)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "295e7838-2a34-4202-958e-d7e30cf17a32",
+      "name": "Start (Manual)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -2256,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1",
+              "name": "symbol",
+              "value": "BTCUSDT",
+              "type": "string"
+            },
+            {
+              "id": "2",
+              "name": "atr_period",
+              "value": 14,
+              "type": "number"
+            },
+            {
+              "id": "3",
+              "name": "atr_multiplier",
+              "value": 2,
+              "type": "number"
+            },
+            {
+              "id": "4",
+              "name": "klines_interval",
+              "value": "4h",
+              "type": "string"
+            },
+            {
+              "id": "5",
+              "name": "risk_pct",
+              "value": 0.02,
+              "type": "number"
+            },
+            {
+              "id": "6",
+              "name": "levels",
+              "value": 5,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "731fe1c3-8e0c-4a93-9d09-a00ebd598455",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1984,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.BACKEND_URL + '/api/v1/market-analysis/' + $json.symbol + '?risk_pct=' + $json.risk_pct + '&levels=' + $json.levels + '&atr_period=' + $json.atr_period + '&atr_multiplier=' + $json.atr_multiplier + '&klines_interval=' + $json.klines_interval }}",
+        "options": {}
+      },
+      "id": "829a086b-17aa-471c-bf79-1fec53a796a8",
+      "name": "Market Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1760,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const marketData = $json;\nconst ctx = $('Config').item.json;\nconst symbol = ctx.symbol;\n\nconst systemPrompt = `Eres el modulo de decision de un bot de grid trading en Binance Futures.\nRecibes datos de mercado ya calculados (no los recalcules). Tu unica tarea es decidir si conviene lanzar un grid ahora y con que parametros.\n\nReglas de criterio:\n- Si atr_pct (ATR/current_price) es muy bajo (<0.3%), el rango sera demasiado angosto para capturar movimiento -> considera no lanzar.\n- Si atr_pct es muy alto (>2%), el mercado puede estar en tendencia fuerte, no lateral -> los grids funcionan peor -> considera no lanzar o reducir gridCount.\n- gridCount razonable: entre 5 y 20 segun el ATR. Ejemplo: si atr_pct ~0.5%, usa 10-15 levels. Si atr_pct ~1.5%, usa 8-12 levels.\n- Siempre explica tu razonamiento en el campo reasoning ANTES de fijar launch.\n- lowerLimit/upperLimit: puedes ajustar los suggested_* si tienes razon fundamental, pero generalmente respeta los sugeridos.\n- Si launch=false, devuelve lowerLimit, upperLimit y gridCount como null.\n\nResponde UNICAMENTE en JSON valido, sin texto adicional.`;\n\nconst geminiRequestBody = {\n  systemInstruction: { parts: [{ text: systemPrompt }] },\n  contents: [{ role: 'user', parts: [{ text: JSON.stringify(marketData) }] }],\n  generationConfig: {\n    temperature: 0.4,\n    responseMimeType: 'application/json',\n    responseSchema: {\n      type: 'OBJECT',\n      properties: {\n        reasoning: { type: 'STRING' },\n        launch: { type: 'BOOLEAN' },\n        lowerLimit: { type: 'NUMBER', nullable: true },\n        upperLimit: { type: 'NUMBER', nullable: true },\n        gridCount: { type: 'INTEGER', nullable: true }\n      },\n      required: ['reasoning', 'launch', 'lowerLimit', 'upperLimit', 'gridCount']\n    }\n  }\n};\n\nreturn {\n  json: {\n    geminiRequestBody,\n    symbol,\n    suggested_quantity_per_order: marketData.suggested_quantity_per_order,\n    atr_period: ctx.atr_period,\n    atr_multiplier: ctx.atr_multiplier,\n    klines_interval: ctx.klines_interval\n  }\n};"
+      },
+      "id": "354b35a0-28ae-4b5c-b2b6-e7f2cc362417",
+      "name": "Build Gemini Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1536,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.geminiRequestBody }}",
+        "options": {}
+      },
+      "id": "a14c94fc-9493-4dfc-a03f-42c2f90aef29",
+      "name": "Gemini: AI Decision",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1328,
+        160
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "NQnuuYpP2Pax6Nvr",
+          "name": "Header Auth GeminiAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const geminiResponse = $json;\nconst rawText = geminiResponse?.candidates?.[0]?.content?.parts?.[0]?.text;\nif (!rawText) {\n  throw new Error('Respuesta de Gemini sin contenido de texto: ' + JSON.stringify(geminiResponse));\n}\n\nlet decision;\ntry {\n  decision = JSON.parse(rawText);\n} catch (e) {\n  throw new Error('No se pudo parsear JSON de Gemini: ' + rawText);\n}\n\nconst ctx = $('Build Gemini Request').item.json;\n\nreturn {\n  json: {\n    symbol: ctx.symbol,\n    reasoning: decision.reasoning,\n    launch: decision.launch === true,\n    lowerLimit: decision.lowerLimit,\n    upperLimit: decision.upperLimit,\n    gridCount: decision.gridCount,\n    suggested_quantity_per_order: ctx.suggested_quantity_per_order,\n    atr_period: ctx.atr_period,\n    atr_multiplier: ctx.atr_multiplier,\n    klines_interval: ctx.klines_interval\n  }\n};"
+      },
+      "id": "abf35d94-d138-46af-abf6-2f14764833ec",
+      "name": "Parse AI Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1104,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond_launch",
+              "leftValue": "={{ $json.launch }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "401b8c54-3e5c-4126-92d6-cbf37f2fdc09",
+      "name": "IF: Launch = true?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -880,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/api/v1/grids",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { symbol: $json.symbol, lower_price: $json.lowerLimit, upper_price: $json.upperLimit, levels: $json.gridCount, grid_type: 'GEOMETRIC', quantity_per_order: Math.max($json.suggested_quantity_per_order || 0, (65 / (($json.lowerLimit + $json.upperLimit) / 2))), atr_period: $json.atr_period, atr_multiplier: $json.atr_multiplier, klines_interval: $json.klines_interval, stop_loss: null, take_profit: null, max_duration_hours: null } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "914a7e83-3438-48b0-bfb4-948d28e12494",
+      "name": "Create Grid (POST)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -656,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $json;\nconst statusCode = resp.statusCode;\nconst body = resp.body || {};\nconst decisionCtx = $('Parse AI Decision').item.json;\n\nif (statusCode === 200) {\n  return { json: { isError: false, alreadyExists: false, grid: body, symbol: decisionCtx.symbol, reasoning: decisionCtx.reasoning } };\n}\n\nconst detailRaw = body.detail !== undefined ? body.detail : body;\nconst detail = typeof detailRaw === 'string' ? detailRaw : JSON.stringify(detailRaw);\n\nif (statusCode === 400 && detail.toLowerCase().includes('already exists')) {\n  return { json: { isError: false, alreadyExists: true, grid: null, symbol: decisionCtx.symbol, reasoning: decisionCtx.reasoning, detail } };\n}\n\nreturn { json: { isError: true, alreadyExists: false, grid: null, symbol: decisionCtx.symbol, reasoning: decisionCtx.reasoning, statusCode, detail } };"
+      },
+      "id": "f81ed401-d9e9-4609-9e38-7b9a581d4d0f",
+      "name": "Interpret Grid Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond_error",
+              "leftValue": "={{ $json.isError }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "13fdde20-87f7-4e7f-a169-fc1c5f679692",
+      "name": "IF: Grid Error (real)?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $json.alreadyExists ? ('ℹ️ Grid ya existia para ' + $json.symbol + ' (no se creo uno nuevo).\\n\\n💭 ' + $json.reasoning) : ('✅ Grid lanzado: ' + $json.symbol + '\\n📊 ID: ' + $json.grid.id + ' | Niveles: ' + $json.grid.levels + ' | Rango: ' + $json.grid.lower_price + '-' + $json.grid.upper_price + '\\n💭 ' + $json.reasoning) }}",
+        "additionalFields": {}
+      },
+      "id": "50b859f2-dfb1-48bc-944b-2a91a94635f3",
+      "name": "Notify: Grid Launched",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -16,
+        176
+      ],
+      "webhookId": "102d6856-20eb-4bc6-857a-ced333741f0b",
+      "credentials": {
+        "telegramApi": {
+          "id": "zurDfqIC4Qy17sUA",
+          "name": "TRADING"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ '🚨 ERROR creando grid ' + $json.symbol + ' (HTTP ' + $json.statusCode + ')\\n' + $json.detail }}",
+        "additionalFields": {}
+      },
+      "id": "c150be26-36f7-4586-9cbd-cf7a20bf7444",
+      "name": "Notify: Grid Error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -32,
+        -64
+      ],
+      "webhookId": "4af67a14-2e23-4136-8972-a8ba66656e0d",
+      "credentials": {
+        "telegramApi": {
+          "id": "zurDfqIC4Qy17sUA",
+          "name": "TRADING"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ '⏭️ Grid NO lanzado para ' + $json.symbol + '\\n\\n💭 ' + $json.reasoning }}",
+        "additionalFields": {}
+      },
+      "id": "7a3ce3b2-f9aa-45ee-9130-7252593c84ce",
+      "name": "Notify: Skipped (No Launch)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -656,
+        288
+      ],
+      "webhookId": "0bd3f620-b7d1-4cef-a41f-655caa3d0633",
+      "credentials": {
+        "telegramApi": {
+          "id": "zurDfqIC4Qy17sUA",
+          "name": "TRADING"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Start (Manual)": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Market Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Market Analysis": {
+      "main": [
+        [
+          {
+            "node": "Build Gemini Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Gemini Request": {
+      "main": [
+        [
+          {
+            "node": "Gemini: AI Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini: AI Decision": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Decision": {
+      "main": [
+        [
+          {
+            "node": "IF: Launch = true?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Launch = true?": {
+      "main": [
+        [
+          {
+            "node": "Create Grid (POST)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify: Skipped (No Launch)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Grid (POST)": {
+      "main": [
+        [
+          {
+            "node": "Interpret Grid Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Interpret Grid Result": {
+      "main": [
+        [
+          {
+            "node": "IF: Grid Error (real)?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Grid Error (real)?": {
+      "main": [
+        [
+          {
+            "node": "Notify: Grid Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify: Grid Launched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "4d2e947b-4639-4da5-937a-280da39d6280",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6471357be079e574ad4f9e3ce2e07a9201267c14e828bbf21e10ed02ba0644ee"
+  },
+  "nodeGroups": [],
+  "id": "yggk1wajL1tsmABi",
+  "tags": []
+}

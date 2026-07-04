@@ -236,6 +236,12 @@ class BinanceClient:
         Place up to 5 LIMIT orders in a single /fapi/v1/batchOrders request.
         Each element of `orders` must have: symbol, side, quantity, price.
         Returns a list aligned with the input (None for items that failed).
+
+        Binance's batchOrders can return HTTP 200 while individual entries in
+        the response array are error objects (e.g. {"code": -1007, "msg":
+        "Timeout waiting for response..."}). Those per-order ambiguous
+        timeouts are resolved by querying the order's clientOrderId before
+        deciding whether to retry, to avoid duplicate order placement.
         """
         url = f"{self.base_url}/fapi/v1/batchOrders"
         headers = self.security.get_headers()
@@ -243,18 +249,30 @@ class BinanceClient:
         # Re-sync clock if stale (avoids -1022 in long-running containers)
         await self.time_sync.sync_if_stale()
 
+        # Ambiguous per-order Binance error codes: the order MAY have been
+        # placed despite the error — must be confirmed via clientOrderId
+        # before retrying, never assumed to have failed outright.
+        _AMBIGUOUS_CODES = {-1007, -1021}
+
+        results: List[Optional[Dict[str, Any]]] = [None] * len(orders)
+        pending_indices = list(range(len(orders)))
+
         for attempt in range(1, max_retries + 1):
+            if not pending_indices:
+                break
+
+            client_order_ids = {i: str(uuid.uuid4()).replace("-", "")[:32] for i in pending_indices}
             batch_payload = [
                 {
-                    "symbol": o["symbol"],
-                    "side": o["side"],
+                    "symbol": orders[i]["symbol"],
+                    "side": orders[i]["side"],
                     "type": "LIMIT",
                     "timeInForce": "GTC",
-                    "quantity": str(o["quantity"]),
-                    "price": str(o["price"]),
-                    "newClientOrderId": str(uuid.uuid4()).replace("-", "")[:32],
+                    "quantity": str(orders[i]["quantity"]),
+                    "price": str(orders[i]["price"]),
+                    "newClientOrderId": client_order_ids[i],
                 }
-                for o in orders
+                for i in pending_indices
             ]
             raw_params = {
                 "batchOrders": json.dumps(batch_payload, separators=(",", ":")),
@@ -272,8 +290,41 @@ class BinanceClient:
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     async with session.post(url, data=body, headers=headers) as response:
                         if response.status in [200, 201]:
-                            results = await response.json()
-                            return results if isinstance(results, list) else [None] * len(orders)
+                            batch_results = await response.json()
+                            if not isinstance(batch_results, list):
+                                batch_results = [None] * len(pending_indices)
+
+                            still_pending = []
+                            for pos, orig_index in enumerate(pending_indices):
+                                item = batch_results[pos] if pos < len(batch_results) else None
+
+                                if isinstance(item, dict) and "orderId" in item:
+                                    results[orig_index] = item
+                                    continue
+
+                                code = item.get("code") if isinstance(item, dict) else None
+                                if code in _AMBIGUOUS_CODES:
+                                    print(f"Ambiguous order response ({code}) for index {orig_index}, "
+                                          f"checking status via clientOrderId before retry")
+                                    await asyncio.sleep(2.0)
+                                    confirmed = await self._get_order_by_client_id(
+                                        orders[orig_index]["symbol"], client_order_ids[orig_index]
+                                    )
+                                    if confirmed and "orderId" in confirmed:
+                                        print(f"Order {client_order_ids[orig_index]} confirmed placed after {code}")
+                                        results[orig_index] = confirmed
+                                        continue
+                                    if attempt < max_retries:
+                                        still_pending.append(orig_index)
+                                        continue
+                                    print(f"Order at index {orig_index} still unresolved after {max_retries} attempts")
+                                    continue
+
+                                # Non-ambiguous error (margin, filters, etc.) — terminal failure, do not retry.
+                                print(f"batchOrders item error for index {orig_index}: {item}")
+
+                            pending_indices = still_pending
+                            continue
 
                         error_text = await response.text()
                         print(f"batchOrders error {response.status}: {error_text}")
@@ -287,14 +338,15 @@ class BinanceClient:
                             await asyncio.sleep(attempt * 1.5)
                             continue
 
-                        return [None] * len(orders)
+                        # Whole batch failed with a non-retryable HTTP status — leave remaining as None.
+                        break
 
             except Exception as e:
                 print(f"Exception in batchOrders (attempt {attempt}): {e}")
                 if attempt < max_retries:
                     await asyncio.sleep(attempt * 1.5)
 
-        return [None] * len(orders)
+        return results
 
     async def cancel_order(self, symbol: str, order_id: int) -> Optional[Dict[str, Any]]:
         """

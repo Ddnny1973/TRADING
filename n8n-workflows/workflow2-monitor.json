@@ -1,0 +1,274 @@
+{
+  "name": "Workflow 2 - Grid Monitor & Close",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "minutes", "minutesInterval": 15 }
+          ]
+        }
+      },
+      "id": "cron",
+      "name": "Cron: Every 15 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.BACKEND_URL }}/api/v1/grids?status=RUNNING",
+        "authentication": "none",
+        "options": {}
+      },
+      "id": "list_grids",
+      "name": "List Running Grids",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "split",
+      "name": "Split in Batches (Sequential)",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL + '/api/v1/grids/' + $json.id + '/refresh' }}",
+        "authentication": "none",
+        "continueOnFail": true,
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "refresh",
+      "name": "Refresh Orders (POST)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [860, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $json;\nconst grid = $('Split in Batches (Sequential)').item.json;\nconst isError = resp.statusCode !== 200;\nconst body = resp.body || {};\nreturn {\n  json: {\n    gridId: grid.id,\n    symbol: grid.symbol,\n    isError,\n    statusCode: resp.statusCode,\n    errorMessage: isError ? (body.detail || JSON.stringify(body)) : null,\n    grid: isError ? grid : body\n  }\n};"
+      },
+      "id": "parse_refresh",
+      "name": "Interpret Refresh Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1080, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond_refresh_error",
+              "leftValue": "={{ $json.isError }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if_refresh_error",
+      "name": "IF: Refresh failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1300, 200]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ '\u26a0\ufe0f REFRESH FALLIDO - Grid ' + $json.gridId + ' (' + $json.symbol + ')\\n\\nError: ' + $json.errorMessage + '\\n\\nSe reintentara en el proximo ciclo (15 min).' }}",
+        "additionalFields": {}
+      },
+      "id": "notify_refresh_error",
+      "name": "Notify: Refresh Error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1520, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL + '/api/v1/grids/' + $json.gridId + '/check-close' }}",
+        "authentication": "none",
+        "continueOnFail": true,
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "check_close",
+      "name": "Check Close (POST)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1520, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $json;\nconst ctx = $('Interpret Refresh Result').item.json;\nconst isError = resp.statusCode !== 200;\nconst body = resp.body || {};\nreturn {\n  json: {\n    gridId: ctx.gridId,\n    symbol: ctx.symbol,\n    isError,\n    statusCode: resp.statusCode,\n    errorMessage: isError ? (body.detail || JSON.stringify(body)) : null,\n    triggered: isError ? null : body.triggered,\n    grid: isError ? null : body.grid\n  }\n};"
+      },
+      "id": "parse_check_close",
+      "name": "Interpret Check-Close Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1740, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond_close_error",
+              "leftValue": "={{ $json.isError }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if_close_error",
+      "name": "IF: Check-close failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1960, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ '\u26a0\ufe0f CHECK-CLOSE FALLIDO - Grid ' + $json.gridId + ' (' + $json.symbol + ')\\n\\nError: ' + $json.errorMessage + '\\n\\nSe reintentara en el proximo ciclo (15 min).' }}",
+        "additionalFields": {}
+      },
+      "id": "notify_close_error",
+      "name": "Notify: Check-close Error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2180, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond_triggered",
+              "leftValue": "={{ $json.triggered }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if_triggered",
+      "name": "IF: Grid closed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2180, 400]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ '\ud83d\udd12 GRID CERRADO - ' + $json.grid.symbol + '\\n\\n\ud83d\udccc Motivo: ' + $json.triggered + '\\n\ud83d\udcca PnL Total: ' + $json.grid.total_pnl + ' USDT\\n\ud83c\udd94 Grid ID: ' + $json.grid.id + '\\n\\nEl grid ha sido cerrado automaticamente.' }}",
+        "additionalFields": {}
+      },
+      "id": "notify_closed",
+      "name": "Notify: Grid Closed",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2400, 340]
+    },
+    {
+      "parameters": {
+        "unit": "seconds",
+        "amount": 1.5
+      },
+      "id": "wait",
+      "name": "Wait (1.5s between items)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2620, 480]
+    },
+    {
+      "parameters": {},
+      "id": "done",
+      "name": "Monitor cycle complete",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [860, 480]
+    }
+  ],
+  "connections": {
+    "Cron: Every 15 min": { "main": [[{ "node": "List Running Grids", "type": "main", "index": 0 }]] },
+    "List Running Grids": { "main": [[{ "node": "Split in Batches (Sequential)", "type": "main", "index": 0 }]] },
+    "Split in Batches (Sequential)": {
+      "main": [
+        [{ "node": "Monitor cycle complete", "type": "main", "index": 0 }],
+        [{ "node": "Refresh Orders (POST)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Refresh Orders (POST)": { "main": [[{ "node": "Interpret Refresh Result", "type": "main", "index": 0 }]] },
+    "Interpret Refresh Result": { "main": [[{ "node": "IF: Refresh failed?", "type": "main", "index": 0 }]] },
+    "IF: Refresh failed?": {
+      "main": [
+        [{ "node": "Notify: Refresh Error", "type": "main", "index": 0 }],
+        [{ "node": "Check Close (POST)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Notify: Refresh Error": { "main": [[{ "node": "Wait (1.5s between items)", "type": "main", "index": 0 }]] },
+    "Check Close (POST)": { "main": [[{ "node": "Interpret Check-Close Result", "type": "main", "index": 0 }]] },
+    "Interpret Check-Close Result": { "main": [[{ "node": "IF: Check-close failed?", "type": "main", "index": 0 }]] },
+    "IF: Check-close failed?": {
+      "main": [
+        [{ "node": "Notify: Check-close Error", "type": "main", "index": 0 }],
+        [{ "node": "IF: Grid closed?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Notify: Check-close Error": { "main": [[{ "node": "Wait (1.5s between items)", "type": "main", "index": 0 }]] },
+    "IF: Grid closed?": {
+      "main": [
+        [{ "node": "Notify: Grid Closed", "type": "main", "index": 0 }],
+        [{ "node": "Wait (1.5s between items)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Notify: Grid Closed": { "main": [[{ "node": "Wait (1.5s between items)", "type": "main", "index": 0 }]] },
+    "Wait (1.5s between items)": { "main": [[{ "node": "Split in Batches (Sequential)", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": {
+    "saveDataExecution": "all",
+    "saveManualExecutions": true,
+    "timezone": "UTC"
+  }
+}
