@@ -341,15 +341,6 @@
                 "type": "number",
                 "operation": "equals"
               }
-            },
-            {
-              "id": "8647afd4-e797-4003-b5b3-1284af4bc850",
-              "leftValue": "={{ $json.message.text }}",
-              "rightValue": "=/lanzar",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
             }
           ],
           "combinator": "and"
@@ -364,7 +355,75 @@
         400
       ],
       "id": "70323c80-65cc-44dd-a3ed-fd9a13f0baf9",
-      "name": "If"
+      "name": "IF: Chat autorizado?"
+    },
+    {
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "cond_switch_lanzar",
+                    "leftValue": "={{ $json.message.text }}",
+                    "rightValue": "/lanzar",
+                    "operator": {
+                      "type": "string",
+                      "operation": "startsWith"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Lanzar"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "cond_switch_monitorear",
+                    "leftValue": "={{ $json.message.text }}",
+                    "rightValue": "/monitorear",
+                    "operator": {
+                      "type": "string",
+                      "operation": "startsWith"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Monitorear"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -1904,
+        400
+      ],
+      "id": "b1c2d3e4-f5a6-47b8-9c0d-1e2f3a4b5c6d",
+      "name": "Switch: Comando"
     },
     {
       "parameters": {
@@ -524,49 +583,6 @@
       ],
       "id": "339f5d55-c38c-4424-891a-c92d1310a4c8",
       "name": "Log de ejecución2"
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose",
-            "version": 3
-          },
-          "conditions": [
-            {
-              "id": "22825ef6-0b9c-40da-92c6-571fee8f76e8",
-              "leftValue": "={{ $json.message.chat.id }}",
-              "rightValue": "={{ $env.TELEGRAM_CHAT_ID }}",
-              "operator": {
-                "type": "number",
-                "operation": "equals"
-              }
-            },
-            {
-              "id": "8647afd4-e797-4003-b5b3-1284af4bc850",
-              "leftValue": "={{ $json.message.text }}",
-              "rightValue": "=/monitorear",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "looseTypeValidation": true,
-        "options": {}
-      },
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.3,
-      "position": [
-        -1792,
-        416
-      ],
-      "id": "7300591d-388d-4058-86e6-5bf82778344f",
-      "name": "If1"
     },
     {
       "parameters": {
@@ -773,7 +789,19 @@
         ]
       ]
     },
-    "If": {
+    "IF: Chat autorizado?": {
+      "main": [
+        [
+          {
+            "node": "Switch: Comando",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Switch: Comando": {
       "main": [
         [
           {
@@ -784,7 +812,7 @@
         ],
         [
           {
-            "node": "If1",
+            "node": "Call 'Workflow 2 - Grid Monitor & Close'",
             "type": "main",
             "index": 0
           }
@@ -795,7 +823,7 @@
       "main": [
         [
           {
-            "node": "If",
+            "node": "IF: Chat autorizado?",
             "type": "main",
             "index": 0
           }
@@ -807,17 +835,6 @@
         [
           {
             "node": "Postgres1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "If1": {
-      "main": [
-        [
-          {
-            "node": "Call 'Workflow 2 - Grid Monitor & Close'",
             "type": "main",
             "index": 0
           }

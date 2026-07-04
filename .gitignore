@@ -3,6 +3,9 @@
 .env.local
 .env.*.local
 
+# n8n workflow backups (snapshots taken before PUT via API, local-only)
+n8n-workflows/backup-*.json
+
 # Python
 __pycache__/
 *.py[cod]

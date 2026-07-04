@@ -91,6 +91,12 @@ Invoke-RestMethod -Uri "https://n8n.gestorconsultoria.com.co/api/v1/workflows/$i
 - Hacer un `GET` (backup) antes de cada `PUT`, por si hay que revertir.
 - Activar/desactivar el workflow es un endpoint aparte (`POST /workflows/{id}/activate` / `/deactivate`), un `PUT` normal no debería tocar ese estado, pero hay que confirmarlo.
 
+**🔴 Resultado real de la prueba (2026-07-04): el PUT completo NO funciona en esta instancia.**
+- `PUT /workflows/{id}` con un body mínimo (`{ name: "..." }`, sin `nodes`) → **400** con JSON válido de n8n (falta `nodes`, esperado) → confirma que el endpoint en sí funciona y la autenticación es correcta.
+- `PUT /workflows/{id}` con el JSON completo del workflow (~64 KB, incluye `name`/`nodes`/`connections`/`settings`) → **500 Internal Server Error**, pero la respuesta es una página **HTML genérica** ("Internal Server Error"), no el JSON de error que da n8n normalmente — señal de que el error ocurre en el **proxy inverso** delante de n8n, no en la aplicación n8n misma.
+- 64 KB no es un tamaño grande (la mayoría de proxies permiten 1 MB+ por defecto), así que la sospecha más probable es un **WAF/filtro de contenido** en el proxy bloqueando el body por patrones dentro del código JS de los nodos `Code` (comillas anidadas, `throw new Error(...)`, etc.), no un límite de tamaño puro.
+- **Conclusión práctica:** por ahora, usar el método manual (Opción A, Download/UI) para sincronizar repo → n8n. El PUT vía API queda documentado pero **no es confiable en esta instancia** hasta que alguien con acceso a la configuración del proxy investigue el filtro que está devolviendo el 500 genérico (revisar logs del proxy, no de n8n, ya que la petición parece no estar llegando siquiera a la app).
+
 ## Cómo importar
 
 1. Abre n8n → **Workflows** → **Create New** → **Import from File**.
@@ -114,4 +120,4 @@ Cualquier cambio a estas variables de entorno requiere recrear el contenedor de 
 - Workflow 2 completo (refresh + check-close + notificaciones) contra un grid RUNNING real.
 - Suite de tests del backend tras el fix de `place_batch_orders` (`-1007`).
 - Nombres exactos de parámetros de nodos pueden variar levemente según la versión de n8n instalada — si algo no importa limpio, ajusta en la UI (ya nos pasó con el nodo IF y el body JSON).
-- Sincronización **repo → n8n vía API** (`PUT /workflows/{id}`, ver sección de arriba) — documentada pero no probada, falta tiempo/validación.
+- Sincronización **repo → n8n vía API** (`PUT /workflows/{id}`) — **probada y bloqueada** (ver sección de arriba: 500 genérico de proxy con el JSON completo). Usar el método manual (Download/UI) mientras tanto.
