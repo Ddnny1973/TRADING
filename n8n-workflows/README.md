@@ -75,27 +75,52 @@ $resp | ConvertTo-Json -Depth 20 | Out-File "n8n-workflows/workflow1-market-deci
 ```
 Ajusta el nombre del archivo destino según el `$id` que estés trayendo.
 
-### Sincronización repo → n8n (PUSH — NO probado todavía, documentado para cuando se valide)
+### Sincronización repo → n8n (PUSH — ✅ probado y funcionando, 2026-07-04)
 
-La idea sería usar `PUT /api/v1/workflows/{id}` con el JSON del repo como body, para actualizar el workflow en n8n sin copiar/pegar nodo por nodo en la UI:
+Usa `PUT /api/v1/workflows/{id}` con el JSON del repo como body. **Funciona**, pero requiere dos cuidados específicos de PowerShell/Windows que costó bastante descubrir — sáltate esta sección técnica si solo quieres el comando final.
+
+**Receta completa (probada, produce 200 y actualiza el workflow real):**
 
 ```powershell
-$id = "96qAStQwfrHAVXRd"
-$body = Get-Content "n8n-workflows/workflow2-monitor.json" -Raw
-Invoke-RestMethod -Uri "https://n8n.gestorconsultoria.com.co/api/v1/workflows/$id" -Method PUT -Headers @{ "X-N8N-API-KEY" = $plainApiKey; "Content-Type" = "application/json" } -Body $body
+$id = "yggk1wajL1tsmABi"   # workflow1-market-decision — usa "96qAStQwfrHAVXRd" para workflow2-monitor
+
+# 1. Backup antes de tocar nada
+Invoke-RestMethod -Uri "https://n8n.gestorconsultoria.com.co/api/v1/workflows/$id" -Headers @{ "X-N8N-API-KEY" = $plainApiKey } |
+  ConvertTo-Json -Depth 50 | Out-File "n8n-workflows/backup-workflow1-$(Get-Date -Format 'yyyyMMdd-HHmmss').json" -Encoding utf8
+
+# 2. Leer el JSON del repo con encoding UTF8 EXPLÍCITO (ver por qué abajo)
+$workflowJson = Get-Content "n8n-workflows/workflow1-market-decision.json" -Raw -Encoding UTF8 | ConvertFrom-Json
+
+# 3. Body con SOLO los campos que la API pública acepta
+#    (settings debe reducirse a solo "executionOrder" — ver por qué abajo)
+$body = @{
+    name        = $workflowJson.name
+    nodes       = $workflowJson.nodes
+    connections = $workflowJson.connections
+    settings    = @{ executionOrder = $workflowJson.settings.executionOrder }
+} | ConvertTo-Json -Depth 50
+
+# 4. Convertir el body a bytes UTF-8 EXPLÍCITOS (ver por qué abajo) y enviar
+$bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+Invoke-RestMethod -Uri "https://n8n.gestorconsultoria.com.co/api/v1/workflows/$id" -Method PUT `
+  -Headers @{ "X-N8N-API-KEY" = $plainApiKey; "Content-Type" = "application/json; charset=utf-8" } `
+  -Body $bodyBytes
 ```
 
-**⚠️ Antes de confiar en esto (pendiente de validar, no probado por falta de tiempo en esta sesión):**
-- La API pública de n8n típicamente espera solo `{name, nodes, connections, settings, staticData}` en el body de `PUT /workflows/{id}` — puede que rechace el JSON tal cual si incluye campos de solo lectura (`id`, `versionId`, `meta`, `shared`, `tags`, `active`). Puede requerir limpiar el JSON antes de enviarlo.
-- Probar primero contra un workflow de prueba/descartable, **nunca directo contra `workflow1-market-decision` o `workflow2-monitor` en producción** sin backup.
-- Hacer un `GET` (backup) antes de cada `PUT`, por si hay que revertir.
-- Activar/desactivar el workflow es un endpoint aparte (`POST /workflows/{id}/activate` / `/deactivate`), un `PUT` normal no debería tocar ese estado, pero hay que confirmarlo.
+**El mismo procedimiento aplica para `workflow2-monitor.json`** — solo cambia `$id` a `"96qAStQwfrHAVXRd"` y el nombre del archivo en el paso 2 y el del backup en el paso 1.
 
-**🔴 Resultado real de la prueba (2026-07-04): el PUT completo NO funciona en esta instancia.**
-- `PUT /workflows/{id}` con un body mínimo (`{ name: "..." }`, sin `nodes`) → **400** con JSON válido de n8n (falta `nodes`, esperado) → confirma que el endpoint en sí funciona y la autenticación es correcta.
-- `PUT /workflows/{id}` con el JSON completo del workflow (~64 KB, incluye `name`/`nodes`/`connections`/`settings`) → **500 Internal Server Error**, pero la respuesta es una página **HTML genérica** ("Internal Server Error"), no el JSON de error que da n8n normalmente — señal de que el error ocurre en el **proxy inverso** delante de n8n, no en la aplicación n8n misma.
-- 64 KB no es un tamaño grande (la mayoría de proxies permiten 1 MB+ por defecto), así que la sospecha más probable es un **WAF/filtro de contenido** en el proxy bloqueando el body por patrones dentro del código JS de los nodos `Code` (comillas anidadas, `throw new Error(...)`, etc.), no un límite de tamaño puro.
-- **Conclusión práctica:** por ahora, usar el método manual (Opción A, Download/UI) para sincronizar repo → n8n. El PUT vía API queda documentado pero **no es confiable en esta instancia** hasta que alguien con acceso a la configuración del proxy investigue el filtro que está devolviendo el 500 genérico (revisar logs del proxy, no de n8n, ya que la petición parece no estar llegando siquiera a la app).
+### Por qué esos dos detalles son obligatorios (no opcionales)
+
+Durante la primera prueba, el `PUT` con el body completo daba **500 Internal Server Error** con una página HTML genérica (no un JSON de n8n). Se investigó extensamente el lado del proxy (nginx en un servidor bastión aparte) — se revisaron `client_max_body_size`, `error_page`, SELinux, permisos de `/var/lib/nginx/tmp/`, headers de `Connection: upgrade` mal configurados — **todo eso resultó ser una pista falsa**. La prueba decisiva: el mismo archivo real enviado con `curl` (Linux, desde el propio bastión) funcionaba perfecto tanto directo a n8n como a través de nginx, dando `400` (error de validación esperado, no 500).
+
+**La causa real:** Windows PowerShell 5.1 (`Invoke-RestMethod -Body <string>`) no codifica el body en UTF-8 de forma confiable cuando el JSON contiene caracteres especiales (emojis en los mensajes de Telegram: 🚨✅⏭️💭, tildes, etc.). Eso generaba un `Content-Length` inconsistente con los bytes reales, y nginx solo lo manifestaba como 500 al tener que bufferear el body a disco (bodies grandes) — con bodies chicos el problema no se notaba. Fix: convertir el body a bytes UTF-8 explícitos con `[System.Text.Encoding]::UTF8.GetBytes($body)` antes de enviarlo, **y** leer el archivo JSON del repo con `-Encoding UTF8` explícito en `Get-Content` (si no, el string ya queda mal interpretado en memoria desde el inicio y se corrompe igual, aunque conviertas a bytes después — nos pasó: el primer `PUT` "exitoso" subió `Log de ejecución2` como `Log de ejecuciÃ³n2`, mojibake por doble codificación).
+
+**Además**, la API pública rechaza el campo `settings` tal cual lo exporta n8n (`{"message":"request/body/settings must NOT have additional properties"}`) — el export completo trae campos internos (`binaryMode`, `availableInMCP`) que el schema de la API pública no permite. Solo `executionOrder` (y unos pocos campos más como `timezone`, `saveManualExecutions`) son válidos — hay que reconstruir `settings` manualmente con solo esos.
+
+**Precauciones que se mantienen:**
+- Siempre haz backup (`GET`) antes de cada `PUT` — no hay confirmación/diff antes de sobrescribir.
+- Probar primero contra un workflow descartable si haces cambios grandes, antes de tocar `workflow1-market-decision` o `workflow2-monitor` en producción.
+- Activar/desactivar el workflow es un endpoint aparte (`POST /workflows/{id}/activate` / `/deactivate`) — el `PUT` no debería tocar ese estado, pero no se validó explícitamente.
 
 ## Cómo importar
 
@@ -120,4 +145,4 @@ Cualquier cambio a estas variables de entorno requiere recrear el contenedor de 
 - Workflow 2 completo (refresh + check-close + notificaciones) contra un grid RUNNING real.
 - Suite de tests del backend tras el fix de `place_batch_orders` (`-1007`).
 - Nombres exactos de parámetros de nodos pueden variar levemente según la versión de n8n instalada — si algo no importa limpio, ajusta en la UI (ya nos pasó con el nodo IF y el body JSON).
-- Sincronización **repo → n8n vía API** (`PUT /workflows/{id}`) — **probada y bloqueada** (ver sección de arriba: 500 genérico de proxy con el JSON completo). Usar el método manual (Download/UI) mientras tanto.
+- Sincronización **repo → n8n vía API** (`PUT /workflows/{id}`) — ✅ **funciona**, receta completa documentada arriba (requiere UTF-8 explícito + `settings` reducido).
