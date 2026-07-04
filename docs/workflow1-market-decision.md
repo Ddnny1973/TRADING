@@ -163,6 +163,29 @@ Pasa directamente el response del Nodo 2:
 
 ---
 
+### ⚠️ IMPORTANTE: `levels` (Config) vs `gridCount` (IA) — NO son lo mismo
+
+Son dos parámetros con nombres parecidos pero **totalmente independientes**, y esto ha causado confusión real durante las pruebas:
+
+- **`levels`** (nodo Config / query param de `/market-analysis`) → solo se usa para calcular `suggested_quantity_per_order` (el sizing por orden). La IA **nunca ve este valor como restricción**.
+- **`gridCount`** (campo de la respuesta de la IA) → es una decisión **autónoma** de la IA, basada únicamente en las reglas del `atr_pct` del system prompt (rango 5-20). Es este valor — no `levels` — el que efectivamente se envía como `"levels"` en el `POST /api/v1/grids` (Nodo 5).
+
+**Consecuencia real observada:** configurar `levels=5` en el nodo Config para limitar la exposición **NO limita nada** — la IA puede seguir decidiendo `gridCount=12` y esa es la cantidad de órdenes que realmente se colocan.
+
+**Decisión tomada (fase de pruebas):** se agregó un tope duro en el nodo `Parse AI Decision` de `n8n-workflows/workflow1-market-decision.json`:
+```javascript
+const cappedGridCount = decision.gridCount != null
+  ? Math.min(decision.gridCount, configLevels)  // configLevels = $('Config').item.json.levels
+  : decision.gridCount;
+```
+Es decir: **la IA decide, pero `levels` de Config actúa como techo/cap de seguridad** — nunca se ejecutan más niveles que los configurados manualmente, aunque la IA sugiera más.
+
+**Pendiente de alinear (no resuelto aún):** el system prompt de la IA (`Build Gemini Request`) sigue sin mencionar `levels`/el cap — la IA sigue "pensando" que puede elegir libremente entre 5-20, sin saber que su sugerencia puede ser recortada después. Esto puede llevar a razonamientos inconsistentes (ej. la IA explica por qué eligió 12 niveles para cierta volatilidad, pero el grid real termina con 5). Dos opciones a futuro, sin resolver todavía:
+1. Pasarle `levels` de Config a la IA como techo explícito en el prompt (ej. "el máximo permitido es {{ levels }}, nunca sugieras más"), para que su razonamiento sea coherente con lo que realmente se ejecuta.
+2. Quitarle a la IA la decisión de `gridCount` por completo y dejar que siempre sea un valor fijo controlado por Config (menos "inteligente", pero 100% predecible).
+
+---
+
 ### Nodo 4: Condicional (Switch)
 
 **Condición:**
