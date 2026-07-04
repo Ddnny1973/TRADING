@@ -536,56 +536,74 @@
           },
           "conditions": [
             {
-              "id": "cond_monitorear",
+              "id": "22825ef6-0b9c-40da-92c6-571fee8f76e8",
+              "leftValue": "={{ $json.message.chat.id }}",
+              "rightValue": "={{ $env.TELEGRAM_CHAT_ID }}",
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "8647afd4-e797-4003-b5b3-1284af4bc850",
               "leftValue": "={{ $json.message.text }}",
-              "rightValue": "/monitorear",
+              "rightValue": "=/monitorear",
               "operator": {
                 "type": "string",
-                "operation": "startsWith"
+                "operation": "equals"
               }
             }
           ],
           "combinator": "and"
         },
+        "looseTypeValidation": true,
         "options": {}
       },
-      "id": "d4e8f2a1-9b3c-4d5e-8f6a-1b2c3d4e5f6a",
-      "name": "IF: Comando /monitorear?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        -2016,
-        560
-      ]
+        -1792,
+        416
+      ],
+      "id": "7300591d-388d-4058-86e6-5bf82778344f",
+      "name": "If1"
     },
     {
       "parameters": {
-        "source": "database",
         "workflowId": {
           "__rl": true,
-          "value": "",
+          "value": "96qAStQwfrHAVXRd",
           "mode": "list",
-          "cachedResultName": "SELECCIONAR MANUALMENTE: Workflow 2 - Grid Monitor & Close"
+          "cachedResultUrl": "/workflow/96qAStQwfrHAVXRd",
+          "cachedResultName": "Workflow 2 - Grid Monitor & Close"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
         },
         "options": {}
       },
-      "id": "e5f9a3b2-ac4d-4e6f-9a7b-2c3d4e5f6a7b",
-      "name": "Execute Sub-workflow: Monitor",
       "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
+      "typeVersion": 1.3,
       "position": [
-        -1744,
-        560
-      ]
+        -1504,
+        400
+      ],
+      "id": "9506755e-13ce-43eb-b8b0-6d34ab8f8360",
+      "name": "Call 'Workflow 2 - Grid Monitor & Close'"
     }
   ],
   "pinData": {
     "TRADINGTrigger": [
       {
         "json": {
-          "update_id": 843410625,
+          "update_id": 843410626,
           "message": {
-            "message_id": 16,
+            "message_id": 19,
             "from": {
               "id": 1561962049,
               "is_bot": false,
@@ -597,12 +615,12 @@
               "first_name": "Daniel",
               "type": "private"
             },
-            "date": 1783168727,
-            "text": "/lanzar",
+            "date": 1783170877,
+            "text": "/monitoreo",
             "entities": [
               {
                 "offset": 0,
-                "length": 7,
+                "length": 10,
                 "type": "bot_command"
               }
             ]
@@ -766,23 +784,11 @@
         ],
         [
           {
-            "node": "IF: Comando /monitorear?",
+            "node": "If1",
             "type": "main",
             "index": 0
           }
         ]
-      ]
-    },
-    "IF: Comando /monitorear?": {
-      "main": [
-        [
-          {
-            "node": "Execute Sub-workflow: Monitor",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        []
       ]
     },
     "TRADINGTrigger": {
@@ -806,6 +812,17 @@
           }
         ]
       ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Call 'Workflow 2 - Grid Monitor & Close'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
@@ -814,7 +831,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "a3cad644-5121-4771-af43-cf86fbe55836",
+  "versionId": "99a756f6-cf53-4d28-98b6-26440e659b6f",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "6471357be079e574ad4f9e3ce2e07a9201267c14e828bbf21e10ed02ba0644ee"
