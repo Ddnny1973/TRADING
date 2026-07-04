@@ -524,6 +524,59 @@
       ],
       "id": "339f5d55-c38c-4424-891a-c92d1310a4c8",
       "name": "Log de ejecución2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "cond_monitorear",
+              "leftValue": "={{ $json.message.text }}",
+              "rightValue": "/monitorear",
+              "operator": {
+                "type": "string",
+                "operation": "startsWith"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d4e8f2a1-9b3c-4d5e-8f6a-1b2c3d4e5f6a",
+      "name": "IF: Comando /monitorear?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -2016,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "SELECCIONAR MANUALMENTE: Workflow 2 - Grid Monitor & Close"
+        },
+        "options": {}
+      },
+      "id": "e5f9a3b2-ac4d-4e6f-9a7b-2c3d4e5f6a7b",
+      "name": "Execute Sub-workflow: Monitor",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -1744,
+        560
+      ]
     }
   ],
   "pinData": {
@@ -710,7 +763,26 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "IF: Comando /monitorear?",
+            "type": "main",
+            "index": 0
+          }
         ]
+      ]
+    },
+    "IF: Comando /monitorear?": {
+      "main": [
+        [
+          {
+            "node": "Execute Sub-workflow: Monitor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     },
     "TRADINGTrigger": {
