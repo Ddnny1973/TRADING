@@ -13,11 +13,83 @@ Cambios respecto a las plantillas originales de `docs/n8n-templates/`:
 7. Se quitó el nodo `IF: ¿hay grids activos?` de Workflow 2 — si `GET /grids?status=RUNNING` devuelve 0 grids, el loop simplemente no itera (comportamiento nativo de n8n), sin necesidad de un chequeo de longitud frágil.
 8. **Fix: `quantity_per_order` por debajo del `minNotional` de Binance (Workflow 1).** El `suggested_quantity_per_order` calculado por `/market-analysis` puede quedar por debajo del mínimo de 50 USDT de notional por orden, sobre todo con `levels` altos. El nodo `Create Grid (POST)` ahora aplica un piso: `Math.max(suggested_quantity_per_order, 65 / precio_promedio)` (buffer de 30% sobre el mínimo real, para absorber el truncamiento por `stepSize` que hace el backend). Si tu balance testnet es bajo, considera también reducir `levels` en el nodo `Config`.
 
-**Workflow 1 ya fue probado end-to-end con éxito** contra el backend real y Binance Futures Testnet (Gemini decide, crea el grid, coloca órdenes, notifica por Telegram). **Workflow 2 aún no se ha probado en vivo** — la lógica de refresh/check-close/notificación está implementada pero pendiente de validación con un grid RUNNING real.
+**Workflow 1 ya fue probado end-to-end con éxito** contra el backend real y Binance Futures Testnet (Gemini decide, crea el grid, coloca órdenes, notifica por Telegram). **Workflow 2 aún no se ha probado en vivo con un ciclo completo** (refresh + check-close contra un grid `RUNNING` real) — solo se confirmó que `List Running Grids` responde correctamente.
 
 ## Fix relacionado en el backend (no es parte de n8n)
 
 Durante las pruebas de Workflow 1 se detectó que **todas** las órdenes de un grid podían fallar con el código de Binance `-1007` ("Timeout waiting for response... status unknown") dentro de una respuesta HTTP 200 de `/fapi/v1/batchOrders`. `place_batch_orders()` en [`backend-python/app/services/binance_client.py`](../backend-python/app/services/binance_client.py) solo reintentaba por status HTTP (502/429/418), nunca por errores per-orden embebidos en un 200. Se corrigió para que cada orden con código ambiguo (`-1007`, `-1021`) se confirme vía `clientOrderId` antes de decidir si reintentar, evitando tanto duplicar órdenes como perder órdenes que sí se habían colocado. **Pendiente:** correr la suite de pytest del backend (`backend-python/tests/`) para confirmar que el cambio no rompe nada existente — no se pudo ejecutar en esta sesión por falta de dependencias en el entorno local.
+
+## Instancia real de n8n (referencia para otros agentes/sesiones)
+
+- **URL:** `https://n8n.gestorconsultoria.com.co`
+- **IDs reales de los workflows** (obtenidos vía API, confirmados 2026-07-04):
+
+  | Nombre en n8n | ID |
+  |---|---|
+  | `workflow1-market-decision` | `yggk1wajL1tsmABi` |
+  | `workflow2-monitor` | `96qAStQwfrHAVXRd` |
+
+- **Infra multi-servidor:** n8n corre en un servidor (IP privada `10.0.0.5`), el backend en otro (`10.0.0.4`) — ver la nota de `BACKEND_URL` más abajo, es la causa de varios problemas de conectividad ya resueltos en esta sesión.
+- **Credenciales ya creadas en esa instancia** (no se pueden reutilizar en otra instancia, hay que recrearlas): Telegram API `"TRADING"` (id `zurDfqIC4Qy17sUA`), Header Auth `"Header Auth GeminiAI"` (id `NQnuuYpP2Pax6Nvr`), Postgres `"Postgres n8n"` (id `6l9jrmQ4BmCnUgXq`, usada para loguear tokens de Gemini en la tabla `public.metricas_personalizadas`).
+- **Comandos de Telegram habilitados** (bot "TRADING", un solo Telegram Trigger en Workflow 1 para evitar el conflicto de "un webhook por bot"):
+  - `/lanzar` → corre el flujo normal de Workflow 1 (Market Analysis → Gemini → crea grid).
+  - `/monitorear` → dispara Workflow 2 bajo demanda vía nodo **Execute Sub-workflow** (`workflowId: 96qAStQwfrHAVXRd`), sin esperar el cron de 15 min.
+
+## API pública de n8n
+
+Habilitada y probada exitosamente en esta sesión. Útil para consultar IDs, y en el futuro para sincronizar sin copiar/pegar manualmente en la UI.
+
+### Habilitar
+
+n8n → **Settings → n8n API → Create an API Key**. Guarda la key de forma segura (nunca en el repo ni en texto plano compartido) — en PowerShell, captúrala así para no dejarla en el historial de comandos:
+```powershell
+$n8nApiKey = Read-Host "Pega tu n8n API key" -AsSecureString
+$cred = New-Object System.Management.Automation.PSCredential("apikey", $n8nApiKey)
+$plainApiKey = $cred.GetNetworkCredential().Password
+```
+
+### Autenticación
+
+Header `X-N8N-API-KEY: <key>`, base URL `https://n8n.gestorconsultoria.com.co/api/v1`.
+
+### Listar workflows (para encontrar IDs)
+
+```powershell
+$workflows = Invoke-RestMethod -Uri "https://n8n.gestorconsultoria.com.co/api/v1/workflows" -Headers @{ "X-N8N-API-KEY" = $plainApiKey }
+$workflows.data | Select-Object id, name | Format-Table -AutoSize
+```
+
+### Sincronización n8n → repo (PULL — proceso manual, usado durante toda esta sesión)
+
+Hoy el flujo real es: se edita el workflow en la UI de n8n, y luego hay que traer esos cambios de vuelta al JSON del repo para que siga siendo la fuente de verdad documentada. Dos formas de hacerlo:
+
+**Opción A — Manual desde la UI (la usada en la práctica):**
+1. En n8n, abre el workflow → menú `⋯` (tres puntos, arriba a la derecha) → **Download**.
+2. Reemplaza el archivo correspondiente en `n8n-workflows/` con el JSON descargado.
+
+**Opción B — Vía API (equivalente, sin salir de la terminal):**
+```powershell
+$id = "yggk1wajL1tsmABi"  # o "96qAStQwfrHAVXRd" para workflow2-monitor
+$resp = Invoke-RestMethod -Uri "https://n8n.gestorconsultoria.com.co/api/v1/workflows/$id" -Headers @{ "X-N8N-API-KEY" = $plainApiKey }
+$resp | ConvertTo-Json -Depth 20 | Out-File "n8n-workflows/workflow1-market-decision.json" -Encoding utf8
+```
+Ajusta el nombre del archivo destino según el `$id` que estés trayendo.
+
+### Sincronización repo → n8n (PUSH — NO probado todavía, documentado para cuando se valide)
+
+La idea sería usar `PUT /api/v1/workflows/{id}` con el JSON del repo como body, para actualizar el workflow en n8n sin copiar/pegar nodo por nodo en la UI:
+
+```powershell
+$id = "96qAStQwfrHAVXRd"
+$body = Get-Content "n8n-workflows/workflow2-monitor.json" -Raw
+Invoke-RestMethod -Uri "https://n8n.gestorconsultoria.com.co/api/v1/workflows/$id" -Method PUT -Headers @{ "X-N8N-API-KEY" = $plainApiKey; "Content-Type" = "application/json" } -Body $body
+```
+
+**⚠️ Antes de confiar en esto (pendiente de validar, no probado por falta de tiempo en esta sesión):**
+- La API pública de n8n típicamente espera solo `{name, nodes, connections, settings, staticData}` en el body de `PUT /workflows/{id}` — puede que rechace el JSON tal cual si incluye campos de solo lectura (`id`, `versionId`, `meta`, `shared`, `tags`, `active`). Puede requerir limpiar el JSON antes de enviarlo.
+- Probar primero contra un workflow de prueba/descartable, **nunca directo contra `workflow1-market-decision` o `workflow2-monitor` en producción** sin backup.
+- Hacer un `GET` (backup) antes de cada `PUT`, por si hay que revertir.
+- Activar/desactivar el workflow es un endpoint aparte (`POST /workflows/{id}/activate` / `/deactivate`), un `PUT` normal no debería tocar ese estado, pero hay que confirmarlo.
 
 ## Cómo importar
 
@@ -42,3 +114,4 @@ Cualquier cambio a estas variables de entorno requiere recrear el contenedor de 
 - Workflow 2 completo (refresh + check-close + notificaciones) contra un grid RUNNING real.
 - Suite de tests del backend tras el fix de `place_batch_orders` (`-1007`).
 - Nombres exactos de parámetros de nodos pueden variar levemente según la versión de n8n instalada — si algo no importa limpio, ajusta en la UI (ya nos pasó con el nodo IF y el body JSON).
+- Sincronización **repo → n8n vía API** (`PUT /workflows/{id}`, ver sección de arriba) — documentada pero no probada, falta tiempo/validación.
