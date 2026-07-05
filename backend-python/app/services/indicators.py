@@ -118,11 +118,9 @@ def calculate_grid_bounds(
     return {"lower_price": lower_price, "upper_price": upper_price}
 
 
-def calculate_grid_pnl(orders: List[Dict[str, Any]], current_price: Decimal) -> Dict[str, Decimal]:
+def calculate_grid_pnl(orders: List[Dict[str, Any]], current_price: Decimal, fee_rate: Decimal = Decimal("0.0002")) -> Dict[str, Decimal]:
     """
-    Pure PnL calculation over a grid's orders. No I/O, no DB access - the
-    caller is responsible for fetching `orders` (e.g. via GridService) and
-    an up to date `current_price` beforehand.
+    Pure PnL calculation over a grid's orders with fee deduction. No I/O, no DB access.
 
     Now uses executed_qty (actual fills) instead of status == "FILLED". This way:
     - FILLED orders: executed_qty = full quantity
@@ -133,13 +131,14 @@ def calculate_grid_pnl(orders: List[Dict[str, Any]], current_price: Decimal) -> 
         avg_buy_price  = total buy cost   / total filled buy qty
         avg_sell_price = total sell value / total filled sell qty
         matched_qty    = min(filled buy qty, filled sell qty)
-        realized_pnl   = matched_qty * (avg_sell_price - avg_buy_price)
+        realized_pnl   = matched_qty * (avg_sell_price - avg_buy_price) - fees
     Any unmatched quantity is valued against current_price as unrealized_pnl.
 
     Args:
         orders: order dicts with "side", "price", "quantity", "executed_qty", "avg_fill_price"
                 (price/quantity accepted as str or Decimal).
         current_price: anchor price used to value unmatched inventory.
+        fee_rate: commission rate per side (default 0.02% = 0.0002 for maker/taker blend).
 
     Returns:
         dict with realized_pnl, unrealized_pnl, total_pnl, net_position_qty,
@@ -173,7 +172,10 @@ def calculate_grid_pnl(orders: List[Dict[str, Any]], current_price: Decimal) -> 
     avg_sell_price = (sell_proceeds / sell_qty) if sell_qty > 0 else Decimal("0")
 
     matched_qty = min(buy_qty, sell_qty)
-    realized_pnl = matched_qty * (avg_sell_price - avg_buy_price) if matched_qty > 0 else Decimal("0")
+    # Deduct fees from both buy and sell to get net realized PnL
+    buy_fees = matched_qty * avg_buy_price * fee_rate
+    sell_fees = matched_qty * avg_sell_price * fee_rate
+    realized_pnl = matched_qty * (avg_sell_price - avg_buy_price) - buy_fees - sell_fees if matched_qty > 0 else Decimal("0")
 
     net_position_qty = buy_qty - sell_qty
     if net_position_qty > 0:

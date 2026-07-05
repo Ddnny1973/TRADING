@@ -267,7 +267,7 @@ async def refresh_grid_orders(grid_id: str):
     # Replenish filled orders to create continuous grid cycles
     replenished = await grid_service.replenish_filled_orders(grid_id)
     if replenished > 0:
-        grid = await grid_service.get_grid(grid_id)
+        grid = grid_service.get_grid(grid_id)
 
     return grid
 
