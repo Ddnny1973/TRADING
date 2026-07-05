@@ -241,7 +241,7 @@ docker volume inspect <volume_name>
 - `api-endpoints.md` — Referencia detallada de endpoints
 - `workflow1-market-decision.md` — Especificación de Workflow 1
 - `workflow2-monitor.md` — Especificación de Workflow 2
-- `n8n-templates/SETUP.md` — Setup de n8n workflows
+- `../n8n-workflows/README.md` — Setup de n8n workflows (importar desde ahí)
 
 ---
 

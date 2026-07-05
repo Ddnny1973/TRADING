@@ -98,12 +98,13 @@ Se ha implementado un **sistema autónomo de grid trading** que:
 | `docs/manual-qa-runbook.md` | **QA manual paso a paso (NUEVO)** | ✅ |
 | `docs/qa-quick-reference.md` | **Referencia rápida de comandos (NUEVO)** | ✅ |
 
-### Templates n8n
+### Workflows n8n Operativos
 
 | Archivo | Contenido | Estado |
 |---------|-----------|--------|
-| `docs/n8n-templates/workflow1-market-decision.json` | WF1 importable | ✅ |
-| `docs/n8n-templates/workflow2-monitor.json` | WF2 importable | ✅ |
+| `n8n-workflows/workflow1-market-decision.json` | WF1 importable (corregido, operativo) | ✅ |
+| `n8n-workflows/workflow2-monitor.json` | WF2 importable (corregido, operativo) | ✅ |
+| `n8n-workflows/README.md` | Guía de setup | ✅ |
 
 ---
 
@@ -179,9 +180,10 @@ docker-compose up -d
 ### 2. Importar Workflows n8n
 - Abre n8n UI (http://localhost:5678)
 - Create New → Import from File
-- Importa `docs/n8n-templates/workflow1-market-decision.json`
-- Importa `docs/n8n-templates/workflow2-monitor.json`
+- Importa `n8n-workflows/workflow1-market-decision.json` ⭐
+- Importa `n8n-workflows/workflow2-monitor.json` ⭐
 - Configura credenciales (Backend URL, Telegram, OpenAI)
+- Lee `n8n-workflows/README.md` para setup detallado
 
 ### 3. Validar Conexión
 ```bash
@@ -205,7 +207,7 @@ curl http://localhost:8000/health
 
 **Para empezar:**
 1. Leer: `readme.md` (visión general)
-2. Leer: `docs/n8n-templates/SETUP.md` (setup n8n)
+2. Leer: `n8n-workflows/README.md` (setup n8n) ⭐
 3. Ejecutar: `docs/manual-qa-runbook.md` (validar sistema)
 
 **Para debugging:**

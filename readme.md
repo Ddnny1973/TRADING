@@ -256,7 +256,10 @@ TRADING/
     └── development-guide.md
 ```
 
-**Pendiente de crear:** `n8n-workflows/` (orquestación, workflows de n8n).
+├── n8n-workflows/                 # ⭐ WORKFLOWS OPERATIVOS (importar en n8n)
+    ├── README.md                  # Guía de setup
+    ├── workflow1-market-decision.json
+    └── workflow2-monitor.json
 
 ---
 
@@ -268,13 +271,14 @@ TRADING/
 - [x] Stop Loss / Take Profit por grid
 - [x] Colocación de órdenes por lotes (batch) y reintentos ante errores de gateway
 - [x] Suite de Tests automatizada (54 pruebas, `pytest backend-python/`)
-- [ ] Integrar n8n Workflow 1 (consume `GET /api/v1/market-analysis` para decidir si crear grid vía `POST /api/v1/grids`, con manejo de reintentos — ver [workflow1-market-decision.md](docs/workflow1-market-decision.md) y [n8n-integration-strategy.md](docs/n8n-integration-strategy.md))
-- [ ] Integrar n8n Workflow 2 (monitorea grids cada 15 min, sincroniza órdenes, evalúa SL/TP — ver [workflow2-monitor.md](docs/workflow2-monitor.md))
+- [x] n8n Workflow 1 (Market Decision) — importable desde `n8n-workflows/workflow1-market-decision.json`
+- [x] n8n Workflow 2 (Grid Monitor) — importable desde `n8n-workflows/workflow2-monitor.json`
+- [x] QA Manual Runbook — 10 tests paso a paso en `docs/manual-qa-runbook.md`
 - [ ] Establecer Rate Limit Manager (Redis) — contenedor desplegado, sin lógica de rate limiting en el código aún
-- [ ] Notificaciones Telegram / WhatsApp
+- [ ] Notificaciones WhatsApp (Telegram ya implementado)
 - [ ] Streaming de mercado vía WebSocket (hoy es polling REST)
-- [ ] Crear Suite de Tests automatizada
-- [ ] Scheduler interno para `/refresh` y `/check-close` (hoy se asume un llamador externo)
+- [ ] Scheduler interno para `/refresh` y `/check-close` (hoy se asume un llamador externo via n8n)
+- [ ] Stop de respaldo nativo en Binance (opcional, mejora P2)
 
 ---
 
