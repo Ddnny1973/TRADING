@@ -1,5 +1,7 @@
 # n8n Workflow Templates Setup Guide
 
+> **Nota (2026-07-04):** Los archivos operativos/actualizados para importar viven ahora en [`n8n-workflows/`](../../n8n-workflows/README.md) en la raíz del repo (corrigen varios bugs de estas plantillas: propagación de `symbol`, ramas invertidas en Workflow 2, proveedor de IA cambiado a Gemini, etc.). Este documento se conserva como referencia narrativa/histórica.
+
 ## Overview
 
 This directory contains two production-ready n8n workflow templates for the Grid Trading system:
