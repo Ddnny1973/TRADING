@@ -4,6 +4,7 @@ Main entry point for the trading engine microservice
 """
 
 from typing import List
+import logging
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
@@ -17,6 +18,13 @@ from app.services.grid_service import GridService
 from app.services.indicators import calculate_atr, calculate_grid_bounds, calculate_position_size
 from decimal import Decimal
 
+# Configure logging (Paso 13)
+logging.basicConfig(
+    level=getattr(logging, settings.LOG_LEVEL, "INFO"),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger("grid_trading")
+
 grid_service = GridService()
 
 
@@ -26,16 +34,20 @@ async def lifespan(app: FastAPI):
     Lifespan context manager for startup and shutdown events
     """
     # Startup
-    print("🚀 Starting Grid Trading Backend...")
+    logger.info("🚀 Starting Grid Trading Backend...")
     init_db()
     server_time = await grid_service.binance.time_sync.sync_time()
     if server_time:
-        print(f"✅ Time synced with Binance. Offset: {grid_service.binance.time_sync.time_offset}ms")
+        logger.info(f"✅ Time synced with Binance. Offset: {grid_service.binance.time_sync.time_offset}ms")
     else:
-        print("⚠️  Could not sync time with Binance. Using local clock.")
+        logger.warning("⚠️  Could not sync time with Binance. Using local clock.")
+    logger.info(f"Config: MAX_CONCURRENT_GRIDS={settings.MAX_CONCURRENT_GRIDS}, "
+                f"DEFAULT_RISK_PCT={settings.DEFAULT_RISK_PCT}, "
+                f"DEFAULT_LEVERAGE={settings.DEFAULT_LEVERAGE}")
     yield
     # Shutdown
-    print("🛑 Shutting down Grid Trading Backend...")
+    logger.info("🛑 Shutting down Grid Trading Backend...")
+    await grid_service.binance.close_session()
 
 
 app = FastAPI(
@@ -56,21 +68,30 @@ app = FastAPI(
 @app.get("/health", tags=["Health"])
 async def health_check():
     """Health check endpoint for Docker container"""
+    # Quick status check
+    binance_ok = grid_service.binance.time_sync.time_offset is not None
     return {
         "status": "healthy",
         "service": "grid-trading-backend",
-        "version": "0.1.0"
+        "version": "0.1.0",
+        "binance_synced": binance_ok,
+        "time_offset_ms": grid_service.binance.time_sync.time_offset or "unknown"
     }
 
 
 @app.get("/", tags=["Info"])
 async def root():
-    """Root endpoint with API information"""
+    """Root endpoint with API information and system status"""
+    running_grids = grid_service.list_grids(status="RUNNING")
     return {
         "service": "Grid Trading Hybrid - Backend",
         "status": "ready",
         "api_version": "v1",
-        "docs": "/api/docs"
+        "docs": "/api/docs",
+        "running_grids": len(running_grids),
+        "max_concurrent_grids": settings.MAX_CONCURRENT_GRIDS,
+        "default_risk_pct": settings.DEFAULT_RISK_PCT,
+        "default_leverage": settings.DEFAULT_LEVERAGE,
     }
 
 
@@ -146,6 +167,10 @@ async def analyze_market(symbol: str, atr_period: int = 14, atr_multiplier: floa
         if usdt_balance is None or usdt_balance <= 0:
             raise ValueError("No available USDT balance in account")
 
+        # Calculate allocated capital and suggested SL
+        capital_asignado = usdt_balance * Decimal(str(effective_risk_pct))
+        suggested_sl = capital_asignado * Decimal("0.5")  # SL at 50% of allocated capital
+
         quantity = calculate_position_size(
             usdt_balance,
             Decimal(str(effective_risk_pct)),
@@ -154,6 +179,8 @@ async def analyze_market(symbol: str, atr_period: int = 14, atr_multiplier: floa
             Decimal(str(bounds["upper_price"]))
         )
         response["suggested_quantity_per_order"] = float(quantity)
+        response["allocated_capital"] = float(capital_asignado)
+        response["suggested_stop_loss"] = float(suggested_sl)
 
     return response
 
@@ -223,13 +250,25 @@ async def cancel_grid(grid_id: str):
 @app.post("/api/v1/grids/{grid_id}/refresh", response_model=GridDetailResponse, tags=["Grids"])
 async def refresh_grid_orders(grid_id: str):
     """
-    Pull the latest order status from Binance for this grid's open orders
-    and update local state. Intended to be called periodically by the
-    external orchestrator (cron/workflow), not on an internal timer.
+    Refresh grid order status from Binance and replenish filled orders.
+
+    Steps:
+    1. Sync order status with Binance (fills, cancellations, etc.)
+    2. Replenish filled orders: for each FILLED order, place the opposite
+       order at the adjacent grid level (if available)
+
+    Intended to be called periodically by the external orchestrator
+    (Workflow 2 every 15 min). Handles Fase 3 grid cycling.
     """
     grid = await grid_service.refresh_order_status(grid_id)
     if not grid:
         raise HTTPException(status_code=404, detail="Grid not found")
+
+    # Replenish filled orders to create continuous grid cycles
+    replenished = await grid_service.replenish_filled_orders(grid_id)
+    if replenished > 0:
+        grid = await grid_service.get_grid(grid_id)
+
     return grid
 
 

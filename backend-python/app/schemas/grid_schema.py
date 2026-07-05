@@ -139,6 +139,8 @@ class MarketAnalysisResponse(BaseModel):
     suggested_upper_price: float
     suggested_range: float  # upper - lower
     suggested_quantity_per_order: Optional[float] = None  # Included if risk_pct param provided
+    allocated_capital: Optional[float] = None  # Total capital assigned to grid (balance * risk_pct)
+    suggested_stop_loss: Optional[float] = None  # Recommended SL = 50% of allocated_capital
 
     class Config:
         json_schema_extra = {
@@ -153,5 +155,7 @@ class MarketAnalysisResponse(BaseModel):
                 "suggested_upper_price": 42900.0,
                 "suggested_range": 800.0,
                 "suggested_quantity_per_order": 0.001,
+                "allocated_capital": 200.0,
+                "suggested_stop_loss": 100.0,
             }
         }

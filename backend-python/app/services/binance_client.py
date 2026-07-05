@@ -19,8 +19,13 @@ class BinanceClient:
     """
     Async HTTP client for Binance Futures API
     Handles authentication and request management
+
+    Uses a single aiohttp.ClientSession (lazy-initialized) to avoid:
+    - Excessive socket overhead (new session = new sockets)
+    - Connection pool waste
+    - Time sync on every request (cached with sync_if_stale())
     """
-    
+
     def __init__(self):
         """Initialize Binance client"""
         self.security = BinanceSecurityManager(
@@ -29,7 +34,79 @@ class BinanceClient:
         )
         self.time_sync = BinanceTimeSync(settings.BINANCE_TESTNET_URL)
         self.base_url = settings.BINANCE_TESTNET_URL
-    
+        self._session: Optional[aiohttp.ClientSession] = None
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """Lazy-initialize and return the session"""
+        if self._session is None:
+            self._session = aiohttp.ClientSession()
+        return self._session
+
+    async def close_session(self) -> None:
+        """Close the session (call on shutdown)"""
+        if self._session:
+            await self._session.close()
+            self._session = None
+
+    async def _signed_request(self, method: str, endpoint: str, params: Dict[str, Any],
+                             max_retries: int = 3) -> Optional[Dict[str, Any]]:
+        """
+        Execute a signed request with time sync, 429/418 handling, and retries.
+
+        Args:
+            method: HTTP method (GET, POST, DELETE)
+            endpoint: Binance endpoint (e.g., /fapi/v1/order)
+            params: Request parameters (will be signed)
+            max_retries: Retry attempts on 429/418
+
+        Returns:
+            Parsed JSON response, or None if all retries failed
+        """
+        await self.time_sync.sync_if_stale()
+        params["timestamp"] = self.time_sync.get_adjusted_time()
+        params["recvWindow"] = settings.BINANCE_RECV_WINDOW
+        params["signature"] = self.security.generate_signature(params)
+
+        session = await self._get_session()
+        url = f"{self.base_url}{endpoint}"
+        headers = self.security.get_headers()
+        timeout = aiohttp.ClientTimeout(total=15)
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                async with session.request(method, url, params=params, headers=headers, timeout=timeout) as r:
+                    if r.status in (200, 201):
+                        return await r.json()
+
+                    if r.status in (429, 418):  # Rate limit or IP banned
+                        retry_after = int(r.headers.get("Retry-After", 60))
+                        if attempt < max_retries:
+                            print(f"Rate limited (HTTP {r.status}), retry after {retry_after}s")
+                            await asyncio.sleep(retry_after)
+                            continue
+                        else:
+                            print(f"Rate limited, max retries exceeded")
+                            return None
+
+                    # Other errors - don't retry
+                    error_text = await r.text()
+                    print(f"{method} {endpoint} error {r.status}: {error_text}")
+                    return None
+
+            except asyncio.TimeoutError:
+                if attempt < max_retries:
+                    await asyncio.sleep(attempt * 1.5)
+                    continue
+                return None
+            except Exception as e:
+                print(f"Exception in _signed_request (attempt {attempt}): {e}")
+                if attempt < max_retries:
+                    await asyncio.sleep(attempt * 1.5)
+                    continue
+                return None
+
+        return None
+
     async def get_exchange_info(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
         Get exchange info for a symbol
@@ -82,23 +159,52 @@ class BinanceClient:
 
         return None
 
-    async def get_mark_price(self, symbol: str) -> Optional[Dict[str, Any]]:
+    async def get_last_price(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
-        Get current mark price for a symbol
+        Get last traded price for a symbol (from /fapi/v1/ticker/price).
+
+        Use this for calculating grid bounds (reflects actual market level).
 
         Args:
             symbol: Trading pair (e.g., BTCUSDT)
 
         Returns:
-            Dict with 'price' key or None if request fails
+            Dict with 'symbol' and 'price' keys, or None if request fails
         """
         try:
             url = f"{self.base_url}/fapi/v1/ticker/price"
             timeout = aiohttp.ClientTimeout(total=15)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url, params={"symbol": symbol}) as response:
-                    if response.status == 200:
-                        return await response.json()
+            session = await self._get_session()
+            async with session.get(url, params={"symbol": symbol}, timeout=timeout) as response:
+                if response.status == 200:
+                    return await response.json()
+        except Exception as e:
+            print(f"Error fetching last price: {e}")
+        return None
+
+    async def get_mark_price(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        Get real mark price for a symbol (from /fapi/v1/premiumIndex).
+
+        Mark price = index price (reference price) + funding basis.
+        This is the price Binance uses to value your position and trigger liquidations.
+        Use this for PnL calculations.
+
+        Args:
+            symbol: Trading pair (e.g., BTCUSDT)
+
+        Returns:
+            Dict with 'markPrice' key, or None if request fails
+        """
+        try:
+            url = f"{self.base_url}/fapi/v1/premiumIndex"
+            timeout = aiohttp.ClientTimeout(total=15)
+            session = await self._get_session()
+            async with session.get(url, params={"symbol": symbol}, timeout=timeout) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    # Binance returns markPrice as string, return as dict with 'price' for compatibility
+                    return {"symbol": symbol, "price": data.get("markPrice")}
         except Exception as e:
             print(f"Error fetching mark price: {e}")
         return None
@@ -403,4 +509,257 @@ class BinanceClient:
         except Exception as e:
             print(f"Error fetching account balance: {e}")
 
+        return None
+
+    async def cancel_all_open_orders(self, symbol: str) -> bool:
+        """
+        Cancel all open orders for a symbol in a single atomic call.
+
+        Uses DELETE /fapi/v1/allOpenOrders which is safer than canceling
+        individual orders (avoids race conditions with fills).
+
+        Args:
+            symbol: Trading pair
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            await self.time_sync.sync_if_stale()
+            params = {
+                "symbol": symbol,
+                "timestamp": self.time_sync.get_adjusted_time(),
+                "recvWindow": settings.BINANCE_RECV_WINDOW,
+            }
+            params["signature"] = self.security.generate_signature(params)
+            url = f"{self.base_url}/fapi/v1/allOpenOrders"
+            headers = self.security.get_headers()
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.delete(url, params=params, headers=headers) as r:
+                    return r.status == 200
+        except Exception as e:
+            print(f"Error canceling all open orders: {e}")
+        return False
+
+    async def get_position(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        Get current position (net positionAmt) for a symbol.
+
+        Uses GET /fapi/v2/positionRisk to fetch the position with current
+        unrealized PnL and other metadata.
+
+        Args:
+            symbol: Trading pair
+
+        Returns:
+            Dict with position data (positionAmt, unrealizedProfit, etc.) or None if failed
+        """
+        try:
+            await self.time_sync.sync_if_stale()
+            params = {
+                "symbol": symbol,
+                "timestamp": self.time_sync.get_adjusted_time(),
+                "recvWindow": settings.BINANCE_RECV_WINDOW,
+            }
+            params["signature"] = self.security.generate_signature(params)
+            url = f"{self.base_url}/fapi/v2/positionRisk"
+            headers = self.security.get_headers()
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url, params=params, headers=headers) as r:
+                    if r.status == 200:
+                        data = await r.json()
+                        return data[0] if data else None
+        except Exception as e:
+            print(f"Error fetching position: {e}")
+        return None
+
+    async def place_market_close(self, symbol: str, position_amt: Decimal) -> Optional[Dict[str, Any]]:
+        """
+        Close (reduce) a position with a MARKET order and reduceOnly flag.
+
+        This ensures we cannot accidentally open a position in the opposite
+        direction if the net positionAmt is already zero.
+
+        Args:
+            symbol: Trading pair
+            position_amt: Signed quantity (positive = long to sell, negative = short to buy)
+
+        Returns:
+            Order response if successful, None otherwise
+        """
+        side = "SELL" if position_amt > 0 else "BUY"
+        try:
+            await self.time_sync.sync_if_stale()
+            params = {
+                "symbol": symbol,
+                "side": side,
+                "type": "MARKET",
+                "quantity": str(abs(position_amt)),
+                "reduceOnly": "true",
+                "timestamp": self.time_sync.get_adjusted_time(),
+                "recvWindow": settings.BINANCE_RECV_WINDOW,
+            }
+            params["signature"] = self.security.generate_signature(params)
+            url = f"{self.base_url}/fapi/v1/order"
+            headers = self.security.get_headers()
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, params=params, headers=headers) as r:
+                    if r.status in (200, 201):
+                        return await r.json()
+                    error_text = await r.text()
+                    print(f"Error closing position: {r.status} - {error_text}")
+        except Exception as e:
+            print(f"Exception closing position: {e}")
+        return None
+
+    async def ensure_symbol_settings(self, symbol: str, leverage: int = 1,
+                                     margin_type: str = "ISOLATED") -> bool:
+        """
+        Set leverage and margin type for a symbol. Idempotent.
+
+        Tolerates -4046 (no need to change) which indicates the setting
+        is already correct.
+
+        Args:
+            symbol: Trading pair
+            leverage: Leverage multiplier (1 = no leverage)
+            margin_type: "ISOLATED" or "CROSS"
+
+        Returns:
+            True if successfully set or already at the desired value, False otherwise
+        """
+        ok = True
+        for endpoint, params in [
+            ("/fapi/v1/leverage", {"symbol": symbol, "leverage": leverage}),
+            ("/fapi/v1/marginType", {"symbol": symbol, "marginType": margin_type}),
+        ]:
+            try:
+                await self.time_sync.sync_if_stale()
+                p = {
+                    **params,
+                    "timestamp": self.time_sync.get_adjusted_time(),
+                    "recvWindow": settings.BINANCE_RECV_WINDOW,
+                }
+                p["signature"] = self.security.generate_signature(p)
+                timeout = aiohttp.ClientTimeout(total=15)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.post(
+                        f"{self.base_url}{endpoint}", params=p,
+                        headers=self.security.get_headers()
+                    ) as r:
+                        if r.status == 200:
+                            continue
+                        body = await r.json()
+                        if body.get("code") == -4046:
+                            continue
+                        print(f"ensure_symbol_settings {endpoint}: {r.status} {body}")
+                        ok = False
+            except Exception as e:
+                print(f"ensure_symbol_settings error: {e}")
+                ok = False
+        return ok
+
+    async def is_one_way_mode(self) -> Optional[bool]:
+        """
+        Check if account is in one-way position mode (not hedge/dual mode).
+
+        GET /fapi/v1/positionSide/dual returns dualSidePosition flag.
+        Returns True if one-way (dualSidePosition=False), False if hedge mode.
+
+        Returns:
+            True if one-way, False if hedge, None if request failed
+        """
+        try:
+            await self.time_sync.sync_if_stale()
+            params = {
+                "timestamp": self.time_sync.get_adjusted_time(),
+                "recvWindow": settings.BINANCE_RECV_WINDOW,
+            }
+            params["signature"] = self.security.generate_signature(params)
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(
+                    f"{self.base_url}/fapi/v1/positionSide/dual",
+                    params=params,
+                    headers=self.security.get_headers()
+                ) as r:
+                    if r.status == 200:
+                        return not (await r.json()).get("dualSidePosition", False)
+        except Exception as e:
+            print(f"Error checking position mode: {e}")
+        return None
+
+    async def get_commission_rate(self, symbol: str) -> Optional[Dict[str, Decimal]]:
+        """
+        Get actual commission rates for a symbol (respects VIP level, BNB discount).
+
+        GET /fapi/v1/commissionRate returns the account's maker/taker fees
+        for the symbol, already accounting for VIP tier and fee discounts.
+
+        Args:
+            symbol: Trading pair
+
+        Returns:
+            Dict with 'maker' and 'taker' as Decimal, or None if request failed
+        """
+        try:
+            await self.time_sync.sync_if_stale()
+            params = {
+                "symbol": symbol,
+                "timestamp": self.time_sync.get_adjusted_time(),
+                "recvWindow": settings.BINANCE_RECV_WINDOW,
+            }
+            params["signature"] = self.security.generate_signature(params)
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(
+                    f"{self.base_url}/fapi/v1/commissionRate",
+                    params=params,
+                    headers=self.security.get_headers()
+                ) as r:
+                    if r.status == 200:
+                        data = await r.json()
+                        return {
+                            "maker": Decimal(data.get("makerCommissionRate", "0.0002")),
+                            "taker": Decimal(data.get("takerCommissionRate", "0.0004")),
+                        }
+        except Exception as e:
+            print(f"Error fetching commission rate: {e}")
+        return None
+
+    async def get_open_orders(self, symbol: str) -> Optional[List[Dict[str, Any]]]:
+        """
+        Get all open orders for a symbol in a single request.
+
+        GET /fapi/v1/openOrders?symbol= is more efficient than querying
+        each order individually. Returns all non-terminal orders.
+
+        Args:
+            symbol: Trading pair
+
+        Returns:
+            List of order dicts, or None if request failed
+        """
+        try:
+            await self.time_sync.sync_if_stale()
+            params = {
+                "symbol": symbol,
+                "timestamp": self.time_sync.get_adjusted_time(),
+                "recvWindow": settings.BINANCE_RECV_WINDOW,
+            }
+            params["signature"] = self.security.generate_signature(params)
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(
+                    f"{self.base_url}/fapi/v1/openOrders",
+                    params=params,
+                    headers=self.security.get_headers()
+                ) as r:
+                    if r.status == 200:
+                        return await r.json()
+        except Exception as e:
+            print(f"Error fetching open orders: {e}")
         return None

@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     DEFAULT_GRID_LEVELS: int = 10
     DEFAULT_GRID_TYPE: str = "GEOMETRIC"  # GEOMETRIC or ARITHMETIC
     DEFAULT_RISK_PCT: float = 0.02  # Default risk per grid: 2% (1-2% recomendado)
+    DEFAULT_LEVERAGE: int = 1  # No leverage for grids
+    DEFAULT_MARGIN_TYPE: str = "ISOLATED"  # Isolate grid risk from rest of account
+    MIN_STEP_FEE_MULTIPLE: float = 5.0  # Grid step must be >= 5x round-trip fees to be profitable
+    MAX_CONCURRENT_GRIDS: int = 2  # Maximum number of RUNNING grids at the same time
     
     # ==========================================
     # NOTIFICATION CONFIGURATION

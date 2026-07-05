@@ -124,24 +124,20 @@ def calculate_grid_pnl(orders: List[Dict[str, Any]], current_price: Decimal) -> 
     caller is responsible for fetching `orders` (e.g. via GridService) and
     an up to date `current_price` beforehand.
 
-    Only orders with status == "FILLED" count toward realized PnL. Any other
-    status (NEW, PARTIALLY_FILLED, CANCELED, REJECTED, EXPIRED) is ignored.
+    Now uses executed_qty (actual fills) instead of status == "FILLED". This way:
+    - FILLED orders: executed_qty = full quantity
+    - PARTIALLY_FILLED orders: executed_qty = partial amount (counts proportionally)
+    - NEW, CANCELED, REJECTED, EXPIRED: executed_qty = 0 (ignored)
 
-    Known, deliberate limitation: grid_orders stores each order's full
-    requested quantity, not Binance's executedQty, so a PARTIALLY_FILLED
-    order contributes nothing until Binance reports it as fully FILLED.
-
-    Method: filled BUY and SELL quantities are matched against each other.
+    Method: filled BUY and SELL quantities (by executed_qty) are matched.
         avg_buy_price  = total buy cost   / total filled buy qty
         avg_sell_price = total sell value / total filled sell qty
         matched_qty    = min(filled buy qty, filled sell qty)
         realized_pnl   = matched_qty * (avg_sell_price - avg_buy_price)
-    Any unmatched (leftover) quantity is valued against current_price as
-    unrealized_pnl - positive net_position_qty means leftover bought
-    inventory (long), negative means leftover sold inventory (short).
+    Any unmatched quantity is valued against current_price as unrealized_pnl.
 
     Args:
-        orders: order dicts with at least "side", "price", "quantity", "status"
+        orders: order dicts with "side", "price", "quantity", "executed_qty", "avg_fill_price"
                 (price/quantity accepted as str or Decimal).
         current_price: anchor price used to value unmatched inventory.
 
@@ -159,16 +155,19 @@ def calculate_grid_pnl(orders: List[Dict[str, Any]], current_price: Decimal) -> 
     sell_proceeds = Decimal("0")
 
     for order in orders:
-        if order.get("status") != "FILLED":
-            continue
-        qty = _as_decimal(order["quantity"])
-        price = _as_decimal(order["price"])
+        # Use executed_qty instead of status: accounts for partial fills
+        executed = _as_decimal(order.get("executed_qty") or 0)
+        if executed <= 0:
+            continue  # No fills, skip
+        # Use avg_fill_price if available (Binance reports the filled average)
+        # otherwise fall back to order's limit price
+        price = _as_decimal(order.get("avg_fill_price") or 0) or _as_decimal(order["price"])
         if order["side"] == "BUY":
-            buy_qty += qty
-            buy_cost += qty * price
+            buy_qty += executed
+            buy_cost += executed * price
         elif order["side"] == "SELL":
-            sell_qty += qty
-            sell_proceeds += qty * price
+            sell_qty += executed
+            sell_proceeds += executed * price
 
     avg_buy_price = (buy_cost / buy_qty) if buy_qty > 0 else Decimal("0")
     avg_sell_price = (sell_proceeds / sell_qty) if sell_qty > 0 else Decimal("0")
@@ -289,3 +288,45 @@ def calculate_position_size(
     quantity = capital_a_arriesgar / (Decimal(levels) * precio_promedio)
 
     return quantity
+
+
+def validate_grid_step(lower_price: Decimal, upper_price: Decimal, levels: int,
+                       maker_fee: Decimal, min_fee_multiple: Decimal = Decimal("5")) -> None:
+    """
+    Validate that grid step size is large enough to cover fees and make profit.
+
+    The benefit of a single cycle (buy at level i, sell at i+1) is approximately
+    the step percentage. The cost is 2 × maker_fee (entry + exit). We require:
+
+        step_pct >= min_fee_multiple * 2 * maker_fee
+
+    With maker_fee = 0.02% (0.0002) and min_fee_multiple = 5:
+        Required step_pct >= 5 * 2 * 0.02% = 0.2%
+
+    Args:
+        lower_price: Lower bound of grid (Decimal).
+        upper_price: Upper bound of grid (Decimal).
+        levels: Number of grid levels.
+        maker_fee: Maker commission rate as decimal (0.0002 = 0.02%).
+        min_fee_multiple: Multiplier of (2 * maker_fee) that defines minimum step.
+                         Default 5 means step_pct must be at least 5× the round-trip fee.
+
+    Raises:
+        ValueError: if step_pct < min_fee_multiple * 2 * maker_fee.
+    """
+    if levels < 2:
+        # Only 1 level: no cycles possible, skip validation
+        return
+
+    avg_price = (lower_price + upper_price) / Decimal(2)
+    step_size = (upper_price - lower_price) / Decimal(max(levels - 1, 1))
+    step_pct = step_size / avg_price
+
+    min_step_pct = min_fee_multiple * Decimal(2) * maker_fee
+
+    if step_pct < min_step_pct:
+        raise ValueError(
+            f"Grid step {step_pct:.4%} is below minimum {min_step_pct:.4%} "
+            f"(= {min_fee_multiple}x round-trip fees of 2 × {maker_fee:.4%}). "
+            f"Reduce levels or widen the range to make cycles profitable."
+        )

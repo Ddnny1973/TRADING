@@ -96,6 +96,29 @@ def init_sqlite_tables():
         "FOREIGN KEY (grid_id) REFERENCES grids (id))"
     )
 
+    # Add columns for executed quantity, average fill price, and replenish flag (Fase 2 & 3)
+    for column_def in ("executed_qty NUMERIC DEFAULT 0", "avg_fill_price NUMERIC",
+                       "replenished INTEGER DEFAULT 0", "level_index INTEGER", "cycle INTEGER DEFAULT 0"):
+        try:
+            cursor.execute(f"ALTER TABLE grid_orders ADD COLUMN {column_def}")
+        except sqlite3.OperationalError:
+            pass
+
+    # Add grid_type column to grids (needed for replenishment logic)
+    try:
+        cursor.execute("ALTER TABLE grids ADD COLUMN grid_type TEXT")
+    except sqlite3.OperationalError:
+        pass
+
+    # Anti-race index: enforce one RUNNING grid per symbol (Paso 13)
+    try:
+        cursor.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_one_running_per_symbol "
+            "ON grids(symbol) WHERE status = 'RUNNING'"
+        )
+    except sqlite3.OperationalError:
+        pass
+
     conn.commit()
     conn.close()
 
