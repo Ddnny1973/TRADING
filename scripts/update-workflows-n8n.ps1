@@ -162,9 +162,9 @@ function Update-Workflow {
 # MAIN
 # ==========================================
 
-Write-Host "`n╔════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║   Actualizar Workflows en n8n (repo → producción)          ║" -ForegroundColor Cyan
-Write-Host "╚════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host "`n========================================================" -ForegroundColor Cyan
+Write-Host "   Actualizar Workflows en n8n (repo -> produccion)" -ForegroundColor Cyan
+Write-Host "========================================================" -ForegroundColor Cyan
 
 Write-Host "`n📂 Repo root: $RepoRoot" -ForegroundColor Gray
 
@@ -220,9 +220,9 @@ foreach ($workflow in $workflows) {
 }
 
 # Resumen
-Write-Host "`n╔════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║   RESUMEN                                                  ║" -ForegroundColor Cyan
-Write-Host "╚════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host "`n========================================================" -ForegroundColor Cyan
+Write-Host "   RESUMEN" -ForegroundColor Cyan
+Write-Host "========================================================" -ForegroundColor Cyan
 
 if ($successCount -eq $workflows.Count) {
     Write-Host "`n✅ Todos los workflows fueron actualizados exitosamente" -ForegroundColor Green
