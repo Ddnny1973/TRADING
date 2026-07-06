@@ -266,6 +266,62 @@
         },
         {
             "parameters": {
+                "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+                "text": "={{ 'ℹ️ Sin grids en ejecución\\n\\n⏳ Próximo monitoreo: en 5 minutos\\n\\n📋 Status: Esperando nuevas ordenes' }}",
+                "additionalFields": {}
+            },
+            "id": "9e8c3f1a-7b2d-4e5f-9a1c-2d8f5e7c9a3b",
+            "name": "Notify: No Running Grids",
+            "type": "n8n-nodes-base.telegram",
+            "typeVersion": 1.2,
+            "position": [
+                -912,
+                256
+            ],
+            "webhookId": "3e1d2c4b-5f6a-7b8c-9d0e-1f2a3b4c5d6e",
+            "credentials": {
+                "telegramApi": {
+                    "id": "zurDfqIC4Qy17sUA",
+                    "name": "TRADING"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 1
+                    },
+                    "conditions": [
+                        {
+                            "id": "cond_has_grids",
+                            "leftValue": "={{ Array.isArray($json) && $json.length > 0 }}",
+                            "rightValue": true,
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "true",
+                                "singleValue": true
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "d5e6f7g8-h9i0-j1k2-l3m4-n5o6p7q8r9s0",
+            "name": "IF: Hay grids running?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2,
+            "position": [
+                -1024,
+                128
+            ]
+        },
+        {
+            "parameters": {
                 "options": {}
             },
             "id": "eab2aa6d-2a52-4fac-8e83-2f2a7d2317d6",
@@ -523,7 +579,36 @@
             "main": [
                 [
                     {
+                        "node": "IF: Hay grids running?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "IF: Hay grids running?": {
+            "main": [
+                [
+                    {
                         "node": "Split in Batches (Sequential)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Notify: No Running Grids",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Notify: No Running Grids": {
+            "main": [
+                [
+                    {
+                        "node": "Monitor cycle complete",
                         "type": "main",
                         "index": 0
                     }
