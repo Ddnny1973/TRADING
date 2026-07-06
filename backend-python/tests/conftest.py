@@ -38,7 +38,7 @@ from app.main import app, grid_service
 DEFAULT_FILTERS = {
     "tick_size": Decimal("0.10"),
     "step_size": Decimal("0.001"),
-    "min_notional": Decimal("5"),
+    "min_notional": Decimal("50"),  # Binance Futures minimum order size in USDT
 }
 
 DEFAULT_MARK_PRICE = Decimal("42500.00")
@@ -112,11 +112,16 @@ def mock_binance(monkeypatch, order_id_counter):
     mocks = {
         "get_mark_price": AsyncMock(return_value={"symbol": "BTCUSDT", "price": str(DEFAULT_MARK_PRICE)}),
         "get_symbol_filters": AsyncMock(return_value=dict(DEFAULT_FILTERS)),
-        "get_klines": AsyncMock(return_value=None),
+        "get_klines": AsyncMock(return_value=make_klines(count=15, base_price=DEFAULT_MARK_PRICE, spread=Decimal("100"))),
         "place_batch_orders": AsyncMock(side_effect=batch_side_effect),
         "place_limit_order": AsyncMock(side_effect=lambda *a, **k: make_order_response(next(order_id_counter))),
         "cancel_order": AsyncMock(return_value={"status": "CANCELED"}),
         "get_order_status": AsyncMock(return_value=None),
+        "is_one_way_mode": AsyncMock(return_value=True),
+        "ensure_symbol_settings": AsyncMock(return_value=None),
+        "get_open_orders": AsyncMock(return_value=[]),
+        "get_position": AsyncMock(return_value={"positionAmt": "0"}),
+        "get_commission_rate": AsyncMock(return_value={"makerCommission": 0.0002, "takerCommission": 0.0004}),
     }
     for name, mock in mocks.items():
         monkeypatch.setattr(binance, name, mock)

@@ -22,7 +22,7 @@ def create_grid(client, **overrides):
         "upper_price": 45000.0,
         "levels": 10,
         "grid_type": "GEOMETRIC",
-        "quantity_per_order": 0.001,
+        "quantity_per_order": 0.002,  # 0.002 * 40000 = 80 USDT (> min_notional 50)
     }
     payload.update(overrides)
     return client.post("/api/v1/grids", json=payload)
@@ -127,6 +127,8 @@ def test_market_analysis_missing_klines_returns_400(client, mock_binance):
 
 def test_create_grid_manual_bounds(client):
     response = create_grid(client)
+    if response.status_code != 200:
+        print(f"\nDEBUG: Status {response.status_code}: {response.json()}")
     assert response.status_code == 200
 
     data = response.json()
