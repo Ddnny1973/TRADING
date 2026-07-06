@@ -108,16 +108,20 @@ def test_sma_calculation():
     assert all(isinstance(s, float) for s in sma)
 
 def test_pnl_calculation():
-    """PnL realizado se calcula con comisiones"""
-    buy_price = 62500
-    sell_price = 62710
-    quantity = 0.01
+    """PnL realizado se calcula con comisiones Binance (Fase 2: Rentabilidad)"""
+    orders = [
+        {"side": "BUY", "price": 62500, "quantity": 0.01, "status": "FILLED"},
+        {"side": "SELL", "price": 62710, "quantity": 0.01, "status": "FILLED"},
+    ]
+    current_price = Decimal("62710")
     
-    pnl = IndicatorsService.calculate_pnl(
-        buy_price, sell_price, quantity, maker_fee=0.01
+    # calculate_grid_pnl now deducts fees (default fee_rate=0.0002 = 0.02% Binance)
+    pnl = IndicatorsService.calculate_grid_pnl(
+        orders, current_price, fee_rate=0.0002
     )
-    # Debe incluir comisiones
-    assert pnl < (sell_price - buy_price) * quantity
+    # PnL neto debe ser menor que PnL bruto (por comisiones deducidas)
+    gross_pnl = (62710 - 62500) * 0.01  # 2.1 USDT
+    assert pnl["realized_pnl"] < gross_pnl  # Neto < Bruto
 ```
 
 ### test_binance_client.py

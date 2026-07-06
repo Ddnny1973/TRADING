@@ -48,13 +48,16 @@ curl http://localhost:8000/health
 ### Paso 5: Ejecutar Primer Test
 
 ```bash
-# En otra terminal, con backend corriendo:
-curl -X POST http://localhost:8000/market-analysis \
-  -H "Content-Type: application/json" \
-  -d '{"symbol": "BTCUSDT", "interval": "4h"}'
+# Test 1: Health check
+curl http://localhost:8000/health
+# Debe devolver: {"status": "healthy", "service": "grid-trading-backend", ...}
+
+# Test 2: Market Analysis (GET, no POST)
+curl "http://localhost:8000/api/v1/market-analysis/BTCUSDT?atr_period=14&atr_multiplier=2.0&klines_interval=4h"
+# Debe devolver: {symbol, current_price, atr, suggested_lower_price, allocated_capital, suggested_stop_loss}
 ```
 
-Si devuelve datos → **¡Ready!**
+Si ambos devuelven datos → **¡Ready!**
 
 ## Próximos Pasos
 

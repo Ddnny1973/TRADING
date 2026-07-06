@@ -36,35 +36,34 @@ curl http://localhost:8000/health
 
 ## Test 2: Market Analysis
 
-Obtiene datos de mercado (ATR, SMA, precio actual).
+Obtiene datos de mercado (ATR, precios sugeridos, capital + SL automático).
 
 ```bash
-curl -X POST http://localhost:8000/market-analysis \
-  -H "Content-Type: application/json" \
-  -d '{
-    "symbol": "BTCUSDT",
-    "interval": "4h",
-    "atr_period": 14,
-    "sma_period": 50
-  }'
+# GET (no POST), con query params
+curl "http://localhost:8000/api/v1/market-analysis/BTCUSDT?atr_period=14&atr_multiplier=2.0&klines_interval=4h&risk_pct=0.02"
 ```
 
-**Respuesta esperada:**
+**Respuesta esperada (Fase 2: Rentabilidad):**
 ```json
 {
   "symbol": "BTCUSDT",
-  "interval": "4h",
-  "current_price": 63500.50,
-  "atr": 450.25,
-  "sma": 62800.00,
-  "trend": "bullish",
-  "volatility": "medium"
+  "current_price": 42500.0,
+  "atr": 200.0,
+  "atr_period": 14,
+  "atr_multiplier": 2.0,
+  "suggested_lower_price": 42100.0,
+  "suggested_upper_price": 42900.0,
+  "suggested_quantity_per_order": 0.002,
+  "allocated_capital": 85.0,
+  "suggested_stop_loss": 4250.0,
+  "klines_interval": "4h"
 }
 ```
 
 **Si falla:**
-- Symbol incorrecto: usa "BTCUSDT" (con testnet)
-- Binance API error: revisa logs
+- Endpoint incorrecto: debe ser `/api/v1/market-analysis/BTCUSDT` (GET, no POST)
+- Symbol no encontrado: usa "BTCUSDT" o "ETHUSDT"
+- Klines no disponibles: Binance API error, revisa logs
 
 ---
 
