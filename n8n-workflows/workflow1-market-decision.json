@@ -397,11 +397,11 @@
                 "conditions": [
                   {
                     "id": "cond_switch_monitorear",
-                    "leftValue": "={{ $json.message.text }}",
-                    "rightValue": "/monitorear",
+                    "leftValue": "={{ /^\\/monitorea(r|o)?/.test($json.message.text) }}",
+                    "rightValue": "={{ true }}",
                     "operator": {
-                      "type": "string",
-                      "operation": "startsWith"
+                      "type": "boolean",
+                      "operation": "equals"
                     }
                   }
                 ],
