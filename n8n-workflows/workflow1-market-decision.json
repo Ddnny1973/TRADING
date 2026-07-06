@@ -336,14 +336,23 @@
                         {
                             "id": "22825ef6-0b9c-40da-92c6-571fee8f76e8",
                             "leftValue": "={{ $json.message.chat.id }}",
-                            "rightValue": "={{ $env.TELEGRAM_CHAT_ID }}",
+                            "rightValue": 1561962049,
+                            "operator": {
+                                "type": "number",
+                                "operation": "equals"
+                            }
+                        },
+                        {
+                            "id": "22825ef6-0b9c-40da-92c6-571fee8f77e9",
+                            "leftValue": "={{ $json.message.chat.id }}",
+                            "rightValue": 1060878323,
                             "operator": {
                                 "type": "number",
                                 "operation": "equals"
                             }
                         }
                     ],
-                    "combinator": "and"
+                    "combinator": "or"
                 },
                 "looseTypeValidation": true,
                 "options": {}
