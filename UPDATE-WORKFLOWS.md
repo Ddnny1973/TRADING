@@ -1,6 +1,6 @@
 # Script de Actualización de Workflows en n8n
 
-**Archivo:** `update-workflows-n8n.ps1`  
+**Archivo:** `scripts/update-workflows-n8n.ps1`  
 **Propósito:** Sincronizar ambos workflows (repo → n8n producción) via API  
 **Plataforma:** PowerShell 5.1+ (Windows)
 
@@ -8,11 +8,11 @@
 
 ## ⚠️ IMPORTANTE
 
-**Este script NO está en el repo** (está en `.gitignore`). Debes crearlo localmente en tu máquina:
+**Este script NO está en el repo** (la carpeta `scripts/` está en `.gitignore`). Debes crearlo localmente en tu máquina:
 
 ```bash
-# Está en:
-d:\Datos\IA Projects\TRADING\update-workflows-n8n.ps1
+# Ubicación:
+d:\Datos\IA Projects\TRADING\scripts\update-workflows-n8n.ps1
 
 # No se sincroniza a GitHub por seguridad (contiene API keys)
 ```
@@ -30,20 +30,21 @@ d:\Datos\IA Projects\TRADING\update-workflows-n8n.ps1
 
 ## Cómo Usar
 
-### Opción 1: Con API Key en el comando (menos seguro)
+### Opción 1: Pedir API Key al ejecutar (recomendado)
 ```powershell
-.\update-workflows-n8n.ps1 -ApiKey "sk_live_xxxxx"
+cd "d:\Datos\IA Projects\TRADING"
+.\scripts\update-workflows-n8n.ps1
+# Luego pega tu API Key cuando se pida (no se guardará en historial)
 ```
 
-### Opción 2: Pedir API Key al ejecutar (recomendado)
+### Opción 2: Con API Key en el comando (menos seguro)
 ```powershell
-.\update-workflows-n8n.ps1
-# Luego pega tu API Key cuando se pida (no se guardará en historial)
+.\scripts\update-workflows-n8n.ps1 -ApiKey "sk_live_xxxxx"
 ```
 
 ### Opción 3: Con n8n URL personalizada
 ```powershell
-.\update-workflows-n8n.ps1 -N8nUrl "http://localhost:5678" -ApiKey "sk_live_xxxxx"
+.\scripts\update-workflows-n8n.ps1 -N8nUrl "http://localhost:5678" -ApiKey "sk_live_xxxxx"
 ```
 
 ---
@@ -64,6 +65,7 @@ d:\Datos\IA Projects\TRADING\update-workflows-n8n.ps1
 ```
 n8n-workflows/backup-Workflow-1---Market-Decision-20260705-143522.json
 n8n-workflows/backup-Workflow-2---Grid-Monitor-20260705-143522.json
+# (Los backups se crean en la carpeta n8n-workflows/, no en scripts/)
 ```
 
 ---
@@ -139,9 +141,9 @@ n8n-workflows/backup-Workflow-2---Grid-Monitor-20260705-143522.json
 
 ### Error: "Archivo no encontrado"
 ```powershell
-# Verifica que estés en el directorio correcto:
+# Verifica que estés en el directorio correcto (raíz del repo):
 cd "d:\Datos\IA Projects\TRADING"
-.\update-workflows-n8n.ps1
+.\scripts\update-workflows-n8n.ps1
 ```
 
 ### Error: "Settings must NOT have additional properties"
@@ -183,25 +185,39 @@ Antes de actualizar, el script descarga una copia completa del workflow en produ
 
 ```powershell
 # 1. Abre PowerShell como usuario normal (no necesita admin)
-# 2. Navega al repo
+
+# 2. Navega a la raíz del repo
 cd "d:\Datos\IA Projects\TRADING"
 
 # 3. Ejecuta el script (pedirá API key)
-.\update-workflows-n8n.ps1
+.\scripts\update-workflows-n8n.ps1
 
 # 4. En el prompt "API Key", pega tu clave (se oculta mientras escribes)
+
 # 5. Presiona Enter
+
 # 6. Espera a que termine (debe tardar 5-10 segundos)
+#    El script hará:
+#    - Verificar conexión a n8n
+#    - Hacer backup de ambos workflows
+#    - Actualizar workflow1-market-decision.json
+#    - Actualizar workflow2-monitor.json
+#    - Mostrar resumen
 
 # 7. Verifica que dice "✅ Todos los workflows fueron actualizados exitosamente"
 
 # 8. Abre n8n UI y verifica que los cambios se reflejaron:
+#    https://n8n.gestorconsultoria.com.co
 #    - Los nodos deben verse actualizados
 #    - Las notificaciones deben mostrar los nuevos campos
 
 # 9. Prueba manualmente:
 #    - Ejecuta Workflow 1 (debe crear grid con SL correcto)
 #    - Ejecuta Workflow 2 (debe hacer refresh sin error 500)
+
+# 10. Los backups quedarán en:
+#     n8n-workflows/backup-Workflow-1-*-yyyyMMdd-HHmmss.json
+#     n8n-workflows/backup-Workflow-2-*-yyyyMMdd-HHmmss.json
 ```
 
 ---
