@@ -1,4 +1,4 @@
-{
+﻿{
     "name": "workflow2-monitor",
     "nodes": [
         {
@@ -297,13 +297,13 @@
                     "interval": [
                         {
                             "field": "minutes",
-                            "minutesInterval": 15
+                            "minutesInterval": 5
                         }
                     ]
                 }
             },
             "id": "bd5fde97-7f7f-48b9-a9cc-d61df3997e0b",
-            "name": "Cron: Every 15 min",
+            "name": "Cron: Every 5 min",
             "type": "n8n-nodes-base.scheduleTrigger",
             "typeVersion": 1.2,
             "position": [
@@ -337,7 +337,7 @@
         }
     ],
     "pinData": {
-        "Cron: Every 15 min": [
+        "Cron: Every 5 min": [
             {
                 "json": {
                     "timestamp": "2026-07-04T08:15:16.007-05:00",
@@ -541,7 +541,7 @@
                 ]
             ]
         },
-        "Cron: Every 15 min": {
+        "WF-Monitoreo-Trading": {
             "main": [
                 [
                     {
@@ -552,7 +552,7 @@
                 ]
             ]
         },
-        "WF-Monitoreo-Trading": {
+        "Cron: Every 5 min": {
             "main": [
                 [
                     {
