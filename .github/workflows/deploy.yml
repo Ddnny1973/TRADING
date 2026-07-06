@@ -35,7 +35,7 @@ jobs:
 
             echo "==> Rebuilding backend-python (with BuildKit)..."
             export DOCKER_BUILDKIT=1
-            docker compose build --no-cache backend-python
+            docker compose build backend-python
 
             echo "==> Restarting backend-python only (postgres/redis not touched)..."
             docker compose up -d backend-python
