@@ -303,7 +303,7 @@
                 }
             },
             "id": "bd5fde97-7f7f-48b9-a9cc-d61df3997e0b",
-            "name": "Cron: Every 5 min",
+            "name": "Cron: Every 5 min - prueba",
             "type": "n8n-nodes-base.scheduleTrigger",
             "typeVersion": 1.2,
             "position": [
