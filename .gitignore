@@ -3,11 +3,16 @@
 .env.local
 .env.*.local
 
-# Scripts directory (API keys and local development scripts, never committed)
-scripts/
-
 # n8n workflow backups (snapshots taken before PUT via API, local-only)
+# These contain credentials and should never be committed
 n8n-workflows/backup-*.json
+
+# Scripts directory backups (same reason, local-only)
+scripts/backup-*.json
+
+# Note: The script itself (update-workflows-n8n.ps1) is safe to commit
+# because it doesn't contain hardcoded credentials (API key is requested
+# interactively from the user)
 
 # Python
 __pycache__/
