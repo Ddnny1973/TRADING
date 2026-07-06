@@ -141,6 +141,9 @@ class MarketAnalysisResponse(BaseModel):
     suggested_quantity_per_order: Optional[float] = None  # Included if risk_pct param provided
     allocated_capital: Optional[float] = None  # Total capital assigned to grid (balance * risk_pct)
     suggested_stop_loss: Optional[float] = None  # Recommended SL = 50% of allocated_capital
+    min_viable_quantity: Optional[float] = None  # Smallest qty meeting exchange min_notional/step_size
+    grid_viable: Optional[bool] = None  # True if suggested_quantity_per_order >= min_viable_quantity
+    required_risk_pct: Optional[float] = None  # risk_pct needed for the grid to be viable at current balance
 
     class Config:
         json_schema_extra = {

@@ -16,7 +16,7 @@ from app.database.connection import init_db
 from app.schemas.grid_schema import GridRequest, GridResponse, GridDetailResponse, GridPnlResponse, GridCloseCheckResponse, MarketAnalysisResponse
 from app.services.grid_service import GridService
 from app.services.indicators import calculate_atr, calculate_grid_bounds, calculate_position_size
-from decimal import Decimal
+from decimal import Decimal, ROUND_UP
 
 # Configure logging (Paso 13)
 logging.basicConfig(
@@ -181,6 +181,25 @@ async def analyze_market(symbol: str, atr_period: int = 14, atr_multiplier: floa
         response["suggested_quantity_per_order"] = float(quantity)
         response["allocated_capital"] = float(capital_asignado)
         response["suggested_stop_loss"] = float(suggested_sl)
+
+        # Viability check against exchange minimums (min_notional + step_size).
+        # Deterministic and transparent: the endpoint never inflates the
+        # suggested quantity; it reports the minimum viable one so the
+        # orchestrator (WF1) can decide/notify explicitly.
+        filters = await grid_service.binance.get_symbol_filters(symbol)
+        if filters:
+            step = filters["step_size"]
+            lower_bound = Decimal(str(bounds["lower_price"]))
+            upper_bound = Decimal(str(bounds["upper_price"]))
+            # Smallest step-multiple whose notional at the lowest grid level
+            # still clears min_notional (worst case = lower bound).
+            steps_needed = (filters["min_notional"] / lower_bound / step).to_integral_value(rounding=ROUND_UP)
+            min_viable_qty = max(steps_needed * step, step)
+            avg_price = (lower_bound + upper_bound) / 2
+            required_risk_pct = (min_viable_qty * Decimal(levels) * avg_price) / usdt_balance
+            response["min_viable_quantity"] = float(min_viable_qty)
+            response["grid_viable"] = quantity >= min_viable_qty
+            response["required_risk_pct"] = float(required_risk_pct)
 
     return response
 
