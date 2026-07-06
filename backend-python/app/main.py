@@ -187,19 +187,21 @@ async def analyze_market(symbol: str, atr_period: int = 14, atr_multiplier: floa
         # suggested quantity; it reports the minimum viable one so the
         # orchestrator (WF1) can decide/notify explicitly.
         filters = await grid_service.binance.get_symbol_filters(symbol)
-        if filters:
-            step = filters["step_size"]
-            lower_bound = Decimal(str(bounds["lower_price"]))
-            upper_bound = Decimal(str(bounds["upper_price"]))
-            # Smallest step-multiple whose notional at the lowest grid level
-            # still clears min_notional (worst case = lower bound).
-            steps_needed = (filters["min_notional"] / lower_bound / step).to_integral_value(rounding=ROUND_UP)
-            min_viable_qty = max(steps_needed * step, step)
-            avg_price = (lower_bound + upper_bound) / 2
-            required_risk_pct = (min_viable_qty * Decimal(levels) * avg_price) / usdt_balance
-            response["min_viable_quantity"] = float(min_viable_qty)
-            response["grid_viable"] = quantity >= min_viable_qty
-            response["required_risk_pct"] = float(required_risk_pct)
+        # Fallback to known Binance Futures minimums if exchange info unavailable.
+        min_notional = filters["min_notional"] if filters else Decimal("50")
+        step = filters["step_size"] if filters else Decimal("0.001")
+
+        lower_bound = Decimal(str(bounds["lower_price"]))
+        upper_bound = Decimal(str(bounds["upper_price"]))
+        # Smallest step-multiple whose notional at the lowest grid level
+        # still clears min_notional (worst case = lower bound).
+        steps_needed = (min_notional / lower_bound / step).to_integral_value(rounding=ROUND_UP)
+        min_viable_qty = max(steps_needed * step, step)
+        avg_price = (lower_bound + upper_bound) / 2
+        required_risk_pct = (min_viable_qty * Decimal(levels) * avg_price) / usdt_balance
+        response["min_viable_quantity"] = float(min_viable_qty)
+        response["grid_viable"] = quantity >= min_viable_qty
+        response["required_risk_pct"] = float(required_risk_pct)
 
     return response
 

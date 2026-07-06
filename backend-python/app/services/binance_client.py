@@ -119,11 +119,11 @@ class BinanceClient:
         """
         try:
             url = f"{self.base_url}/fapi/v1/exchangeInfo"
-            timeout = aiohttp.ClientTimeout(total=15)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url, params={"symbol": symbol}) as response:
-                    if response.status == 200:
-                        return await response.json()
+            session = await self._get_session()
+            async with session.get(url, params={"symbol": symbol}) as response:
+                if response.status == 200:
+                    return await response.json()
+                print(f"Error fetching exchange info: HTTP {response.status}")
         except Exception as e:
             print(f"Error fetching exchange info: {e}")
         return None
