@@ -44,11 +44,12 @@ def _mark_order_filled(order_id: str) -> None:
 def test_health_check(client):
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {
-        "status": "healthy",
-        "service": "grid-trading-backend",
-        "version": "0.1.0",
-    }
+    data = response.json()
+    assert data["status"] == "healthy"
+    assert data["service"] == "grid-trading-backend"
+    assert data["version"] == "0.1.0"
+    assert "binance_synced" in data
+    assert "time_offset_ms" in data
 
 
 def test_root(client):

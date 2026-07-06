@@ -52,8 +52,18 @@ def test_calculate_grid_bounds_rejects_lower_bound_at_or_below_zero():
         calculate_grid_bounds(Decimal("100"), Decimal("100"), Decimal("2"))
 
 
-def _order(side, price, quantity, status="FILLED"):
-    return {"side": side, "price": price, "quantity": quantity, "status": status}
+def _order(side, price, quantity, status="FILLED", executed_qty=None):
+    """Helper to create order dicts. If executed_qty not specified, default to quantity if FILLED, else 0."""
+    if executed_qty is None:
+        executed_qty = quantity if status == "FILLED" else Decimal("0")
+    return {
+        "side": side,
+        "price": price,
+        "quantity": quantity,
+        "status": status,
+        "executed_qty": executed_qty,
+        "avg_fill_price": price if executed_qty > 0 else Decimal("0"),
+    }
 
 
 def test_calculate_grid_pnl_no_filled_orders_is_all_zero():
@@ -93,9 +103,9 @@ def test_calculate_grid_pnl_unmatched_buy_is_unrealized_long():
 
 def test_calculate_grid_pnl_ignores_non_filled_orders():
     orders = [
-        _order("BUY", "40000", "0.001", status="FILLED"),
-        _order("SELL", "100000", "0.001", status="PARTIALLY_FILLED"),
-        _order("SELL", "999999", "1", status="CANCELED"),
+        _order("BUY", "40000", "0.001", status="FILLED", executed_qty=Decimal("0.001")),
+        _order("SELL", "100000", "0.001", status="PARTIALLY_FILLED", executed_qty=Decimal("0")),
+        _order("SELL", "999999", "1", status="CANCELED", executed_qty=Decimal("0")),
     ]
     pnl = calculate_grid_pnl(orders, current_price=Decimal("40000"))
 
