@@ -14,6 +14,7 @@ jobs:
   deploy:
     name: Deploy via SSH
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - name: Deploy to server
@@ -23,6 +24,8 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SERVER_PORT }}
+          timeout: 600s
+          command_timeout: 600s
           script: |
             set -e
             cd /data/odoo/43
@@ -30,7 +33,8 @@ jobs:
             echo "==> Pulling latest code..."
             git pull origin main
 
-            echo "==> Rebuilding backend-python..."
+            echo "==> Rebuilding backend-python (with BuildKit)..."
+            export DOCKER_BUILDKIT=1
             docker compose build --no-cache backend-python
 
             echo "==> Restarting backend-python only (postgres/redis not touched)..."
@@ -39,7 +43,7 @@ jobs:
             echo "==> Cleaning dangling images..."
             docker image prune -f
 
-            echo "==> Waiting for backend to become healthy..."
+            echo "==> Waiting for backend to become healthy (up to 30s)..."
             for i in $(seq 1 15); do
               STATUS=$(docker inspect --format='{{.State.Health.Status}}' trading-backend 2>/dev/null || echo "starting")
               echo "  attempt $i: $STATUS"
