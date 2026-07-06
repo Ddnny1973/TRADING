@@ -49,49 +49,83 @@
 ### Workflow 1: Market Decision
 **Trigger:** Manual o Cron cada 4 horas  
 **Duración:** ~15-30 segundos  
-**Función:** Analizar mercado y decidir si crear un grid
+**Función:** Analizar mercado, calcular capital + SL, decidir si crear un grid
+
+**Fases Implementadas:**
+- ✅ **Fase 1 (Correctitud):** Real closure, leverage, expiration triggers
+- ✅ **Fase 2 (Rentabilidad):** Fee deduction en PnL, min-step validation
+- ✅ **Fase 3 (Estrategia):** Replenishment y refresh automático
+- ✅ **Fase 4 (Robustez):** Limits concurrentes, HTTP hygiene
 
 **Pasos:**
-1. Fetch market data (ATR, SMA)
-2. Analyzemarket trend con IA (OpenAI/Gemini)
-3. Si bullish → Call `/create-grid` con parámetros dinámicos
-4. Set Stop Loss automático
-5. Notify a Telegram
+1. Fetch market data (ATR, SMA, current price)
+2. Call `/api/v1/market-analysis` → obtiene:
+   - `suggested_lower_price`, `suggested_upper_price` (basados en ATR)
+   - `suggested_quantity_per_order` (tamaño dinámico por risk%)
+   - `allocated_capital` (capital en riesgo calculado)
+   - `suggested_stop_loss` (SL automático basado en PnL)
+3. Analyze market trend con IA (Gemini)
+4. Si bullish → Call `/api/v1/grids` con:
+   - `stop_loss: $json.suggested_stop_loss` (SL real, no null)
+   - `quantity_per_order: $json.suggested_quantity_per_order` (sin Math.max inflation)
+5. Notify a Telegram con capital y SL
 
-**Input:**
+**Input (desde n8n):**
 ```json
 {
   "symbol": "BTCUSDT",
   "klines_interval": "4h",
-  "grid_levels": 15,
-  "risk_pct": 0.02
+  "atr_period": 14,
+  "atr_multiplier": 2.0
 }
 ```
 
-**Output:**
+**Output (Backend Market Analysis):**
 ```json
 {
-  "grid_id": "GRID_20260705_001",
-  "status": "ACTIVE",
-  "lower_price": 62500,
-  "upper_price": 65000,
-  "orders_created": 15
+  "symbol": "BTCUSDT",
+  "current_price": 42500.0,
+  "atr": 200.0,
+  "suggested_lower_price": 42100.0,
+  "suggested_upper_price": 42900.0,
+  "suggested_quantity_per_order": 0.002,
+  "allocated_capital": 85.0,
+  "suggested_stop_loss": 4250.0
+}
+```
+
+**Output (Grid Creado):**
+```json
+{
+  "id": "grid_20260705_001",
+  "symbol": "BTCUSDT",
+  "status": "RUNNING",
+  "lower_price": 42100.0,
+  "upper_price": 42900.0,
+  "stop_loss": 4250.0,
+  "levels": 10,
+  "orders": [...]
 }
 ```
 
 ---
 
 ### Workflow 2: Grid Monitor
-**Trigger:** Cron cada 15 minutos  
+**Trigger:** Cron cada 5 minutos (**MEJORADO de 15 min**)  
 **Duración:** ~3-5 segundos  
-**Función:** Sincronizar estado de órdenes, replenish fills, evaluar SL/TP
+**Función:** Sincronizar estado, replenish fills, evaluar SL/TP/EXPIRED con visibilidad mejorada
 
 **Pasos:**
 1. Fetch active grids
-2. Sync orders con Binance
-3. Replenish órdenes ejecutadas (ciclos)
-4. Check Stop Loss / Take Profit / EXPIRED
-5. Update DB y notify a Telegram
+2. Call `/api/v1/grids/{id}/refresh` → Sync orders con Binance
+3. Call `/api/v1/grids/{id}/pnl` → Calcula PnL (con deducción de fees)
+4. Replenish órdenes ejecutadas (ciclos BUY → SELL → BUY)
+5. Call `/api/v1/grids/{id}/check-close` → Evalúa triggers:
+   - **STOP_LOSS:** Pérdida > threshold (mostrado como ❌)
+   - **TAKE_PROFIT:** Ganancia > threshold (mostrado como ✅)
+   - **EXPIRED:** Grid vencido (mostrado como ⏰)
+   - **Manual:** Cerrado manualmente (mostrado como 🤷)
+6. Update DB y notify a Telegram con razón de cierre
 
 **Input:** None (automático)  
 **Output:**
@@ -100,10 +134,17 @@
   "grids_monitored": 2,
   "orders_synced": 45,
   "orders_replenished": 3,
-  "grids_closed": 0,
+  "grids_closed": 1,
+  "close_reason": "TAKE_PROFIT",
   "notifications_sent": 2
 }
 ```
+
+**Mejoras en WF2:**
+- ⏱️ Intervalo: 15 min → **5 min** (fills detectados más rápido)
+- 📊 Triggers: raw value → **interpretados con emojis** (mejor UX)
+- 💰 PnL: bruto → **neto (deduce fees 0.02% default)**
+- 🔄 Replenish: más ciclos por grid en el mismo tiempo
 
 ---
 
@@ -161,9 +202,9 @@
 #### `services/indicators.py`
 - Indicadores técnicos
 - Métodos:
-  - `calculate_atr()` — Average True Range
+  - `calculate_atr()` — Average True Range (para definir grid bounds)
   - `calculate_sma()` — Simple Moving Average
-  - `calculate_pnl()` — Ganancias/pérdidas realizadas
+  - `calculate_grid_pnl(orders, current_price, fee_rate=0.0002)` — Calcula PnL **neto** (deduce comisiones Binance 0.02%)
 
 #### `database/`
 - Modelos SQLite/PostgreSQL
@@ -231,20 +272,20 @@ CREATE TABLE pnl_history (
 
 ## 4. BINANCE FUTURES API
 
-### REST Endpoints Utilizados
+### Binance Futures REST API (Base para Backend)
 
 **Auth:** API Key en Header + HMAC-SHA256 en Query
 
 #### Market Data
 ```
-GET /dapi/v1/klines              — Klines históricos
+GET /dapi/v1/klines              — Klines históricos (para ATR/SMA)
 GET /dapi/v1/ticker/24hr         — Precio actual
-GET /dapi/v1/premium/index       — Mark price
+GET /dapi/v1/premium/index       — Mark price (precio actual)
 ```
 
 #### Trading
 ```
-POST /dapi/v1/order              — Coloca orden
+POST /dapi/v1/order              — Coloca orden LIMIT (batch)
 DELETE /dapi/v1/order            — Cancela orden
 GET /dapi/v1/allOrders           — Lista órdenes
 GET /dapi/v1/openOrders          — Órdenes abiertas
@@ -253,62 +294,147 @@ GET /dapi/v1/positionRisk        — Posición actual
 
 #### Account
 ```
-GET /dapi/v1/account             — Balance, max leverage, etc.
+GET /dapi/v1/account             — Balance, max leverage, commission rates
+GET /dapi/v1/commissionRates     — Comisiones (maker/taker 0.02%-0.04%)
 ```
 
-### Limitaciones Importantes
+### Nuestros Endpoints (FastAPI Backend)
+
+**Base:** `http://localhost:8000/api/v1`
+
+#### Market Analysis (Soporte para decisiones inteligentes)
+```
+GET /market-analysis/{symbol}
+  Params: atr_period=14, atr_multiplier=2.0, klines_interval=4h
+  Return: {
+    current_price, atr, 
+    suggested_lower_price, suggested_upper_price,
+    suggested_quantity_per_order,    ← NUEVO (Fase 2)
+    allocated_capital,                ← NUEVO (Fase 2)
+    suggested_stop_loss               ← NUEVO (Fase 2)
+  }
+```
+
+#### Grid Operations
+```
+POST /grids
+  Create grid con params dinámicos (bounds, levels, risk%)
+  
+GET /grids
+  List all grids
+  
+GET /grids/{id}
+  Get grid detail + orders
+  
+POST /grids/{id}/refresh
+  Sync órdenes con Binance
+  
+GET /grids/{id}/pnl
+  Calculate PnL (neto = bruto - fees)  ← ACTUALIZADO (Fase 2)
+  
+POST /grids/{id}/check-close
+  Evaluate SL/TP/EXPIRED triggers
+  
+DELETE /grids/{id}
+  Cancel all orders (manual close)
+```
+
+### Limitaciones Importantes (Binance Futures)
 
 - **Rate limit:** 1200 requests/min (20 requests/sec)
-- **Min notional:** ~10 USDT (~0.0001 BTC para BTCUSDT)
-- **Min step:** Depende de instrumento (ej. 0.1 USDT)
+- **Min notional:** **50 USDT** (Binance Futures, no Spot)
+- **Min step:** Depende de instrumento (ej. 0.01 USDT para BTCUSDT)
+- **Min qty step:** Depende de instrumento (ej. 0.001 BTC)
 - **Order timeout:** 60 segundos (cancela si no se ejecuta)
+- **Commission rate:** 0.02% maker, 0.04% taker (deducido en PnL calculations)
 
 ---
 
-## 5. FLUJO COMPLETO
+## 5. FLUJO COMPLETO (CON MEJORAS FASE 1-4)
 
 ### Escenario: Usuario ejecuta Workflow 1 manualmente
 
-1. **n8n Workflow 1**
-   - Fetch BTCUSDT data (ATR, SMA, mark price)
-   - Call IA: "¿Es bullish?"
-   - → Sí
+1. **n8n Workflow 1 (Market Decision)**
+   ```
+   → Call /api/v1/market-analysis/BTCUSDT
+      ↓ (Backend calcula)
+   ← {
+       current_price: 42500,
+       atr: 200,
+       suggested_lower_price: 42100,
+       suggested_upper_price: 42900,
+       suggested_quantity_per_order: 0.002,
+       allocated_capital: 85,            ← NUEVO
+       suggested_stop_loss: 4250         ← NUEVO
+     }
+   ```
 
-2. **n8n llama `/create-grid` (Backend)**
+2. **n8n Workflow 1 (Decision Logic)**
+   - Build Gemini Request con datos del backend
+   - Call Gemini API: "¿Es bullish?"
+   - → Sí, procede
+
+3. **n8n llama POST /api/v1/grids (Backend)**
    ```json
    {
      "symbol": "BTCUSDT",
-     "lower_price": 62500,
-     "upper_price": 65000,
-     "levels": 15,
-     "risk_pct": 0.02
+     "lower_price": 42100,
+     "upper_price": 42900,
+     "quantity_per_order": 0.002,        ← Sin Math.max inflation
+     "levels": 10,
+     "stop_loss": 4250,                   ← Valor real (no null)
+     "grid_type": "GEOMETRIC"
    }
    ```
 
-3. **Backend: create_grid()**
-   - Valida risk, notional, step
-   - Calcula 15 órdenes (BUY LIMIT a 0.33% intervals)
-   - Coloca órdenes en Binance
-   - Guarda en DB
-   - Devuelve grid_id
+4. **Backend: create_grid()**
+   - ✅ Valida min_notional (50 USDT, no 5)
+   - ✅ Calcula 10 órdenes (BUY LIMIT a 0.33% intervals)
+   - ✅ Valida min_step dinámico por instrumento
+   - ✅ Coloca órdenes en Binance (batch)
+   - ✅ Guarda en DB (SQLite/PostgreSQL)
+   - ✅ Devuelve grid_id + status
 
-4. **Backend coloca en Binance:**
+5. **Backend crea en Binance:**
    ```
-   BUY 0.01 BTC @ 62500
-   BUY 0.01 BTC @ 62710
+   BUY 0.002 BTC @ 42100
+   BUY 0.002 BTC @ 42233
    ...
-   BUY 0.01 BTC @ 64500
+   BUY 0.002 BTC @ 42900
+   (+ SELL orders por encima del precio actual)
    ```
 
-5. **Workflow 1 setea SL:**
-   - Call `/set-stop-loss` con grid_id
-   - Grid cierra si precio baja 2% (ejemplo)
+6. **n8n Workflow 1 notifica (con valores reales):**
+   ```
+   📊 GRID CREADO
+   Capital en riesgo: 85 USDT
+   Stop Loss: 4250 USDT (si PnL < SL, cierra TODO)
+   Niveles: 10 | Rango: 42100-42900
+   ```
 
-6. **Workflow 2 (cada 15 min):**
-   - Sync órdenes actuales
-   - Si BUY se ejecutó → Crea SELL a precio + 0.33%
-   - Repite indefinidamente
-   - Monitorea SL/TP/EXPIRED
+7. **n8n Workflow 2 (Grid Monitor) - cada 5 min**
+   ```
+   → GET /api/v1/grids (obtiene activos)
+   → POST /api/v1/grids/{id}/refresh
+      (Sync órdenes con Binance)
+   → GET /api/v1/grids/{id}/pnl
+      (Calcula PnL neto = bruto - fees 0.02%)
+   → POST /api/v1/grids/{id}/check-close
+      (Evalúa triggers)
+   ```
+
+8. **Si BUY se ejecutó:**
+   - Backend crea SELL a precio + spread
+   - Ciclo continúa (replenishment)
+
+9. **Si se dispara SL/TP/EXPIRED:**
+   ```
+   → DELETE /api/v1/grids/{id}
+      (Cancela todas las órdenes)
+   → Workflow 2 notifica:
+      "❌ Stop Loss" o "✅ Take Profit" o "⏰ Expiración"
+      con PnL final neto (ya deducidas comisiones)
+   ```
 
 ---
 
@@ -341,6 +467,73 @@ FIN
 
 ---
 
+## 7. FASES DE MEJORA IMPLEMENTADAS (2026-07-05)
+
+### ✅ Fase 1: CORRECTITUD (Grid Real)
+- Real closure triggers (SL, TP, EXPIRED)
+- Leverage control (1-125x)
+- Proper order lifecycle (NEW → FILLED → REPLENISHED → CLOSED)
+
+**Cambios Backend:**
+- ✅ Fixed: `await grid_service.get_grid()` removed (was sync, not async) - Line 270, main.py
+- ✅ Grid status lifecycle: RUNNING → CLOSED (no ACTIVE)
+
+---
+
+### ✅ Fase 2: RENTABILIDAD (Fee Deduction + Min-Step)
+- Commission rates deducted from PnL (0.02% maker, 0.04% taker)
+- Dynamic min_notional validation (50 USDT for Binance Futures)
+- Min_step respecting per-instrument constraints
+
+**Cambios Backend:**
+- ✅ `calculate_grid_pnl()` now deducts fees: `pnl_net = pnl_gross - (qty * price * fee_rate)` - indicators.py:121
+- ✅ Conftest min_notional: 5 → 50 USDT
+- ✅ Removed `Math.max()` inflation bug in workflow1 - was forcing qty >= 65 USDT unnecessarily
+
+**Cambios Workflows:**
+- ✅ WF1: Create Grid uses `quantity_per_order` directly (no Math.max)
+- ✅ WF1: `stop_loss` = `$json.suggested_stop_loss` (real value, not null)
+- ✅ WF2: Displays fee-deducted PnL in notifications
+
+---
+
+### ✅ Fase 3: ESTRATEGIA (Replenishment + Faster Monitoring)
+- Automatic order replenishment on fills (BUY → SELL → BUY cycles)
+- Faster monitoring interval (15 min → 5 min)
+- Better trigger visibility (SL ❌, TP ✅, EXPIRED ⏰, Manual 🤷)
+
+**Cambios Workflows:**
+- ✅ WF2: Cron interval reduced: 15 min → **5 min**
+- ✅ WF2: Trigger display: raw value → conditional emojis
+- ✅ WF1: Propagates `allocated_capital` and `suggested_stop_loss` from market-analysis
+- ✅ WF1: Notifications display capital at risk and SL threshold
+
+---
+
+### ✅ Fase 4: ROBUSTEZ (Concurrency Limits + HTTP Hygiene)
+- Concurrent grid limits per symbol
+- Request timeout handling (60s)
+- Proper error codes (400 invalid, 404 not found, 500 server error)
+- Rate limiting awareness (1200 req/min on Binance)
+
+**Cambios Backend:**
+- ✅ GridService validates symbol uniqueness (one active grid per symbol)
+- ✅ Binance wrapper respects rate limits
+- ✅ HTTP status codes properly mapped
+
+---
+
+### 📊 Critical Production Blockers Fixed (2026-07-05)
+
+| N° | Bug | Impact | Fix | File |
+|----|-----|--------|-----|------|
+| N1 | `await` on sync function | HTTP 500 on replenish | Remove await | main.py:270 |
+| N2 | Math.max inflation | 2x qty if < 65 USDT | Use suggested qty directly | workflow1 |
+| N3 | PnL ignores fees | Wrong SL/TP decisions | Deduct 0.02% fees | indicators.py:121 |
+| N4 | Duplicate workflow files | Confusion | Delete workflow1-updated.json | git rm |
+
+---
+
 ## 7. DEPLOYMENT
 
 ### Desarrollo
@@ -348,6 +541,7 @@ FIN
 - Backend en `http://localhost:8000`
 - n8n en `http://localhost:5678`
 - SQLite en disco
+- **Reqiere:** `BACKEND_URL=http://localhost:8000` en n8n environment
 
 ### Producción
 - Cambiar `.env` a mainnet Binance
@@ -355,11 +549,15 @@ FIN
 - Usar Redis para rate limiting
 - SSL/TLS en endpoints
 - Backups automáticos
+- **Requiere:** `BACKEND_URL=http://backend-python:8000` (Docker) en n8n
+- **Requiere:** `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` para acceso a variables
 
 ---
 
 ## Próximas Secciones
 
-- [Code Structure](../70-DEVELOPMENT/01-code-structure.md) — Archivos específicos
-- [API Reference](../30-API-REFERENCE/01-request-response.md) — Endpoints detallados
-- [Risk Management](../60-TRADING-LOGIC/02-risk-management.md) — SL/TP/Límites
+- [Code Structure](../70-DEVELOPMENT/01-code-structure.md) — Archivos específicos y layout
+- [API Reference](../30-API-REFERENCE/01-request-response.md) — Todos los endpoints
+- [Risk Management](../60-TRADING-LOGIC/02-risk-management.md) — SL/TP/Cálculos
+- [Workflows](../50-WORKFLOWS/01-vision-general.md) — Explicación detallada de WF1 y WF2
+- [Troubleshooting](../40-OPERACIONAL/01-troubleshooting.md) — Problemas comunes
