@@ -6,7 +6,7 @@
 
 ## Resumen Ejecutivo
 
-**Trigger:** Cron cada 15 minutos (automático)  
+**Trigger:** Cron cada 5 minutos (automático, Fase 3: Estrategia mejorada)  
 **Duración:** ~3-5 segundos  
 **Función:** Sincronizar grids + replenish fills + evaluar closures
 
@@ -17,8 +17,9 @@
 ### 1. Trigger
 
 ```
-Cron: Cada 15 minutos automáticamente
-00:00, 00:15, 00:30, ... 23:45 (every day, 24/7)
+Cron: Cada 5 minutos automáticamente
+00:00, 00:05, 00:10, 00:15, ... 23:55 (every day, 24/7)
+288 ejecuciones/día (vs 96 con 15 min)
 ```
 
 ### 2. Fetch Active Grids
@@ -242,11 +243,12 @@ PnL acumulado: +0.38% × N ciclos
 
 ## Monitoreo Continuo (24/7)
 
-**Workflow 2 se ejecuta 96 veces/día** (cada 15 min):
+**Workflow 2 se ejecuta 288 veces/día** (cada 5 min, Fase 3: Estrategia mejorada):
 ```
-Uptime esperado: > 99% (1 falla/día = aceptable)
+Uptime esperado: > 99% (3 fallos/día = aceptable)
 Grids procesadas: 1-2 simultáneamente
 Latencia: < 5 seg por ejecución
+Ventaja: Detecta fills 3x más rápido
 ```
 
 ---

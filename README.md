@@ -8,7 +8,7 @@
 ✅ **Ejecuta ciclos continuos** (BUY→SELL→BUY...) sin intervención manual  
 ✅ **Cierra grids** automáticamente por Stop Loss, Take Profit, o Expiración  
 ✅ **Maneja 1-2 grids simultáneamente** con exposición controlada (max 4% del capital)  
-✅ **Opera 24/7** con monitoreo automático cada 15 minutos  
+✅ **Opera 24/7** con monitoreo automático cada 5 minutos (Fase 3: Estrategia mejorada)  
 ✅ **Calcula PnL neto** incluyendo comisiones reales de Binance
 
 ---

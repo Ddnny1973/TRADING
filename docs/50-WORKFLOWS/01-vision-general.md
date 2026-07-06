@@ -13,7 +13,7 @@ Workflow 1 (Market Decision)
 Backend [Coloca órdenes]
     ↓ [Órdenes en Binance]
     ↓
-Workflow 2 (Monitor, cada 15 min)
+Workflow 2 (Monitor, cada 5 min)
     ↓ [Verifica fills, replenish, SL/TP]
     ↓
 Backend [Sincroniza BD]
@@ -29,7 +29,7 @@ Analizar mercado y **decidir si crear un nuevo grid**.
 
 ### Trigger
 - **Manual:** Usuario hace click en n8n UI
-- **Cron:** Cada 4 horas automáticamente (recomendado)
+- **Cron:** Cada 4 horas automáticamente (recomendado) — O manualmente al detectar señal de mercado
 
 ### Flujo
 1. **Fetch Market Data**
@@ -77,7 +77,7 @@ Analizar mercado y **decidir si crear un nuevo grid**.
 **Sincronizar y monitorear grids existentes**. Ejecutar ciclos automáticos.
 
 ### Trigger
-- **Cron:** Cada 15 minutos automáticamente
+- **Cron:** Cada 5 minutos automáticamente (Fase 3: Estrategia mejorada)
 
 ### Flujo
 1. **Fetch Active Grids**
@@ -129,20 +129,21 @@ Analizar mercado y **decidir si crear un nuevo grid**.
 - Grid creado: `GRID_001`
 - 15 órdenes BUY en Binance
 
-### Hour 0 - 48: Workflow 2 cada 15 min (192 ejecuciones)
-- Monitoreo continuo
+### Hour 0 - 48: Workflow 2 cada 5 min (576 ejecuciones)
+- Monitoreo continuo (Fase 3: Estrategia mejorada)
 - A medida que BUY se ejecuta → Crea SELL
 - A medida que SELL se ejecuta → Crea BUY
 - **Ciclos automáticos**: BUY @ 62500 → SELL @ 62708 → BUY @ 62500 → ...
+- **Ventaja:** Detecta fills 3x más rápido (5 min vs 15 min)
 
 ### Ejemplo de Ciclo
 ```
 1. Grid creada con 15 órdenes BUY
 2. Workflow 2 (15:00): BUY @ 62500 se ejecutó
    → Replenish: Crea SELL @ 62708
-3. Workflow 2 (15:15): SELL @ 62708 se ejecutó
+3. Workflow 2 (15:05): SELL @ 62708 se ejecutó
    → Replenish: Crea BUY @ 62500
-4. Workflow 2 (15:30): BUY @ 62500 se ejecutó
+4. Workflow 2 (15:10): BUY @ 62500 se ejecutó
    → Replenish: Crea SELL @ 62708
    → ✅ Ciclo completado, ganancia realizada
 5. Repetir indefinidamente hasta SL/TP/EXPIRED
@@ -162,8 +163,9 @@ Analizar mercado y **decidir si crear un nuevo grid**.
 - **Razón:** Análisis de mercado diario, espacio para múltiples grids
 
 ### Workflow 2: Cron Schedule
-- **Intervalo:** Cada 15 minutos
-- **Razón:** Rápido para capturar fills, actualizar ciclos
+- **Intervalo:** Cada 5 minutos (Fase 3: Estrategia mejorada)
+- **Razón:** 3x más rápido para capturar fills, ciclos más densos
+- **Ejecuciones/día:** 288 (vs 96 con 15 min)
 
 ### n8n Settings
 - **MAX_EXECUTION_TIMEOUT:** 60 segundos

@@ -3,7 +3,7 @@
 ## Base URL
 
 ```
-http://localhost:8000
+http://localhost:8000/api/v1
 ```
 
 ---
@@ -17,9 +17,10 @@ Estado del backend.
 ```json
 {
   "status": "healthy",
-  "uptime_seconds": 3600,
-  "database": "connected",
-  "binance_api": "reachable"
+  "service": "grid-trading-backend",
+  "version": "0.1.0",
+  "binance_synced": true,
+  "time_offset_ms": 15
 }
 ```
 
@@ -29,92 +30,137 @@ Estado del backend.
 
 ---
 
-## Market Analysis
+## Market Analysis (Fase 2: Rentabilidad)
 
-### POST `/market-analysis`
-Analiza mercado: ATR, SMA, mark price.
+### GET `/market-analysis/{symbol}`
+Analiza mercado: ATR, precios sugeridos, capital y SL automático.
 
-**Request:**
-```json
-{
-  "symbol": "BTCUSDT",
-  "interval": "4h",
-  "atr_period": 14,
-  "sma_period": 50
-}
+**Path params:**
+- `symbol` — Trading pair (e.g., BTCUSDT, ETHUSDT)
+
+**Query params (opcionales):**
+- `atr_period` — Default: 14
+- `atr_multiplier` — Default: 2.0
+- `klines_interval` — Default: "4h" (4h, 1h, 15m, etc.)
+- `risk_pct` — Default: 0.02 (2%)
+
+**Example request:**
+```bash
+GET /api/v1/market-analysis/BTCUSDT?atr_period=14&atr_multiplier=2.0&klines_interval=4h&risk_pct=0.02
 ```
 
 **Response:**
 ```json
 {
   "symbol": "BTCUSDT",
-  "interval": "4h",
-  "current_price": 63500.50,
-  "atr": 450.25,
-  "sma": 62800.00,
-  "trend": "bullish",
-  "volatility": "medium"
+  "current_price": 42500.0,
+  "atr": 200.0,
+  "atr_period": 14,
+  "atr_multiplier": 2.0,
+  "suggested_lower_price": 42100.0,
+  "suggested_upper_price": 42900.0,
+  "suggested_range": 800.0,
+  "suggested_quantity_per_order": 0.002,
+  "allocated_capital": 85.0,
+  "suggested_stop_loss": 4250.0,
+  "klines_interval": "4h"
 }
 ```
+
+**Field explanations:**
+- `suggested_lower_price/upper_price` — Grid bounds based on ATR (Fase 1: Correctitud)
+- `suggested_quantity_per_order` — Per-order qty calculated from risk_pct (Fase 2: Rentabilidad)
+- `allocated_capital` — Total capital at risk = qty × levels × avg_price (Fase 2: Rentabilidad)
+- `suggested_stop_loss` — Automatic SL threshold based on PnL calculation (Fase 2: Rentabilidad)
+
+**Status codes:**
+- `200` — Market data available
+- `400` — Missing current price or klines
 
 ---
 
 ## Grid Operations
 
-### POST `/create-grid`
-Crea una nueva grid.
+### POST `/grids`
+Crea una nueva grid con órdenes en Binance.
 
 **Request:**
 ```json
 {
   "symbol": "BTCUSDT",
-  "lower_price": 62500,
-  "upper_price": 65000,
-  "levels": 15,
-  "risk_pct": 0.02
+  "lower_price": 42100.0,
+  "upper_price": 42900.0,
+  "levels": 10,
+  "quantity_per_order": 0.002,
+  "grid_type": "GEOMETRIC",
+  "stop_loss": 4250.0,
+  "take_profit": null
 }
 ```
 
-**Response:**
+**Field notes:**
+- `lower_price`/`upper_price` — Optional; if null, uses market-analysis bounds
+- `quantity_per_order` — Must be >= min_notional (50 USDT for Binance Futures)
+- `stop_loss`/`take_profit` — Optional; can be null
+- `grid_type` — "GEOMETRIC" or "ARITHMETIC"
+
+**Response (201 Created):**
 ```json
 {
-  "grid_id": "GRID_20260705_001",
+  "id": "grid_20260705_abc123",
   "symbol": "BTCUSDT",
-  "status": "ACTIVE",
-  "lower_price": 62500,
-  "upper_price": 65000,
-  "levels": 15,
-  "orders_created": 15,
-  "total_quantity": 0.15,
+  "status": "RUNNING",
+  "lower_price": 42100.0,
+  "upper_price": 42900.0,
+  "levels": 10,
+  "stop_loss": 4250.0,
+  "take_profit": null,
+  "orders": [
+    {
+      "id": "order_1",
+      "side": "BUY",
+      "price": 42100.0,
+      "quantity": 0.002,
+      "status": "NEW"
+    },
+    {
+      "id": "order_2",
+      "side": "BUY",
+      "price": 42233.0,
+      "quantity": 0.002,
+      "status": "NEW"
+    }
+  ],
   "created_at": "2026-07-05T20:22:00Z"
 }
 ```
 
-**Errors:**
-- `400` — Invalid parameters (risk too high, step too small, etc.)
-- `409` — Max grids reached (máx 2 simultáneamente)
+**Status codes:**
+- `200` — Grid created successfully
+- `400` — Invalid parameters (min_notional, quantity, etc.)
+- `409` — Duplicate symbol (only one active grid per symbol)
 
 ---
 
 ### GET `/grids`
 Lista todas las grids.
 
-**Query params:**
-- `status` — (ACTIVE, CLOSED, REFRESHING) — Opcional
-- `symbol` — (BTCUSDT, etc.) — Opcional
+**Query params (opcionales):**
+- `status` — Filter by RUNNING, CANCELED, EXPIRED
+- `symbol` — Filter by symbol (BTCUSDT, etc.)
 
 **Response:**
 ```json
 {
   "grids": [
     {
-      "grid_id": "GRID_20260705_001",
+      "id": "grid_20260705_abc123",
       "symbol": "BTCUSDT",
-      "status": "ACTIVE",
-      "lower_price": 62500,
-      "upper_price": 65000,
-      "levels": 15,
-      "pnl_realized": 12.50,
+      "status": "RUNNING",
+      "lower_price": 42100.0,
+      "upper_price": 42900.0,
+      "levels": 10,
+      "stop_loss": 4250.0,
       "created_at": "2026-07-05T20:22:00Z"
     }
   ],
@@ -124,182 +170,140 @@ Lista todas las grids.
 
 ---
 
-### POST `/refresh-grid/{grid_id}`
-Sincroniza una grid con Binance (revisa órdenes ejecutadas).
+### GET `/grids/{id}`
+Detalle de una grid con todas sus órdenes.
 
 **Response:**
 ```json
 {
-  "grid_id": "GRID_20260705_001",
-  "status": "ACTIVE",
-  "orders_synced": 15,
-  "orders_filled": 3,
-  "timestamp": "2026-07-05T20:30:00Z"
+  "id": "grid_20260705_abc123",
+  "symbol": "BTCUSDT",
+  "status": "RUNNING",
+  "lower_price": 42100.0,
+  "upper_price": 42900.0,
+  "stop_loss": 4250.0,
+  "take_profit": null,
+  "orders": [
+    {
+      "id": "order_1",
+      "side": "BUY",
+      "price": 42100.0,
+      "quantity": 0.002,
+      "status": "NEW",
+      "executed_qty": 0.0,
+      "avg_price": null
+    },
+    {
+      "id": "order_2",
+      "side": "BUY",
+      "price": 42233.0,
+      "quantity": 0.002,
+      "status": "FILLED",
+      "executed_qty": 0.002,
+      "avg_price": 42233.0
+    }
+  ],
+  "created_at": "2026-07-05T20:22:00Z"
 }
 ```
 
 ---
 
-### POST `/replenish-grid/{grid_id}`
-Crea órdenes nuevas en órdenes ejecutadas (ciclos).
+### POST `/grids/{id}/refresh`
+Sincroniza estado de órdenes con Binance (Fase 3: Estrategia).
 
 **Response:**
 ```json
 {
-  "grid_id": "GRID_20260705_001",
-  "orders_replenished": 3,
-  "total_orders_now": 15,
+  "id": "grid_20260705_abc123",
+  "status": "RUNNING",
+  "orders_synced": 10,
+  "orders_filled": 2,
   "timestamp": "2026-07-05T20:30:00Z"
 }
 ```
 
+**Use case:** Called by Workflow 2 every 5 minutes to detect fills.
+
 ---
 
-### POST `/close-grid/{grid_id}`
-Cierra una grid (cancela todas las órdenes).
+### GET `/grids/{id}/pnl`
+Calcula PnL (neto = gross - fees 0.02%) (Fase 2: Rentabilidad).
 
 **Response:**
 ```json
 {
-  "grid_id": "GRID_20260705_001",
-  "status": "CLOSED",
-  "orders_canceled": 15,
-  "pnl_realized": 45.75,
+  "grid_id": "grid_20260705_abc123",
+  "realized_pnl": 45.75,
+  "unrealized_pnl": 12.50,
+  "total_pnl": 58.25,
+  "fees_paid": 5.25,
+  "net_position_qty": 0.01,
+  "current_price": 42500.0,
+  "timestamp": "2026-07-05T20:35:00Z"
+}
+```
+
+**Important:**
+- `realized_pnl` already deducts 0.02% Binance commission (Fase 2)
+- Used by Workflow 2 to decide SL/TP closure
+- If no fills: all fields are 0
+
+---
+
+### POST `/grids/{id}/check-close`
+Evalúa triggers: SL, TP, EXPIRED (Fase 1: Correctitud).
+
+**Response (trigger not hit):**
+```json
+{
+  "triggered": null,
+  "grid": {
+    "status": "RUNNING"
+  }
+}
+```
+
+**Response (trigger hit):**
+```json
+{
+  "triggered": "TAKE_PROFIT",
+  "grid": {
+    "id": "grid_20260705_abc123",
+    "status": "CANCELED",
+    "realized_pnl": 45.75,
+    "closed_at": "2026-07-05T20:35:00Z"
+  }
+}
+```
+
+**Trigger values:**
+- `"STOP_LOSS"` — PnL dropped below threshold
+- `"TAKE_PROFIT"` — PnL exceeded threshold
+- `"EXPIRED"` — Grid exceeded max age
+- `null` — No trigger hit, grid still running
+
+**Use case:** Called by Workflow 2 every 5 minutes.
+
+---
+
+### DELETE `/grids/{id}`
+Cancela grid (cierra todas las órdenes, manual close).
+
+**Response:**
+```json
+{
+  "id": "grid_20260705_abc123",
+  "status": "CANCELED",
+  "orders_canceled": 10,
+  "realized_pnl": 35.50,
   "closed_at": "2026-07-05T20:35:00Z"
 }
 ```
 
----
-
-## Stop Loss & Take Profit
-
-### POST `/set-stop-loss/{grid_id}`
-Setea un stop loss para una grid.
-
-**Request:**
-```json
-{
-  "stop_loss_pct": 0.02
-}
-```
-
-**Response:**
-```json
-{
-  "grid_id": "GRID_20260705_001",
-  "stop_loss_pct": 0.02,
-  "stop_loss_price": 62250,
-  "status": "ACTIVE"
-}
-```
-
----
-
-### POST `/set-take-profit/{grid_id}`
-Setea un take profit para una grid.
-
-**Request:**
-```json
-{
-  "take_profit_pct": 0.05
-}
-```
-
-**Response:**
-```json
-{
-  "grid_id": "GRID_20260705_001",
-  "take_profit_pct": 0.05,
-  "take_profit_price": 65625,
-  "status": "ACTIVE"
-}
-```
-
----
-
-## Orders
-
-### GET `/grids/{grid_id}/orders`
-Lista las órdenes de una grid.
-
-**Query params:**
-- `status` — (OPEN, FILLED, CANCELED, EXPIRED)
-
-**Response:**
-```json
-{
-  "grid_id": "GRID_20260705_001",
-  "orders": [
-    {
-      "order_id": "ORDER_001",
-      "symbol": "BTCUSDT",
-      "type": "BUY",
-      "status": "OPEN",
-      "quantity": 0.01,
-      "price": 62500,
-      "created_at": "2026-07-05T20:22:00Z"
-    },
-    {
-      "order_id": "ORDER_002",
-      "symbol": "BTCUSDT",
-      "type": "BUY",
-      "status": "FILLED",
-      "quantity": 0.01,
-      "price": 62500,
-      "executed_qty": 0.01,
-      "avg_price": 62500,
-      "executed_at": "2026-07-05T20:25:00Z"
-    }
-  ],
-  "total": 15
-}
-```
-
----
-
-## Account & Position
-
-### GET `/account`
-Info de la cuenta (balance, max leverage, etc.).
-
-**Response:**
-```json
-{
-  "balance_usdt": 10000,
-  "available_usdt": 9500,
-  "max_leverage": 125,
-  "current_leverage": 1,
-  "total_positions": 1,
-  "positions": [
-    {
-      "symbol": "BTCUSDT",
-      "quantity": 0.05,
-      "mark_price": 63500,
-      "unrealized_pnl": 75
-    }
-  ]
-}
-```
-
----
-
-## PnL & History
-
-### GET `/pnl/{grid_id}`
-Ganancias/pérdidas de una grid.
-
-**Response:**
-```json
-{
-  "grid_id": "GRID_20260705_001",
-  "pnl_realized": 45.75,
-  "pnl_unrealized": 12.50,
-  "pnl_total": 58.25,
-  "pnl_pct": 0.58,
-  "fees_paid": 5.25,
-  "timestamp": "2026-07-05T20:35:00Z"
-}
-```
+**Status codes:**
+- `200` — Grid closed
+- `404` — Grid not found
 
 ---
 
@@ -309,42 +313,70 @@ Ver [Error Handling](02-error-handling.md)
 
 ---
 
-## Webhooks (n8n)
+## Workflow Integration
 
-Los workflows llaman a los endpoints arriba.
+### Workflow 1: Market Decision (n8n)
 
-**Ejemplo de Workflow 1:**
 ```
-→ POST /market-analysis
-← {market data}
-→ POST /create-grid (si bullish)
-← {grid_id}
+1. GET /market-analysis/BTCUSDT
+   → Gets: current_price, ATR, bounds, allocated_capital, suggested_stop_loss
+
+2. (Build Gemini prompt with above data)
+
+3. POST /grids
+   → Params: lower_price, upper_price, quantity_per_order, stop_loss
+   → Response: grid_id
 ```
 
-**Ejemplo de Workflow 2:**
+### Workflow 2: Grid Monitor (n8n, every 5 minutes)
+
 ```
-→ GET /grids?status=ACTIVE
-← {all active grids}
-→ POST /refresh-grid/{grid_id} (para cada grid)
-← {sync result}
-→ POST /replenish-grid/{grid_id}
-← {replenish result}
+1. GET /grids?status=RUNNING
+   → Gets: list of active grids
+
+2. For each grid:
+   a. POST /grids/{id}/refresh
+      → Sync orders with Binance
+   
+   b. GET /grids/{id}/pnl
+      → Calculate PnL (net of fees)
+   
+   c. POST /grids/{id}/check-close
+      → Evaluate SL/TP/EXPIRED
+      
+   d. If triggered: DELETE /grids/{id}
+      → Close all orders
+      → Notify Telegram (reason: SL ❌, TP ✅, EXPIRED ⏰)
 ```
 
 ---
 
 ## Rate Limits
 
-- **n8n to Backend:** Sin límite (misma red)
-- **Backend to Binance:** 1200 req/min (20 req/sec)
-  - El backend respeta esto automáticamente
+- **n8n → Backend:** No limit (same network)
+- **Backend → Binance:** 1200 req/min (20 req/sec)
+  - Automatically enforced by BinanceClient wrapper
 
 ---
 
-## Autenticación
+## Authentication
 
-**No hay autenticación en backend** (asume red privada).
+**Currently:** No authentication (assumes private network)
 
-Si necesitas agregar:
-- Pasa a `core/security.py`
-- Agrega decorador `@require_api_key` en endpoints
+**For production:** Add to `core/security.py`
+- API Key validation
+- Request signing
+- Rate limiting by key
+
+---
+
+## Implementation Phases
+
+| Phase | Name | Status |
+|-------|------|--------|
+| **1** | Correctitud (Real closure) | ✅ Implemented |
+| **2** | Rentabilidad (Fee deduction) | ✅ Implemented |
+| **3** | Estrategia (Replenishment) | ✅ Implemented |
+| **4** | Robustez (Concurrency limits) | ✅ Implemented |
+
+See [Arquitectura](../10-ARQUITECTURA/01-componentes.md#7-fases-de-mejora-implementadas) for details.
