@@ -226,15 +226,13 @@ Write-Host "========================================================" -Foregroun
 
 if ($successCount -eq $workflows.Count) {
     Write-Host "`n✅ Todos los workflows fueron actualizados exitosamente" -ForegroundColor Green
-    Write-Host "`n📌 Próximos pasos:" -ForegroundColor Yellow
+    Write-Host "`n📌 Proximos pasos:" -ForegroundColor Yellow
     Write-Host "   1. Verifica en n8n UI que los cambios se reflejaron"
     Write-Host "   2. Ejecuta Workflow 1 manualmente para validar"
     Write-Host "   3. Ejecuta Workflow 2 para verificar monitoreo"
     Write-Host "   4. Revisa los logs de Telegram para notificaciones"
-    exit 0
 }
 else {
     Write-Host "`n❌ Solo $successCount de $($workflows.Count) workflows se actualizaron" -ForegroundColor Red
-    Write-Host "   Revisa los errores arriba para más detalles" -ForegroundColor Red
-    exit 1
+    Write-Host "   Revisa los errores arriba para mas detalles" -ForegroundColor Red
 }
