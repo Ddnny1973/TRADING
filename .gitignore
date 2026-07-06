@@ -3,7 +3,8 @@
 .env.local
 .env.*.local
 
-# n8n workflow backups (snapshots taken before PUT via API, local-only)
+# n8n workflow updates (API scripts with credentials, local-only)
+update-workflows-n8n.ps1
 n8n-workflows/backup-*.json
 
 # Python
