@@ -1,0 +1,116 @@
+name: Sync n8n Workflows
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'n8n-workflows/*.json'
+  workflow_dispatch:
+
+jobs:
+  sync-workflows:
+    name: Sync Workflows to n8n
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history to detect changes
+
+      - name: Detect changed files and sync
+        env:
+          N8N_BASE_URL: https://n8n.gestorconsultoria.com.co
+          N8N_API_KEY: ${{ secrets.N8N_API_KEY }}
+          WORKFLOW1_ID: yggk1wajL1tsmABi
+          WORKFLOW1_FILE: n8n-workflows/workflow1-market-decision.json
+          WORKFLOW2_ID: 96qAStQwfrHAVXRd
+          WORKFLOW2_FILE: n8n-workflows/workflow2-monitor.json
+        run: |
+          set -e
+          
+          echo "==> Detecting changed files..."
+          if [ "${{ github.event_name }}" == "push" ]; then
+            CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.event.after }})
+          else
+            # manual trigger: sync all workflow files
+            CHANGED_FILES=$(ls -1 n8n-workflows/*.json 2>/dev/null || echo "")
+          fi
+          
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          
+          # Function to sync a workflow
+          sync_workflow() {
+            local workflow_id=$1
+            local workflow_file=$2
+            
+            if [ ! -f "$workflow_file" ]; then
+              echo "❌ File not found: $workflow_file"
+              return 1
+            fi
+            
+            echo ""
+            echo "==> Syncing $workflow_file to workflow ID: $workflow_id"
+            
+            # Read the JSON file
+            local workflow_json=$(cat "$workflow_file")
+            
+            # Extract only the fields that n8n API accepts
+            # (name, nodes, connections, settings.executionOrder)
+            local name=$(echo "$workflow_json" | jq -r '.name // "Unknown"')
+            local nodes=$(echo "$workflow_json" | jq '.nodes')
+            local connections=$(echo "$workflow_json" | jq '.connections')
+            local execution_order=$(echo "$workflow_json" | jq -r '.settings.executionOrder // "v1"')
+            
+            # Build the request body
+            local body=$(jq -n \
+              --arg name "$name" \
+              --argjson nodes "$nodes" \
+              --argjson connections "$connections" \
+              --arg execution_order "$execution_order" \
+              '{
+                name: $name,
+                nodes: $nodes,
+                connections: $connections,
+                settings: {
+                  executionOrder: $execution_order
+                }
+              }')
+            
+            # Send the request
+            local response=$(curl -s -w "\n%{http_code}" -X PUT \
+              "$N8N_BASE_URL/api/v1/workflows/$workflow_id" \
+              -H "X-N8N-API-KEY: $N8N_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "$body")
+            
+            local http_code=$(echo "$response" | tail -n 1)
+            local response_body=$(echo "$response" | head -n -1)
+            
+            if [ "$http_code" == "200" ]; then
+              echo "✅ Workflow $workflow_id updated successfully (HTTP $http_code)"
+              echo "Response: $(echo "$response_body" | jq -r '.name // .')"
+            else
+              echo "❌ Failed to update workflow $workflow_id (HTTP $http_code)"
+              echo "Response: $response_body"
+              return 1
+            fi
+          }
+          
+          # Check each workflow file
+          if echo "$CHANGED_FILES" | grep -q "workflow1-market-decision.json"; then
+            sync_workflow "$WORKFLOW1_ID" "$WORKFLOW1_FILE"
+          fi
+          
+          if echo "$CHANGED_FILES" | grep -q "workflow2-monitor.json"; then
+            sync_workflow "$WORKFLOW2_ID" "$WORKFLOW2_FILE"
+          fi
+          
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "ℹ️  No workflow files changed"
+          fi
+          
+          echo ""
+          echo "==> All synced!"

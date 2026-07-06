@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Copy requirements and install Python dependencies (all packages have pre-built wheels)
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
+RUN pip install --no-cache-dir --prefer-binary --default-timeout=100 --retries=3 -r requirements.txt
 
 # Copy application code
 COPY app/ ./app/
