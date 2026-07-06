@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - 'n8n-workflows/**'
+      - 'docs/**'
+      - '*.md'
   workflow_dispatch:
 
 jobs:
