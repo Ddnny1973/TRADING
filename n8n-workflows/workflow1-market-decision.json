@@ -51,6 +51,12 @@
               "name": "levels",
               "value": 4,
               "type": "number"
+            },
+            {
+              "id": "7",
+              "name": "chatId",
+              "value": "={{ $json.message?.chat?.id }}",
+              "type": "number"
             }
           ]
         },
@@ -239,7 +245,7 @@
     },
     {
       "parameters": {
-        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "chatId": "={{ $json.chatId }}",
         "text": "={{ $json.alreadyExists ? ('ℹ️ Grid ya existia para ' + $json.symbol + ' (no se creo uno nuevo).\\n\\n💭 ' + $json.reasoning) : ('✅ Grid lanzado: ' + $json.symbol + '\\n📊 ID: ' + $json.grid.id + ' | Niveles: ' + $json.grid.levels + ' | Rango: ' + $json.grid.lower_price + '-' + $json.grid.upper_price + '\\n💭 ' + $json.reasoning) }}",
         "additionalFields": {}
       },
@@ -261,7 +267,7 @@
     },
     {
       "parameters": {
-        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "chatId": "={{ $json.chatId }}",
         "text": "={{ '🚨 ERROR creando grid ' + $json.symbol + ' (HTTP ' + $json.statusCode + ')\\n' + $json.detail }}",
         "additionalFields": {}
       },
@@ -283,7 +289,7 @@
     },
     {
       "parameters": {
-        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "chatId": "={{ $json.chatId }}",
         "text": "={{ '⏭️ Grid NO lanzado para ' + $json.symbol + '\\n\\n💭 ' + $json.reasoning }}",
         "additionalFields": {}
       },
@@ -663,7 +669,7 @@
         }
       },
       "parameters": {
-        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "chatId": "={{ $json.chatId }}",
         "text": "={{ '⚠️ Grid NO viable para ' + $json.symbol + '\\n\\nCantidad sugerida: ' + $json.suggested_quantity_per_order + ' (min: ' + $json.min_viable_quantity + ')\\nRiesgo configurado insuficiente. Se requiere risk_pct >= ' + Math.ceil($json.required_risk_pct * 1000) / 1000 + '\\n\\nNo se llamo a la IA ni se creo el grid.' }}",
         "additionalFields": {}
       }
