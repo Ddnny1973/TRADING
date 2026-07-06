@@ -55,7 +55,7 @@ curl http://localhost:8000/health
 1. Abre Postman o curl
 2. Haz GET a:
    ```
-   http://localhost:8000/api/v1/market-analysis/BTCUSDT?atr_period=14&atr_multiplier=2.0&klines_interval=4h&risk_pct=0.02&levels=10
+   http://localhost:8000/api/v1/market-analysis/BTCUSDT?atr_period=14&atr_multiplier=2.0&klines_interval=4h&risk_pct=0.05&levels=4
    ```
 
 **Resultado esperado:**
@@ -70,17 +70,24 @@ curl http://localhost:8000/health
   "suggested_lower_price": 42100.0,
   "suggested_upper_price": 42900.0,
   "suggested_range": 800.0,
-  "suggested_quantity_per_order": 0.00047,
-  "allocated_capital": 200.0,
-  "suggested_stop_loss": 100.0
+  "suggested_quantity_per_order": 0.001,
+  "allocated_capital": 500.0,
+  "suggested_stop_loss": 250.0,
+  "min_viable_quantity": 0.001,
+  "grid_viable": true,
+  "required_risk_pct": 0.042
 }
 ```
 
 **Validación:**
 - ✓ `suggested_quantity_per_order` > 0
-- ✓ `allocated_capital` = account_balance × risk_pct (2%)
+- ✓ `allocated_capital` = account_balance × risk_pct (5%)
 - ✓ `suggested_stop_loss` = allocated_capital × 0.5
 - ✓ `suggested_lower_price` < current_price < `suggested_upper_price`
+- ✓ `min_viable_quantity` presente (cantidad mínima que cumple min_notional 50 USDT + stepSize)
+- ✓ `grid_viable: true` (si `suggested_quantity_per_order` >= `min_viable_quantity`)
+- ✓ `required_risk_pct` presente (risk_pct necesario para ser viable)
+- ✓ Si `grid_viable: false` → WF1 notificará por Telegram y NO llamará a Gemini
 
 **Si falla:**
 - Verifica que `BINANCE_API_KEY` y `BINANCE_API_SECRET` están en `.env`
@@ -105,52 +112,59 @@ curl http://localhost:8000/health
 - Status: ✅ Ejecutado
 
 **Nodo 2 (Market Analysis):**
-- Response: Market analysis JSON (como en TEST 1)
+- Response: Market analysis JSON (como en TEST 1), incluyendo los 3 campos nuevos
 - Status: ✅ Ejecutado
 
-**Nodo 3 (AI Decision - Claude):**
-- Input: Market data
-- Output: JSON con `launch: true` o `false`, `gridCount`: 8-15, `reasoning`: texto
+**Nodo 3 (IF: Grid viable?):**
+- Evalúa `$json.grid_viable === true`
+- Si FALSE → Telegram notifica "Grid NO viable, se requiere risk_pct >= X" y el workflow **termina** (no llama a Gemini)
+- Si TRUE → continúa al siguiente nodo
+- Status: ✅ True (con config actual: levels=4, risk_pct=0.05)
+
+**Nodo 4 (Build Gemini Request + Gemini AI Decision):**
+- Input: Market data (con allocated_capital, suggested_stop_loss propagados)
+- Output: JSON con `launch: true` o `false`, `gridCount`: entre 1 y levels(4), `reasoning`: texto
 - Status: ✅ Ejecutado
 - Ejemplo:
   ```json
   {
     "launch": true,
-    "gridCount": 10,
+    "gridCount": 4,
     "lowerLimit": 42100,
     "upperLimit": 42900,
-    "reasoning": "ATR 0.5% es óptimo para 10 niveles, mercado lateral es ideal para grids"
+    "reasoning": "ATR 0.5% lateral, viable con 4 niveles y risk 5%"
   }
   ```
 
-**Nodo 4 (IF: Launch = true?):**
+**Nodo 5 (IF: Launch = true?):**
 - Evalúa si `launch === true`
-- Status: ✅ True o False (depende de AI)
+- Status: ✅ True o False (depende de Gemini)
 
-**Nodo 5 (Create Grid - POST):**
-- Si Nodo 4 fue True:
+**Nodo 6 (Create Grid - POST):**
+- Si Nodo 5 fue True:
   - Status: ✅ Ejecutado
   - Response: GridDetailResponse con:
     - `id`: UUID del grid
     - `symbol`: "BTCUSDT"
     - `status`: "RUNNING"
-    - `levels`: 10 (u otro número que AI eligió)
-    - `orders[]`: array con 10 órdenes, cada una con `status: "NEW"`
-    - `stop_loss`: 100.0 (50% del capital asignado)
-  - En Binance testnet UI: verifica que aparecen 10 órdenes LIMIT en Order Book
+    - `levels`: 4 (cappado al Config.levels=4)
+    - `orders[]`: array con 4 órdenes, cada una con `status: "NEW"`
+    - `stop_loss`: valor de `suggested_stop_loss` (no null)
+    - `quantity_per_order`: valor de `suggested_quantity_per_order` (sin inflación)
+  - En Binance testnet UI: verifica que aparecen 4 órdenes LIMIT en Order Book
 
-- Si Nodo 4 fue False:
-  - Nodo 5 se salta (no ejecuta)
-  - Nodo 6b (Notify: Skipped) ejecuta
+- Si Nodo 5 fue False:
+  - Nodo 6 se salta (no ejecuta)
+  - Nodo Notify: Skipped ejecuta
 
-**Nodo 6a o 6b (Notificación):**
-- Telegram mensaje recibido (si configurado)
+**Nodo Notificación:**
+- Telegram mensaje recibido con capital en riesgo y SL configurado
 - Status: ✅ Ejecutado
 
 **Validación:**
 - ✓ Grid fue creado en backend: `GET /api/v1/grids` devuelve el grid con `status: RUNNING`
 - ✓ Todas las órdenes tienen estado `NEW`
-- ✓ Binance testnet UI muestra 10 órdenes LIMIT abiertas para BTCUSDT
+- ✓ Binance testnet UI muestra 4 órdenes LIMIT abiertas para BTCUSDT
 - ✓ Leverage es 1× (verificar en Binance testnet UI: Position → Symbol Settings)
 - ✓ Margin Type es ISOLATED (verificar en Binance testnet UI)
 
@@ -175,7 +189,7 @@ curl http://localhost:8000/health
 1. Asegúrate de que existe un grid RUNNING (si no, corre TEST 2 primero)
 2. En Binance testnet UI, busca órdenes LIMIT del grid y verifica que están `NEW`
 3. En n8n, abre Workflow 2 (Grid Monitor)
-4. Ejecuta manualmente (sin esperar 15 minutos)
+4. Ejecuta manualmente (sin esperar 5 minutos)
 5. Observa la ejecución
 
 **Resultado esperado en cada nodo:**
@@ -466,7 +480,7 @@ curl http://localhost:8000/health
 - Response:
   ```json
   {
-    "detail": "quantity_per_order too small: order notional must be at least 100 USDT (got 0.42)"
+    "detail": "quantity_per_order too small: order notional must be at least 50 USDT (got 0.42)"
   }
   ```
 
@@ -593,7 +607,7 @@ curl http://localhost:8000/health
 **Duración:** 48 horas
 
 **Configuración:**
-- Workflow 2 ejecutándose cada 15 minutos
+- Workflow 2 ejecutándose cada 5 minutos (Fase 3: Estrategia mejorada)
 - Workflow 1 ejecutándose cada 4 horas (ó manualmente cuando se cierren grids)
 - 1-2 grids activos simultáneamente
 
@@ -638,7 +652,7 @@ Después de completar todos los tests anteriores, verifica:
   - [ ] TEST 10: Health check refleja estado
 
 - [ ] **Operativa:**
-  - [ ] Workflow 2 se ejecuta reliablemente cada 15 min
+  - [ ] Workflow 2 se ejecuta reliablemente cada 5 min
   - [ ] No hay API key leaks en logs
   - [ ] Telegram notifications son consistentes
 
