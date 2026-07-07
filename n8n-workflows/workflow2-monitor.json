@@ -84,7 +84,20 @@
         },
         {
             "parameters": {
-                "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+                "jsCode": "const chatIds = $env.TELEGRAM_CHAT_ID.split(',');\nreturn chatIds.map(id => ({\n  json: {\n    chatId: id.trim(),\n    gridId: $json.gridId,\n    symbol: $json.symbol,\n    errorMessage: $json.errorMessage\n  }\n}));"
+            },
+            "id": "split-chat-ids-error",
+            "name": "Split Chat IDs (Errors)",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                600,
+                144
+            ]
+        },
+        {
+            "parameters": {
+                "chatId": "={{ $json.chatId }}",
                 "text": "={{ '⚠️ CHECK-CLOSE FALLIDO - Grid ' + $json.gridId + ' (' + $json.symbol + ')\\n\\nError: ' + $json.errorMessage + '\\n\\nSe reintentara en el proximo ciclo (15 min).' }}",
                 "additionalFields": {}
             },
@@ -471,7 +484,7 @@
             "main": [
                 [
                     {
-                        "node": "Notify: Check-close Error",
+                        "node": "Split Chat IDs (Errors)",
                         "type": "main",
                         "index": 0
                     }
@@ -479,6 +492,17 @@
                 [
                     {
                         "node": "IF: Grid closed?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Split Chat IDs (Errors)": {
+            "main": [
+                [
+                    {
+                        "node": "Notify: Check-close Error",
                         "type": "main",
                         "index": 0
                     }
