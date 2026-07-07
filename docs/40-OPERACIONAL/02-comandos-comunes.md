@@ -35,65 +35,57 @@ curl http://localhost:8000/health
 
 ### Market Analysis
 ```bash
-curl -X POST http://localhost:8000/market-analysis \
-  -H "Content-Type: application/json" \
-  -d '{
-    "symbol": "BTCUSDT",
-    "interval": "4h",
-    "atr_period": 14,
-    "sma_period": 50
-  }'
+# Sin levels: solo devuelve ATR y precios sugeridos
+curl "http://localhost:8000/api/v1/market-analysis/BTCUSDT?atr_period=14&atr_multiplier=2.0&klines_interval=4h"
+
+# Con levels+risk_pct: también calcula cantidad, capital, SL y viabilidad
+curl "http://localhost:8000/api/v1/market-analysis/BTCUSDT?atr_period=14&atr_multiplier=2.0&klines_interval=4h&risk_pct=0.05&levels=4"
 ```
 
 ### List Grids
 ```bash
-curl http://localhost:8000/grids
-curl http://localhost:8000/grids?status=ACTIVE
-curl http://localhost:8000/grids?symbol=BTCUSDT
+curl http://localhost:8000/api/v1/grids
+curl "http://localhost:8000/api/v1/grids?status=RUNNING"
 ```
 
 ### Create Grid
 ```bash
-curl -X POST http://localhost:8000/create-grid \
+curl -X POST http://localhost:8000/api/v1/grids \
   -H "Content-Type: application/json" \
   -d '{
     "symbol": "BTCUSDT",
     "lower_price": 62500,
     "upper_price": 65000,
-    "levels": 15,
-    "risk_pct": 0.02
+    "levels": 4,
+    "quantity_per_order": 0.002,
+    "grid_type": "GEOMETRIC",
+    "stop_loss": 100.0
   }'
 ```
 
-### Refresh Grid
+### Refresh Grid (sync + replenish automático)
 ```bash
-curl -X POST http://localhost:8000/refresh-grid/GRID_ID
+curl -X POST "http://localhost:8000/api/v1/grids/GRID_ID/refresh"
 ```
 
-### Replenish Grid
+### Cancel Grid (cierre manual)
 ```bash
-curl -X POST http://localhost:8000/replenish-grid/GRID_ID
+curl -X DELETE "http://localhost:8000/api/v1/grids/GRID_ID"
 ```
 
-### Close Grid
+### Get Grid Detail (con órdenes)
 ```bash
-curl -X POST http://localhost:8000/close-grid/GRID_ID
-```
-
-### Get Orders
-```bash
-curl http://localhost:8000/grids/GRID_ID/orders
-curl http://localhost:8000/grids/GRID_ID/orders?status=FILLED
-```
-
-### Get Account
-```bash
-curl http://localhost:8000/account
+curl "http://localhost:8000/api/v1/grids/GRID_ID"
 ```
 
 ### Get PnL
 ```bash
-curl http://localhost:8000/pnl/GRID_ID
+curl "http://localhost:8000/api/v1/grids/GRID_ID/pnl"
+```
+
+### Check Close
+```bash
+curl -X POST "http://localhost:8000/api/v1/grids/GRID_ID/check-close"
 ```
 
 ---
@@ -107,8 +99,8 @@ docker-compose exec backend-python sqlite3 grid_trading.db
 
 ### Queries Útiles (dentro de sqlite3)
 ```sql
--- Ver grids activas
-SELECT * FROM grids WHERE status = 'ACTIVE';
+-- Ver grids en ejecución
+SELECT * FROM grids WHERE status = 'RUNNING';
 
 -- Ver todas las órdenes de una grid
 SELECT * FROM orders WHERE grid_id = 'GRID_20260705_001' ORDER BY created_at DESC;
@@ -219,10 +211,7 @@ curl http://localhost:8000/health | grep database
 curl http://localhost:8000/health | grep binance
 
 # 4. ¿Hay grids activas?
-curl http://localhost:8000/grids?status=ACTIVE
-
-# 5. ¿Hay balance en Binance?
-curl http://localhost:8000/account | grep balance_usdt
+curl "http://localhost:8000/api/v1/grids?status=RUNNING"
 ```
 
 ---
@@ -233,7 +222,7 @@ Agrega a `.bash_profile` o `.zshrc`:
 
 ```bash
 alias trading-health='curl http://localhost:8000/health'
-alias trading-grids='curl http://localhost:8000/grids?status=ACTIVE'
+alias trading-grids='curl "http://localhost:8000/api/v1/grids?status=RUNNING"'
 alias trading-logs='docker-compose logs -f backend-python'
 alias trading-db='docker-compose exec backend-python sqlite3 grid_trading.db'
 ```
@@ -244,7 +233,7 @@ alias trading-db='docker-compose exec backend-python sqlite3 grid_trading.db'
 
 ```powershell
 function trading-health { Invoke-WebRequest http://localhost:8000/health | Select-Object -ExpandProperty Content }
-function trading-grids { Invoke-WebRequest http://localhost:8000/grids | Select-Object -ExpandProperty Content }
+function trading-grids { Invoke-WebRequest "http://localhost:8000/api/v1/grids?status=RUNNING" | Select-Object -ExpandProperty Content }
 function trading-logs { docker-compose logs -f backend-python }
 ```
 

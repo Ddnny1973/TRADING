@@ -35,7 +35,7 @@ Orden que fue cancelada antes de ejecutarse. Status final.
 Cerrar una grid = cancelar todas las órdenes abiertas + vender posición.
 
 **Comisión (Fee)**
-Lo que Binance cobra por cada orden. Maker: 0.01%, Taker: 0.05%.
+Lo que Binance cobra por cada orden. Maker: 0.02% (0.0002), Taker: 0.04% (0.0004). El PnL usa 0.0002 por defecto en `calculate_grid_pnl()`.
 
 **Corrected Orders**
 Órdenes que requieren ajustes (paso, notional, etc.)
@@ -147,7 +147,7 @@ Cuántos USD/BTC se pueden comprar/vender sin mover precio. Alta liquidez = fác
 ## M
 
 **Maker**
-Orden LIMIT que se agrega al book. Fee: 0.01% (más barato).
+Orden LIMIT que se agrega al book. Fee Binance Futures: 0.02% (0.0002).
 
 **Mark Price**
 Precio actual del mercado. Usado para calcular unrealized PnL.
@@ -156,7 +156,7 @@ Precio actual del mercado. Usado para calcular unrealized PnL.
 Tiempo máximo que puede vivir una grid. Si > 224h → cierre automático.
 
 **Min Notional**
-Tamaño mínimo de orden. Binance: ~10 USDT.
+Tamaño mínimo de orden en Binance Futures: 50 USDT. El endpoint `/market-analysis` calcula `min_viable_quantity` automáticamente.
 
 **Min Step**
 Paso mínimo entre órdenes para ser rentable (después de fees). 0.2%.
@@ -212,7 +212,7 @@ Ver "Ganancia Realizada".
 Sincronizar órdenes con Binance. Actualizar BD con estado actual.
 
 **Replenish**
-Crear nuevas órdenes en posiciones ejecutadas. Crea ciclos.
+Crear nuevas órdenes en posiciones ejecutadas (fills). Lo hace el backend automáticamente dentro de `POST /api/v1/grids/{id}/refresh`. Crea ciclos BUY → SELL → BUY.
 
 **Risk %**
 Porcentaje del balance a arriesgar por grid. Default 2%.

@@ -150,29 +150,30 @@ Margin Type: ISOLATED (aísla riesgo por símbolo)
 ```
 Min Step % = 5 × 2 × Maker Fee
 
-Ejemplo (Binance):
-Maker Fee: 0.1%
-Min Step %: 5 × 2 × 0.1% = 1%
+Ejemplo (Binance Futures):
+Maker Fee: 0.02% (0.0002)
+Min Step %: 5 × 2 × 0.02% = 0.2%
 
 Tu Grid Step: 0.4%
-Validación: 0.4% < 1% → ⚠️ Warning, pero aceptado
-           0.1% < 1% → ❌ RECHAZADO
+Validación: 0.4% > 0.2%? ✅ ACEPTADO
+           0.1% < 0.2%? ❌ RECHAZADO
 ```
 
-**Lógica:** Si el paso es menor a 0.2% (5 × 2 × fees), las comisiones consumen toda la ganancia.
+**Lógica:** Si el paso es menor a 0.2% (5 × 2 × 0.02% fees), las comisiones consumen toda la ganancia.
 
 ### Min Notional (Tamaño Mínimo)
 
 ```
-Min Notional: ~10 USDT por orden
+Min Notional: 50 USDT por orden (Binance Futures)
 
 Ejemplo:
 BTC Price: 62500
-Min Quantity: 10 / 62500 = 0.00016 BTC
+Min Quantity: 50 / 62500 = 0.0008 BTC
 
-Si tu grid genera cantidad < 0.00016 BTC:
-→ ❌ RECHAZADO
-Solución: Aumenta capital o reduce niveles
+Si tu grid genera cantidad < 0.0008 BTC:
+→ ❌ RECHAZADO (grid_viable = false)
+Solución: Aumenta risk_pct o reduce niveles
+El endpoint /market-analysis muestra min_viable_quantity automáticamente.
 ```
 
 ### Max Duration (Expiración)
@@ -262,7 +263,7 @@ Recuperar pérdida: Necesito ~4 ciclos ganadores
 - [ ] Leverage: 1x (sin apalancamiento)
 - [ ] Margin: ISOLATED
 - [ ] Step %: ≥ 0.2%
-- [ ] Notional: ≥ 10 USDT por orden
+- [ ] Notional: ≥ 50 USDT por orden (Binance Futures)
 - [ ] Max duration: ≤ 224 horas
 - [ ] 2 símbolos diferentes (no correlacionados 100%)
 

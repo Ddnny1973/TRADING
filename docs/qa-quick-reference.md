@@ -122,12 +122,12 @@ MAX_CONCURRENT_GRIDS=2
 
 ### n8n Workflow 1 (Market Decision)
 - Trigger: Manual o Webhook
-- Claude Model: `claude-opus-4-8`
-- Temperature: 0.5
+- Gemini Model: `gemini-2.5-flash` (via HTTP Header Auth)
+- Temperature: 0.4
 - Output esperado: `{ launch: bool, gridCount: int, lowerLimit: float, upperLimit: float, reasoning: string }`
 
 ### n8n Workflow 2 (Monitor)
-- Trigger: Cron each 15 minutes
+- Trigger: Cron each 5 minutes
 - Continue on Fail: ✅ (en POST /refresh y /check-close)
 - Loop: Split in Batches (batchSize=1)
 - Wait: 1.5 segundos entre items

@@ -236,27 +236,18 @@ Esperado: `{"status": "healthy", ...}`
 ### Test 2: Market Analysis
 
 ```bash
-curl -X POST http://localhost:8000/market-analysis \
-  -H "Content-Type: application/json" \
-  -d '{
-    "symbol": "BTCUSDT",
-    "interval": "4h",
-    "atr_period": 14,
-    "sma_period": 50
-  }'
+curl "http://localhost:8000/api/v1/market-analysis/BTCUSDT?atr_period=14&atr_multiplier=2.0&klines_interval=4h&risk_pct=0.05&levels=4"
 ```
 
-Esperado: `{"symbol": "BTCUSDT", "current_price": ..., "atr": ..., "trend": ...}`
+Esperado: `{"symbol": "BTCUSDT", "current_price": ..., "atr": ..., "suggested_lower_price": ..., "grid_viable": true, ...}`
 
-### Test 3: Account
+### Test 3: List Grids
 
 ```bash
-curl http://localhost:8000/account
+curl http://localhost:8000/api/v1/grids
 ```
 
-Esperado: `{"balance_usdt": ..., "available_usdt": ..., "positions": [...]}`
-
-Si ves balance_usdt > 0 → ✅ API key funciona
+Esperado: `[]` (lista vacía) o array con grids existentes → ✅ Backend responde
 
 ---
 
@@ -334,7 +325,7 @@ docker-compose exec -T backend-python sqlite3 grid_trading.db < backup-20260705.
 - [ ] `docker-compose up -d` ejecutado
 - [ ] `docker-compose ps` muestra 2 servicios UP
 - [ ] `/health` devuelve OK
-- [ ] `/account` devuelve balance > 0
+- [ ] `/api/v1/market-analysis/BTCUSDT` devuelve datos de mercado
 - [ ] BD creada (`grid_trading.db`)
 - [ ] Logs no muestran errores CRITICAL
 - [ ] n8n accesible en http://localhost:5678

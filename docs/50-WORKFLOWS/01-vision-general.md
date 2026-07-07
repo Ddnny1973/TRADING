@@ -36,22 +36,23 @@ Analizar mercado y **decidir si crear un nuevo grid**.
    - Llama Backend `/market-analysis`
    - Obtiene: ATR, SMA, current price, trend
 
-2. **AI Decision**
-   - Llama OpenAI/Gemini API
-   - Pregunta: "¿Es bullish? (Debe ser YES para crear grid)"
-   - Prompt: "Current price {price}, ATR {atr}, SMA {sma}, trend {trend}"
+2. **Viabilidad Check (IF: Grid viable?)**
+   - Si `grid_viable === false` → Telegram notifica y el workflow termina (no llama a Gemini)
+   - Si `grid_viable === true` → continúa
 
-3. **Create Grid (if YES)**
+3. **AI Decision (Gemini)**
+   - Llama Gemini API (gemini-2.5-flash)
+   - Decide si lanzar: `launch: true/false`
+   - Si `launch === false` → Telegram "Grid NO lanzado" y termina
+
+4. **Create Grid (if launch=true)**
    - Parámetros calculados dinámicamente:
-     - `lower_price` = current_price - 2.5% ATR
-     - `upper_price` = current_price + 2.5% ATR
-     - `levels` = 15
-     - `risk_pct` = 0.02 (2%)
-   - Llama Backend `/create-grid`
-
-4. **Set Stop Loss**
-   - Llama Backend `/set-stop-loss`
-   - Stop loss = capital_a_arriesgar × 0.5
+     - `lower_price` / `upper_price` = de market-analysis (basados en ATR 2×)
+     - `levels` = gridCount de Gemini (cappado al Config.levels = 4)
+     - `risk_pct` = 0.05 (5%, configurado en nodo Config)
+     - `quantity_per_order` = $json.suggested_quantity_per_order (sin Math.max)
+     - `stop_loss` = $json.suggested_stop_loss (valor real, no null)
+   - Llama Backend `POST /api/v1/grids`
 
 5. **Notify to Telegram**
    - Envía mensaje a chat Telegram
@@ -80,31 +81,23 @@ Analizar mercado y **decidir si crear un nuevo grid**.
 - **Cron:** Cada 5 minutos automáticamente (Fase 3: Estrategia mejorada)
 
 ### Flujo
-1. **Fetch Active Grids**
-   - Llama Backend `/grids?status=ACTIVE`
-   - Para cada grid activa:
+1. **Fetch Running Grids**
+   - Llama Backend `GET /api/v1/grids?status=RUNNING`
+   - Si no hay grids → Telegram "Sin grids en ejecución" y termina
 
-2. **Refresh Grid**
-   - Llama Backend `/refresh-grid/{grid_id}`
+2. **Refresh Grid (+ Replenish automático)**
+   - Llama Backend `POST /api/v1/grids/{id}/refresh`
    - Sincroniza órdenes con Binance
-   - Detecta órdenes ejecutadas (fills)
+   - El backend hace replenish internamente (BUY → SELL → BUY)
 
-3. **Replenish Grid**
-   - Llama Backend `/replenish-grid/{grid_id}`
-   - Por cada BUY ejecutado → Crea SELL a precio + 0.33%
-   - Por cada SELL ejecutado → Crea BUY a precio - 0.33%
-   - **Esto crea ciclos automáticos**
+3. **Check Close**
+   - Llama Backend `POST /api/v1/grids/{id}/check-close`
+   - Evalúa SL, TP, EXPIRED
+   - Si hay trigger → Grid se cierra automáticamente en el backend
 
-4. **Evaluate Closures**
-   - Chequea Stop Loss: Si precio baja threshold → Close
-   - Chequea Take Profit: Si profit alcanzado → Close
-   - Chequea EXPIRED: Si grid > max_duration → Close
-   - Llama Backend `/close-grid/{grid_id}` si aplica
-
-5. **Notify to Telegram**
-   - "📊 Grids monitored: 2"
-   - "✅ Orders replenished: 3"
-   - "❌ Grids closed: 0" (si aplica)
+4. **Notify to Telegram**
+   - Si grid se cerró: motivo con emoji (❌ Stop Loss, ✅ Take Profit, ⏰ Expiración, 🤷 Manual)
+   - Si refresh/check-close falla: error notificado, siguiente grid
 
 ### Duración
 ~3-5 segundos (muy rápido)
@@ -130,7 +123,7 @@ Analizar mercado y **decidir si crear un nuevo grid**.
 - 15 órdenes BUY en Binance
 
 ### Hour 0 - 48: Workflow 2 cada 5 min (576 ejecuciones)
-- Monitoreo continuo (Fase 3: Estrategia mejorada)
+- Monitoreo continuo
 - A medida que BUY se ejecuta → Crea SELL
 - A medida que SELL se ejecuta → Crea BUY
 - **Ciclos automáticos**: BUY @ 62500 → SELL @ 62708 → BUY @ 62500 → ...
@@ -163,9 +156,9 @@ Analizar mercado y **decidir si crear un nuevo grid**.
 - **Razón:** Análisis de mercado diario, espacio para múltiples grids
 
 ### Workflow 2: Cron Schedule
-- **Intervalo:** Cada 5 minutos (Fase 3: Estrategia mejorada)
-- **Razón:** 3x más rápido para capturar fills, ciclos más densos
-- **Ejecuciones/día:** 288 (vs 96 con 15 min)
+- **Intervalo:** Cada 5 minutos (nodo: "Cron: Every 5 min")
+- **Razón:** Detecta fills rápido, ciclos más densos
+- **Ejecuciones/día:** 288
 
 ### n8n Settings
 - **MAX_EXECUTION_TIMEOUT:** 60 segundos
@@ -183,7 +176,7 @@ Analizar mercado y **decidir si crear un nuevo grid**.
 
 ### QA/Tester
 1. Ejecuta Workflow 1 manualmente
-2. Espera 15 min para que Workflow 2 corra
+2. Espera 5 min para que Workflow 2 corra
 3. Verifica órdenes en Binance
 4. Repite 10+ veces en 48h
 
@@ -201,18 +194,15 @@ Analizar mercado y **decidir si crear un nuevo grid**.
 
 **Workflow 1:**
 ```
-POST /market-analysis
-POST /create-grid
-POST /set-stop-loss
+GET /api/v1/market-analysis/{symbol}?risk_pct=0.05&levels=4&...
+POST /api/v1/grids
 ```
 
 **Workflow 2:**
 ```
-GET /grids?status=ACTIVE
-POST /refresh-grid/{grid_id}
-POST /replenish-grid/{grid_id}
-POST /close-grid/{grid_id}
-POST /evaluate-closures
+GET /api/v1/grids?status=RUNNING
+POST /api/v1/grids/{id}/refresh   (incluye replenish)
+POST /api/v1/grids/{id}/check-close
 ```
 
 ### Manejo de Errores

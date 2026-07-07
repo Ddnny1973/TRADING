@@ -62,9 +62,9 @@ levels=10
 
 ---
 
-### Nodo 3: AI Decision Node (Claude / LLM)
+### Nodo 3: AI Decision Node (Gemini)
 
-**Tipo:** `Call Tool` → `AI` node en n8n (Claude, OpenAI, etc.)
+**Tipo:** HTTP Request → Gemini API (gemini-2.5-flash via `generativelanguage.googleapis.com`)
 
 **System Prompt:**
 ```
@@ -350,7 +350,7 @@ GRID_TYPE = "GEOMETRIC"
            ▼
 ┌──────────────────────────────────────┐
 │ 3. AI Decision Node                  │
-│ (Claude analiza ATR%, decide launch) │
+│ (Gemini analiza ATR%, decide launch) │
 └──────────┬───────────────────────────┘
            │
            ▼

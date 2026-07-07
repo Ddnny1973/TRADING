@@ -67,7 +67,7 @@ POST /api/v1/grids
 
 ## Opción B: Decisión de la IA (📋 PROPUESTA PARA FASE 2)
 
-**Enfoque:** Permitir que la IA (Claude en n8n) decida la duración basada en su análisis de mercado.
+**Enfoque:** Permitir que la IA (Gemini en n8n) decida la duración basada en su análisis de mercado.
 
 **Justificación:**
 - `max_duration_hours` NO es un dato que se derive objetivamente de ATR

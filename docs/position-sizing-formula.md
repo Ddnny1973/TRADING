@@ -157,7 +157,7 @@ Workflow 1 (Decision Node)
       "suggested_upper_price": 42900.0
     }
   ↓
-  AI Node (Claude):
+  AI Node (Gemini):
     - Recibe quantity_per_order ya calculada
     - Decide: ¿launch=true y uso esta cantidad, o ajusto?
     - Devuelve: launch, gridCount, lowerLimit, upperLimit

@@ -86,55 +86,48 @@ async def shutdown_event():
     close_binance_client()
 ```
 
-### Endpoints Principales
+### Endpoints Principales (reales en app/main.py)
 ```python
 @app.get("/health")
 async def health_check() -> dict:
     """Health check simple"""
 
-@app.post("/market-analysis")
-async def market_analysis(request: MarketAnalysisRequest) -> dict:
-    """Analiza mercado: ATR, SMA, trend"""
+@app.get("/")
+async def root() -> dict:
+    """Info general + running_grids count"""
 
-@app.post("/create-grid")
-async def create_grid(request: CreateGridRequest) -> dict:
-    """Crea nueva grid"""
+@app.get("/api/v1/market-analysis/{symbol}")
+async def analyze_market(symbol: str, atr_period: int = 14, atr_multiplier: float = 2.0,
+                         klines_interval: str = "4h", risk_pct: float = None, levels: int = None):
+    """Analiza mercado: ATR, precios sugeridos, cantidad y viabilidad"""
 
-@app.get("/grids")
-async def list_grids(status: str = None) -> dict:
-    """Lista grids activas/cerradas"""
+@app.post("/api/v1/grids")
+async def create_grid(request: GridRequest) -> GridDetailResponse:
+    """Crea nueva grid con órdenes en Binance"""
 
-@app.post("/refresh-grid/{grid_id}")
-async def refresh_grid(grid_id: str) -> dict:
-    """Sincroniza grid con Binance"""
+@app.get("/api/v1/grids")
+async def list_grids(status: str = None) -> List[GridResponse]:
+    """Lista grids, filtrables por status (RUNNING, CANCELED, etc.)"""
 
-@app.post("/replenish-grid/{grid_id}")
-async def replenish_grid(grid_id: str) -> dict:
-    """Crea órdenes nuevas en fills"""
+@app.get("/api/v1/grids/{grid_id}")
+async def get_grid(grid_id: str) -> GridDetailResponse:
+    """Detalle de grid con órdenes"""
 
-@app.post("/close-grid/{grid_id}")
-async def close_grid(grid_id: str) -> dict:
-    """Cierra grid (cancela todas)"""
+@app.post("/api/v1/grids/{grid_id}/refresh")
+async def refresh_grid_orders(grid_id: str) -> GridDetailResponse:
+    """Sync órdenes con Binance + replenish automático de fills"""
 
-@app.post("/set-stop-loss/{grid_id}")
-async def set_stop_loss(grid_id: str, request: SLRequest) -> dict:
-    """Setea SL para grid"""
+@app.get("/api/v1/grids/{grid_id}/pnl")
+async def get_grid_pnl(grid_id: str) -> GridPnlResponse:
+    """PnL realizado + unrealizado (neto, fees 0.02% deducidos)"""
 
-@app.post("/set-take-profit/{grid_id}")
-async def set_take_profit(grid_id: str, request: TPRequest) -> dict:
-    """Setea TP para grid"""
+@app.post("/api/v1/grids/{grid_id}/check-close")
+async def check_close_grid(grid_id: str) -> GridCloseCheckResponse:
+    """Evalúa SL/TP/EXPIRED y cierra si aplica"""
 
-@app.get("/grids/{grid_id}/orders")
-async def list_orders(grid_id: str, status: str = None) -> dict:
-    """Lista órdenes de grid"""
-
-@app.get("/account")
-async def get_account() -> dict:
-    """Info de cuenta Binance"""
-
-@app.get("/pnl/{grid_id}")
-async def get_pnl(grid_id: str) -> dict:
-    """PnL realizado + unrealizado"""
+@app.delete("/api/v1/grids/{grid_id}")
+async def cancel_grid(grid_id: str) -> GridDetailResponse:
+    """Cancela todas las órdenes (cierre manual)"""
 ```
 
 ---
@@ -324,7 +317,7 @@ class GridService:
         grid = Grid(
             id=grid_id,
             symbol=request.symbol,
-            status="ACTIVE",
+            status="RUNNING",
             lower_price=request.lower_price,
             upper_price=request.upper_price,
             levels=request.levels,
@@ -349,7 +342,7 @@ class GridService:
         return GridResponse(
             grid_id=grid_id,
             symbol=request.symbol,
-            status="ACTIVE",
+            status="RUNNING",
             orders_created=len(binance_orders)
         )
     
@@ -508,7 +501,7 @@ class Grid(Base):
     
     id = Column(String, primary_key=True)
     symbol = Column(String, nullable=False)
-    status = Column(String, nullable=False)  # ACTIVE, CLOSED
+    status = Column(String, nullable=False)  # RUNNING, CLOSED, CANCELED
     lower_price = Column(Float)
     upper_price = Column(Float)
     levels = Column(Integer)
@@ -545,34 +538,47 @@ class PnLHistory(Base):
 ## schemas/ - Validación
 
 ```python
-from pydantic import BaseModel, Field
+# Schemas reales en app/schemas/grid_schema.py
 
-class CreateGridRequest(BaseModel):
-    symbol: str = Field(..., example="BTCUSDT")
-    lower_price: float = Field(..., gt=0)
-    upper_price: float = Field(..., gt=0)
-    levels: int = Field(..., ge=3, le=50)
-    risk_pct: float = Field(default=0.02, ge=0.001, le=0.1)
+class GridRequest(BaseModel):
+    symbol: str
+    lower_price: Optional[float] = None  # Si omite, calcula por ATR
+    upper_price: Optional[float] = None  # Si omite, calcula por ATR
+    levels: int = Field(default=10)
+    grid_type: str = Field(default="GEOMETRIC")
+    quantity_per_order: float          # Obligatorio
+    stop_loss: Optional[float] = None  # En USDT de PnL
+    take_profit: Optional[float] = None
+    atr_period: int = 14
+    atr_multiplier: float = 2.0
+    klines_interval: str = "4h"
+    max_duration_hours: Optional[float] = None
 
 class GridResponse(BaseModel):
-    grid_id: str
+    id: str
     symbol: str
-    status: str
+    status: str   # RUNNING, CLOSED, CANCELED
     lower_price: float
     upper_price: float
     levels: int
-    orders_created: int
-    created_at: str
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "grid_id": "GRID_20260705_001",
-                "symbol": "BTCUSDT",
-                "status": "ACTIVE",
-                "orders_created": 15
-            }
-        }
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
+    max_duration_hours: Optional[float] = None
+    created_at: datetime
+
+class MarketAnalysisResponse(BaseModel):
+    symbol: str
+    current_price: float
+    atr: float
+    suggested_lower_price: float
+    suggested_upper_price: float
+    suggested_range: float
+    suggested_quantity_per_order: Optional[float] = None  # Solo si levels pasado
+    allocated_capital: Optional[float] = None             # Solo si levels pasado
+    suggested_stop_loss: Optional[float] = None           # Solo si levels pasado
+    min_viable_quantity: Optional[float] = None           # Solo si levels pasado
+    grid_viable: Optional[bool] = None                    # Solo si levels pasado
+    required_risk_pct: Optional[float] = None             # Solo si levels pasado
 ```
 
 ---

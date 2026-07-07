@@ -23,15 +23,10 @@ Automático: Cron cada 4 horas (00:00, 04:00, 08:00, etc. UTC)
 
 ### 2. Market Analysis
 
-Llama Backend:
+Llama Backend (GET):
 ```
-POST /market-analysis
-{
-  "symbol": "BTCUSDT",
-  "interval": "4h",
-  "atr_period": 14,
-  "sma_period": 50
-}
+GET /api/v1/market-analysis/BTCUSDT
+  ?risk_pct=0.05&levels=4&atr_period=14&atr_multiplier=2.0&klines_interval=4h
 ```
 
 Backend responde:
@@ -40,83 +35,79 @@ Backend responde:
   "symbol": "BTCUSDT",
   "current_price": 63500.50,
   "atr": 450.25,
-  "sma": 62800.00,
-  "trend": "bullish",
-  "volatility": "medium"
+  "suggested_lower_price": 62600.0,
+  "suggested_upper_price": 64400.0,
+  "suggested_range": 1800.0,
+  "suggested_quantity_per_order": 0.002,
+  "allocated_capital": 500.0,
+  "suggested_stop_loss": 250.0,
+  "min_viable_quantity": 0.001,
+  "grid_viable": true,
+  "required_risk_pct": 0.032,
+  "klines_interval": "4h"
 }
 ```
 
-### 3. AI Decision (OpenAI/Gemini)
+### 3. IF: Grid viable?
 
-**Prompt:** "Is BTC bullish right now? Current: {price}, ATR: {atr}, SMA: {sma}, Trend: {trend}. Answer YES or NO."
+**Condición:** `$json.grid_viable === true`
 
-**IA responde:** `YES` (bullish) o `NO` (bearish)
+- Si **FALSE** → Telegram notifica "Grid NO viable, se requiere risk_pct >= X" y el workflow **termina**
+- Si **TRUE** → continúa al Build Gemini Request
+
+### 4. AI Decision (Gemini 2.5-flash)
+
+**Prompt al modelo:** Datos de mercado + reglas de criterio (ATR%, gridCount razonable, etc.)
+
+**Gemini responde (JSON):**
+```json
+{
+  "launch": true,
+  "lowerLimit": 62600.0,
+  "upperLimit": 64400.0,
+  "gridCount": 4,
+  "reasoning": "ATR 0.7% lateral, viable con 4 niveles..."
+}
+```
 
 **Lógica:**
-- Si YES → Continúa a step 4
-- Si NO → Envía notificación "Market not bullish, skipping" y termina
-
-### 4. Calculate Grid Parameters
-
-Si YES:
-
-```
-lower_price = current_price - (2.5 × atr)
-upper_price = current_price + (2.5 × atr)
-levels = 15
-risk_pct = 0.02
-```
+- Si `launch === false` → Telegram "Grid NO lanzado + reasoning" y termina
+- Si `launch === true` → Continúa a crear grid
 
 ### 5. Create Grid
 
-Llama Backend:
+Llama Backend (POST):
 ```
-POST /create-grid
+POST /api/v1/grids
 {
   "symbol": "BTCUSDT",
-  "lower_price": <calculated>,
-  "upper_price": <calculated>,
-  "levels": 15,
-  "risk_pct": 0.02
+  "lower_price": lowerLimit,
+  "upper_price": upperLimit,
+  "levels": min(gridCount, Config.levels=4),
+  "quantity_per_order": suggested_quantity_per_order,
+  "grid_type": "GEOMETRIC",
+  "stop_loss": suggested_stop_loss,
+  "take_profit": null
 }
 ```
 
 Backend responde:
 ```json
 {
-  "grid_id": "GRID_20260705_001",
-  "status": "ACTIVE",
-  "orders_created": 15
+  "id": "uuid-grid-001",
+  "status": "RUNNING",
+  "levels": 4,
+  "stop_loss": 250.0,
+  "orders": [...]
 }
 ```
 
-### 6. Set Stop Loss
-
-Llama Backend:
-```
-POST /set-stop-loss/GRID_20260705_001
-{
-  "stop_loss_pct": 0.02
-}
-```
-
-Backend responde:
-```json
-{
-  "grid_id": "GRID_20260705_001",
-  "stop_loss_price": <calculated>
-}
-```
-
-### 7. Send Telegram Notification
+### 6. Send Telegram Notification
 
 ```
-✅ Grid GRID_20260705_001 created
-   Symbol: BTCUSDT
-   Range: 60000 - 66000
-   Levels: 15
-   Stop Loss: 58500
-   Status: ACTIVE ✅
+✅ Grid lanzado: BTCUSDT
+   ID: uuid-grid-001 | Niveles: 4 | Rango: 62600-64400
+   💭 ATR 0.7% lateral, viable con 4 niveles...
 ```
 
 ---
@@ -127,14 +118,16 @@ Backend responde:
 |----------|---------|-------------|
 | symbol | BTCUSDT | Símbolo a tradear |
 | current_price | 63500 | Precio actual |
-| atr | 450 | Volatilidad |
-| sma | 62800 | Promedio móvil |
-| trend | bullish | Tendencia |
-| lower_price | 61275 | Precio mínimo del grid |
-| upper_price | 65725 | Precio máximo del grid |
-| levels | 15 | Cantidad de órdenes |
-| risk_pct | 0.02 | 2% del balance |
-| grid_id | GRID_... | ID único |
+| atr | 450 | Volatilidad (ATR) |
+| risk_pct | 0.05 | 5% del balance (Config) |
+| levels | 4 | Cantidad de órdenes (Config) |
+| suggested_lower_price | 62600 | Precio mínimo sugerido por ATR |
+| suggested_upper_price | 64400 | Precio máximo sugerido por ATR |
+| suggested_quantity_per_order | 0.002 | Cantidad calculada por risk% |
+| suggested_stop_loss | 250.0 | SL = allocated_capital × 0.5 |
+| min_viable_quantity | 0.001 | Mínimo para cumplir 50 USDT min_notional |
+| grid_viable | true | ¿Es viable el grid con este capital? |
+| grid_id | uuid | ID único del grid |
 
 ---
 
@@ -161,8 +154,8 @@ Necesarias en n8n:
 ```
 BACKEND_URL=http://backend-python:8000
 N8N_BLOCK_ENV_ACCESS_IN_NODE=false
-TELEGRAM_CHAT_ID=<tu-chat-id>
-OPENAI_API_KEY=<tu-api-key>  (opcional, si usas OpenAI)
+TELEGRAM_CHAT_ID=<tu-chat-id>  (usado en IF: Chat autorizado? y notificaciones)
+# Gemini API key se configura como credencial HTTP Header Auth en n8n
 ```
 
 ---
@@ -171,10 +164,11 @@ OPENAI_API_KEY=<tu-api-key>  (opcional, si usas OpenAI)
 
 | Error | Causa | Solución |
 |-------|-------|----------|
+| grid_viable = false | Capital insuficiente para min_notional 50 USDT | Aumentar risk_pct o reducir levels |
 | 400: Step too small | Rango muy pequeño | Aumentar upper-lower |
 | 409: Max grids exceeded | Ya hay 2 activos | Cerrar una grid |
 | 503: Binance unreachable | API caída | Esperar o reintentar |
-| IA says NO | Mercado bearish | Esperar próxima ejecución |
+| Gemini launch=false | Mercado no apto para grid | Esperar próxima ejecución |
 
 ---
 
@@ -182,8 +176,10 @@ OPENAI_API_KEY=<tu-api-key>  (opcional, si usas OpenAI)
 
 **Workflow 1 debe:**
 - ✅ Ejecutarse sin errores
-- ✅ Crear grid si IA dice YES
-- ✅ Setear SL automáticamente
+- ✅ Verificar viabilidad (IF: Grid viable?) antes de llamar a Gemini
+- ✅ Crear grid con status RUNNING si Gemini dice launch=true
+- ✅ Propagar stop_loss ($json.suggested_stop_loss) al POST /api/v1/grids (no null)
+- ✅ Propagar quantity_per_order ($json.suggested_quantity_per_order, sin Math.max)
 - ✅ Enviar notificación a Telegram
 - ✅ Completarse en < 60 segundos
 
@@ -197,7 +193,7 @@ OPENAI_API_KEY=<tu-api-key>  (opcional, si usas OpenAI)
 1. n8n UI → Workflow 1 → Execute
 2. Espera ~30 seg
 3. Revisa output final
-4. Verifica grid creada: curl http://localhost:8000/grids?status=ACTIVE
+4. Verifica grid creada: curl "http://localhost:8000/api/v1/grids?status=RUNNING"
 ```
 
 ### Automated (Cron)

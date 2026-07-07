@@ -173,7 +173,7 @@ curl http://localhost:8000/health
 | Síntoma | Posible Causa | Solución |
 |---------|---------------|----------|
 | Nodo 2 error "Could not fetch balance" | API key sin permisos | Verifica que la key tiene permisos de lectura en testnet |
-| Nodo 3 error "Invalid API key for Claude" | OpenAI API key inválida | Regenera y guarda la key en n8n credentials |
+| Nodo 4 error "Gemini API error" | Gemini API key inválida o sin cuota | Regenera y guarda la credencial "Header Auth GeminiAI" en n8n |
 | Nodo 5 error "No orders placed" | Margin insuficiente | Aumenta balance en testnet faucet o reduce `risk_pct` |
 | Nodo 5 error "Grid step below minimum" | Paso muy pequeño (paso < 0.2%) | Grid muy angosto, AI debe elegir rango más ancho |
 | Binance testnet UI no muestra órdenes | Órdenes fueron rechazadas silenciosamente | Lee logs del backend: `docker logs backend-python` |

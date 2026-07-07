@@ -15,11 +15,11 @@
 
 | Endpoint | Time | Rango | Acción |
 |----------|------|-------|--------|
-| `/market-analysis` | < 500 ms | 200-1000 ms | Si > 2s: revisar Binance API |
-| `/grids` | < 200 ms | 100-500 ms | Si > 1s: optimizar BD query |
-| `/create-grid` | < 2 s | 1-5 s | Normal, depende de órdenes |
-| `/refresh-grid` | < 1 s | 500-2000 ms | Normal |
-| `/replenish-grid` | < 1 s | 500-2000 ms | Normal |
+| `/api/v1/market-analysis/{symbol}` | < 500 ms | 200-1000 ms | Si > 2s: revisar Binance API |
+| `/api/v1/grids` | < 200 ms | 100-500 ms | Si > 1s: optimizar BD query |
+| `POST /api/v1/grids` | < 2 s | 1-5 s | Normal, depende de órdenes |
+| `POST /api/v1/grids/{id}/refresh` | < 1 s | 500-2000 ms | Normal (incluye replenish) |
+| `POST /api/v1/grids/{id}/check-close` | < 500 ms | 200-1000 ms | Normal |
 
 ---
 
@@ -30,7 +30,7 @@
 | Métrica | Esperado | Rango | Nota |
 |---------|----------|-------|------|
 | Duración | 15-30 s | 10-60 s | Incluye IA call |
-| Calls a Backend | 2-3 | - | market-analysis + create-grid + set-sl |
+| Calls a Backend | 1-2 | - | GET market-analysis + POST /api/v1/grids (si launch=true) |
 | Success Rate | > 90% | > 80% | Falla por IA, network, etc. |
 | Frequency | Cada 4h | - | Manual o cron |
 
@@ -40,9 +40,9 @@
 |---------|----------|-------|------|
 | Duración | 3-5 s | 2-10 s | Muy rápido |
 | Grids procesadas | 1-2 | - | Max concurrent = 2 |
-| Orders refreshed | 15-45 | - | 15 órdenes × 1-3 grids |
-| Orders replenished | 0-5 | - | Depende de fills |
-| Frequency | Cada 15 min | - | Automático |
+| Orders refreshed | 4-30 | - | Depende de levels × grids |
+| Orders replenished | 0-5 | - | Depende de fills (backend lo hace en /refresh) |
+| Frequency | Cada 5 min | - | Automático |
 | Uptime | > 99% | - | Debe ejecutarse siempre |
 
 ---
@@ -81,7 +81,7 @@
 | Leverage | 1x | 1x | NO USES LEVERAGE |
 | Max grids | 2 | 2 | Cierra uno |
 | Max duration | 224 h | - | Auto-cierre |
-| Min step | >= 0.2% | >= 0.4% | Aumenta range |
+| Min step | >= 0.2% | >= 0.4% | Aumenta range (ver validate_grid_step) |
 
 ### Posición
 
@@ -232,7 +232,7 @@ Si tienes dashboard web, monitorea:
 
 ┌─ WORKFLOWS ──────────┐
 │ WF1 Last Run: 4h ago │
-│ WF2 Last Run: 5 min  │
+│ WF2 Last Run: <5 min │
 │ WF2 Uptime: 99.8%    │
 └──────────────────────┘
 

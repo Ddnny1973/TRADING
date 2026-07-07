@@ -87,18 +87,18 @@ Status: 409
 
 ### Min Notional Not Met
 
-**Escenario:** Total de órdenes < 10 USDT.
+**Escenario:** Cantidad por orden × precio < 50 USDT (mínimo Binance Futures).
 
 ```
 Status: 400
 {
   "error": "Notional validation failed",
-  "message": "Total notional $5.50 is less than minimum $10",
+  "message": "Total notional $5.50 is less than minimum $50",
   "code": "NOTIONAL_TOO_SMALL"
 }
 ```
 
-**Solución:** Aumenta quantity_per_order o niveles.
+**Solución:** Aumenta quantity_per_order. El endpoint `/api/v1/market-analysis` calcula `min_viable_quantity` automáticamente.
 
 ---
 
@@ -178,7 +178,7 @@ Status: 503
 | `STEP_TOO_SMALL` | Paso entre órdenes < 0.2% | Aumenta niveles o rango |
 | `RISK_TOO_HIGH` | Risk > 10% | Baja risk_pct |
 | `MAX_GRIDS_EXCEEDED` | Ya tienes 2 grids | Cierra una |
-| `NOTIONAL_TOO_SMALL` | Total < 10 USDT | Aumenta cantidad |
+| `NOTIONAL_TOO_SMALL` | Notional < 50 USDT | Aumenta cantidad (ver min_viable_quantity) |
 | `BINANCE_RATE_LIMIT` | 1200 req/min | Espera 60 seg |
 | `GRID_NOT_FOUND` | Grid ID inválido | Verifica con `/grids` |
 | `DATABASE_ERROR` | BD desconectada | Reinicia backend |

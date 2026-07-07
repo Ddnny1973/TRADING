@@ -6,8 +6,10 @@
 
 | Tipo | Tarifa | Descripción |
 |------|--------|-------------|
-| MAKER | 0.01% | Órdenes LIMIT que se aceptan (grid) |
-| TAKER | 0.05% | Órdenes MARKET (cierre rápido) |
+| MAKER | 0.02% (0.0002) | Órdenes LIMIT que se aceptan (grid) — fee por defecto en cálculos de PnL |
+| TAKER | 0.04% (0.0004) | Órdenes MARKET (cierre rápido) |
+
+*Nota: El `fee_rate=0.0002` es el valor por defecto en `calculate_grid_pnl()`. La comisión real puede variar según VIP level (consultar `/fapi/v1/commissionRate`).*
 
 **Ejemplo:**
 ```
@@ -37,21 +39,21 @@ Comisión: 625 × 0.01% = 0.0625 USDT
 BUY:
   Cantidad: 0.01 BTC
   Precio: 62500 USDT
-  Comisión: 625 × 0.01% = 0.0625 USDT
-  Costo total: 62500 × 0.01 + 0.0625 = 625.0625 USDT
+  Comisión: 625 × 0.02% = 0.125 USDT
+  Costo total: 62500 × 0.01 + 0.125 = 625.125 USDT
 
 SELL:
   Cantidad: 0.01 BTC
   Precio: 62710 USDT
-  Comisión: 627.10 × 0.01% = 0.06271 USDT
-  Ingreso total: 62710 × 0.01 - 0.06271 = 627.09729 USDT
+  Comisión: 627.10 × 0.02% = 0.12542 USDT
+  Ingreso total: 62710 × 0.01 - 0.12542 = 626.97458 USDT
 
 PnL Bruto:
-  627.10 - 62500 = 210 USDT
+  (62710 - 62500) × 0.01 = 2.10 USDT
 
 PnL Neto (tras comisiones):
-  627.09729 - 625.0625 = 2.03479 USDT
-  PnL %: 2.03479 / 625.0625 = 0.325%
+  626.97458 - 625.125 = 1.84958 USDT
+  PnL %: 1.84958 / 625.125 ≈ 0.296%
 ```
 
 ---
@@ -99,15 +101,15 @@ PnL Neto:
 ```
 Total notional: ~8 BUY × 625 + 7 SELL × 627 = 10225 USDT
 
-Comisiones totales:
-  BUY comisiones: 8 × (625 × 0.01%) = 0.5 USDT
-  SELL comisiones: 7 × (627 × 0.01%) = 0.44 USDT
-  Total: ~0.94 USDT
+Comisiones totales (por ciclo, 0.02% maker):
+  BUY comisiones: 1 × (625 × 0.02%) = 0.125 USDT
+  SELL comisiones: 1 × (627 × 0.02%) = 0.1254 USDT
+  Total por ciclo: ~0.25 USDT
 
-Paso entre órdenes: 0.4%
-Ganancia bruta por ciclo: ~210 USDT
-Ganancia neta (10 ciclos): ~210 × 10 - 0.94 × 10 ≈ 2091 USDT
-PnL neto %: ~2.04%
+Paso entre órdenes: 0.4% → ~2.10 USDT bruto por ciclo
+Ganancia neta por ciclo: 2.10 - 0.25 ≈ 1.85 USDT
+Ganancia neta (10 ciclos): ~18.5 USDT
+PnL neto %: ~18.5 / 625 ≈ 2.96%
 ```
 
 ---
@@ -118,19 +120,19 @@ PnL neto %: ~2.04%
 
 ```
 Min Step % = 5 × 2 × Maker Fee
-Min Step % = 5 × 2 × 0.01% = 0.1%
+Min Step % = 5 × 2 × 0.02% = 0.2%
 
 Razón:
-1. BUY con comisión (maker 0.01%)
-2. SELL con comisión (maker 0.01%)
-3. Ciclo = BUY + SELL = 2 × 0.01% = 0.02%
-4. Para que sea rentable: Step % > 5 × 0.02% = 0.1%
+1. BUY con comisión (maker 0.02%)
+2. SELL con comisión (maker 0.02%)
+3. Ciclo = BUY + SELL = 2 × 0.02% = 0.04%
+4. Para que sea rentable: Step % > 5 × 0.04% = 0.2%
 ```
 
 ### Aplicación en Sistema
 
 ```
-Sistema rechaza grids con step < 0.2% (double safety margin)
+Sistema rechaza grids con step < 0.2%
 
 Tu Grid:
   Lower: 62500
@@ -230,16 +232,16 @@ SL 2% = -20 USDT (10% del capital) ⚠️ Muy alto
 
 ```
 Step: 0.4%
-Comisiones: ~0.02% (2 × maker 0.01%)
-PnL neto: 0.4% - 0.02% = 0.38% por ciclo
+Comisiones: ~0.04% (2 × maker 0.02%)
+PnL neto: 0.4% - 0.04% = 0.36% por ciclo
 
 Ejemplo:
-Ciclo 1: +0.38% = +2.38 USDT (en 625 USDT)
-Ciclo 2: +0.38% = +2.38 USDT
+Ciclo 1: +0.36% = +2.25 USDT (en 625 USDT)
+Ciclo 2: +0.36% = +2.25 USDT
 ...
-Ciclo 10: +0.38% = +2.38 USDT
+Ciclo 10: +0.36% = +2.25 USDT
 
-Total: 0.38% × 10 = 3.8%
+Total: 0.36% × 10 = 3.6%
 ```
 
 ### Por Día
@@ -305,12 +307,12 @@ Ciclos esperados: 10
 
 ### Resultado
 ```
-PnL neto por ciclo: 0.4% - 0.02% = 0.38%
-PnL neto total: 0.38% × 10 = 3.8%
-PnL en USDT: 625 × 3.8% ≈ 23.75 USDT
+PnL neto por ciclo: 0.4% - 0.04% = 0.36%
+PnL neto total: 0.36% × 10 = 3.6%
+PnL en USDT: 625 × 3.6% ≈ 22.5 USDT
 
-Breakeven: 0.02% / 0.4% ≈ 5% de ciclos
-(5% de 10 ciclos = 0.5 ciclos)
+Breakeven: 0.04% / 0.4% ≈ 10% de ciclos
+(10% de 10 ciclos = 1 ciclo)
 ```
 
 ---

@@ -16,8 +16,8 @@ services:
       - BACKEND_URL=http://backend-python:8000
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
       - TELEGRAM_CHAT_ID=<tu-chat-id>
-      - OPENAI_API_KEY=<tu-api-key>
       - TELEGRAM_BOT_TOKEN=<tu-bot-token>
+      # Gemini API key se configura como credencial en n8n UI (HTTP Header Auth)
     # ... resto de config
 ```
 
@@ -87,23 +87,7 @@ Necesario para notificaciones.
 3. El bot responde con tu chat_id
 4. O accede a: `https://api.telegram.org/bot<token>/getUpdates`
 
-### OpenAI API Key (Opcional)
-
-Para IA en Market Decision (puede usar Gemini en su lugar).
-
-**Crear key:**
-1. Abre https://platform.openai.com/api-keys
-2. Click **Create new secret key**
-3. Copia el key
-
-**Agregar a n8n:**
-1. n8n → **Credentials**
-2. **Create New** → **OpenAI**
-3. Nombre: `OpenAI_Key`
-4. API Key: `<tu-api-key>`
-5. **Save**
-
-### Gemini API Key (Alternativa a OpenAI)
+### Gemini API Key (IA para Market Decision)
 
 **Crear key:**
 1. Abre https://ai.google.dev/
@@ -148,9 +132,10 @@ Workflow 1 y 2 tienen nodos HTTP que llaman al backend:
 
 **Ejemplo:**
 ```
-POST {{ $env.BACKEND_URL }}/create-grid
-POST {{ $env.BACKEND_URL }}/refresh-grid
-POST {{ $env.BACKEND_URL }}/market-analysis
+GET  {{ $env.BACKEND_URL }}/api/v1/market-analysis/{symbol}
+POST {{ $env.BACKEND_URL }}/api/v1/grids
+POST {{ $env.BACKEND_URL }}/api/v1/grids/{id}/refresh
+POST {{ $env.BACKEND_URL }}/api/v1/grids/{id}/check-close
 ```
 
 Si ves URL hardcodeada (ej. `http://localhost:8000`), cámbiala a `{{ $env.BACKEND_URL }}`.
@@ -167,19 +152,14 @@ Los workflows envían notificaciones a Telegram.
 
 Repite para todos los nodos Telegram.
 
-### Paso 5: Configurar Nodos OpenAI/Gemini
+### Paso 5: Configurar Nodo Gemini AI
 
-Para IA decision en Workflow 1:
+Workflow 1 usa Gemini para la decisión de mercado:
 
-**Si usas OpenAI:**
-1. Busca el nodo OpenAI
-2. Selecciona credencial `OpenAI_Key`
-3. Configura el prompt (busca "bullish" en el nodo)
-
-**Si usas Gemini (HTTP):**
-1. Busca el nodo HTTP con Gemini
-2. Headers debe incluir: `x-goog-api-key` = `{{ $env.OPENAI_API_KEY }}` o similar
-3. URL: `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent`
+1. Busca el nodo **"Gemini: AI Decision"** (HTTP Request)
+2. Selecciona credencial `Header Auth GeminiAI`
+3. La URL ya está configurada: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`
+4. Header: `x-goog-api-key` = `<tu-api-key>`
 
 ---
 
@@ -204,15 +184,15 @@ Para IA decision en Workflow 1:
 
 ### Workflow 2: Monitor
 
-**Trigger: Cron cada 15 minutos**
+**Trigger: Cron cada 5 minutos**
 
 1. Abre Workflow 2
 2. **Edit**
-3. Busca el nodo **Cron**
+3. Busca el nodo **Cron: Every 5 min**
 4. Configura:
    ```
    Interval: Minutes
-   Minutes: 15
+   Minutes: 5
    ```
 5. **Save & Activate**
 
@@ -278,7 +258,7 @@ Ambos deberían tener un **✅ Active** badge.
 ## Orden de Ejecución (Primera Vez)
 
 1. ✅ Variables de entorno configuradas
-2. ✅ Credenciales Telegram/OpenAI creadas
+2. ✅ Credenciales Telegram/Gemini creadas
 3. ✅ Workflows importados
 4. ✅ HTTP URLs corregidas
 5. ✅ Tests pasados (health, telegram)
@@ -339,8 +319,8 @@ N8N_BLOCK_ENV_ACCESS_IN_NODE=false
 TELEGRAM_CHAT_ID=<tu-numero>
 
 # Credenciales a crear
-- Telegram Bot (token)
-- OpenAI API Key (opcional, usar Gemini si no tienes)
+- Telegram Bot (token) → nombre: "TRADING"
+- Gemini API Key (HTTP Header Auth) → nombre: "Header Auth GeminiAI"
 
 # Workflows a importar
 - workflow1-market-decision.json
@@ -348,7 +328,7 @@ TELEGRAM_CHAT_ID=<tu-numero>
 
 # Crons
 Workflow 1: Cada 4 horas
-Workflow 2: Cada 15 minutos
+Workflow 2: Cada 5 minutos
 ```
 
 ---

@@ -78,7 +78,7 @@
 3. Lee `backend-python/app/database/models.py`
 4. **Queries útiles:**
    ```sql
-   SELECT * FROM grids WHERE status IN ('ACTIVE', 'REFRESHING');
+   SELECT * FROM grids WHERE status = 'RUNNING';
    SELECT * FROM orders WHERE grid_id = 'XXX' ORDER BY created_at DESC;
    SELECT * FROM pnl_history ORDER BY timestamp DESC LIMIT 100;
    ```

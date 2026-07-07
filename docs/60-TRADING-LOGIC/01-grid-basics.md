@@ -142,8 +142,8 @@ Precios BUY: 62500, 62710, 62920, ... (8 niveles)
 Precio promedio: 62710
 Cantidad por orden = 200 / (8 × 62710) = 0.000000397 BTC
 
-Pero Binance requiere min notional de ~10 USDT
-Así que ajustamos a cantidad viable: 0.00016 BTC (~10 USDT)
+Pero Binance Futures requiere min notional de 50 USDT
+Así que ajustamos a cantidad viable: ~0.0008 BTC (~50 USDT)
 ```
 
 ---
@@ -206,9 +206,9 @@ Si grid fue creada hace 9 días:
 Ciclo 1:
   BUY @ 62500 → SELL @ 62710
   Ganancia bruta: 210 USDT
-  Comisiones: ~5 USDT (0.1% maker)
-  Ganancia neta: ~205 USDT
-  PnL %: 205 / 62500 = 0.328%
+  Comisiones: ~0.25 USDT (0.02% maker × 2 lados)
+  Ganancia neta: ~209.75 USDT
+  PnL %: 209.75 / 62500 = 0.335%
 
 Ciclo 2:
   BUY @ 62500 → SELL @ 62710
@@ -225,14 +225,16 @@ Total en 10 ciclos: ~2050 USDT (2.05%)
 
 ```
 Min step % = 5 × 2 × maker_fee
-Min step % = 5 × 2 × 0.1% = 1%
+Min step % = 5 × 2 × 0.02% = 0.2%
 
 Tu grid step: 0.4%
-¿Es rentable? 0.4% < 1%? NO, pero cercano
+¿Es rentable? 0.4% > 0.2%? SÍ ✅
 
 Si tu grid step < 0.2% → RECHAZADO
 Razón: Comisiones consumen toda la ganancia
 ```
+
+*Nota: El fee por defecto en PnL es 0.0002 (0.02%), el fee estándar maker en Binance Futures.*
 
 ---
 
@@ -259,19 +261,19 @@ Razón: Comisiones consumen toda la ganancia
 
 ```
 Symbol: BTCUSDT
-Levels: 15
-Risk: 2%
-Lower Price: Current - 2.5% ATR
-Upper Price: Current + 2.5% ATR
+Levels: 4 (config WF1) — el backend schema acepta hasta cualquier número
+Risk: 5% (config WF1 actual: risk_pct=0.05)
+Lower Price: current_price - (ATR × atr_multiplier=2.0)
+Upper Price: current_price + (ATR × atr_multiplier=2.0)
 Leverage: 1x (sin apalancamiento)
 Margin: ISOLATED (aísla riesgo)
 
-SL: 2%
-TP: 5%
-Max Duration: 224 horas
+SL: sugerido = allocated_capital × 0.5 (configurado automáticamente por WF1)
+TP: null (no configurado por defecto en WF1)
+Max Duration: 224 horas (4h interval × ATR14 × 4)
 
-Expected Cycle Time: 30-60 min (depende volatilidad)
-Expected PnL/Cycle: 0.33%
+Expected Cycle Time: 30-120 min (depende volatilidad)
+Expected PnL/Cycle: ~0.33% (step) - 0.04% (fees) = ~0.29% neto
 ```
 
 ---

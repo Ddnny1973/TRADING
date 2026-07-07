@@ -21,9 +21,10 @@ curl http://localhost:8000/health
 ```json
 {
   "status": "healthy",
-  "uptime_seconds": 1234,
-  "database": "connected",
-  "binance_api": "reachable"
+  "service": "grid-trading-backend",
+  "version": "0.1.0",
+  "binance_synced": true,
+  "time_offset_ms": 15
 }
 ```
 
@@ -36,14 +37,14 @@ curl http://localhost:8000/health
 
 ## Test 2: Market Analysis
 
-Obtiene datos de mercado (ATR, precios sugeridos, capital + SL automático).
+Obtiene datos de mercado (ATR, precios sugeridos, capital + SL automático, viabilidad).
 
 ```bash
-# GET (no POST), con query params
-curl "http://localhost:8000/api/v1/market-analysis/BTCUSDT?atr_period=14&atr_multiplier=2.0&klines_interval=4h&risk_pct=0.02"
+# GET (no POST), con query params — incluir levels para obtener campos de viabilidad
+curl "http://localhost:8000/api/v1/market-analysis/BTCUSDT?atr_period=14&atr_multiplier=2.0&klines_interval=4h&risk_pct=0.05&levels=4"
 ```
 
-**Respuesta esperada (Fase 2: Rentabilidad):**
+**Respuesta esperada (con levels pasado):**
 ```json
 {
   "symbol": "BTCUSDT",
@@ -53,9 +54,13 @@ curl "http://localhost:8000/api/v1/market-analysis/BTCUSDT?atr_period=14&atr_mul
   "atr_multiplier": 2.0,
   "suggested_lower_price": 42100.0,
   "suggested_upper_price": 42900.0,
-  "suggested_quantity_per_order": 0.002,
-  "allocated_capital": 85.0,
-  "suggested_stop_loss": 4250.0,
+  "suggested_range": 800.0,
+  "suggested_quantity_per_order": 0.001,
+  "allocated_capital": 500.0,
+  "suggested_stop_loss": 250.0,
+  "min_viable_quantity": 0.001,
+  "grid_viable": true,
+  "required_risk_pct": 0.042,
   "klines_interval": "4h"
 }
 ```
@@ -67,60 +72,35 @@ curl "http://localhost:8000/api/v1/market-analysis/BTCUSDT?atr_period=14&atr_mul
 
 ---
 
-## Test 3: Account
-
-Obtiene balance y posiciones.
-
-```bash
-curl http://localhost:8000/account
-```
-
-**Respuesta esperada:**
-```json
-{
-  "balance_usdt": 10000.00,
-  "available_usdt": 9800.00,
-  "max_leverage": 125,
-  "current_leverage": 1,
-  "total_positions": 0,
-  "positions": []
-}
-```
-
-**Si falla:**
-- API key inválida: Binance devuelve 401
-- Sin fondos: balance_usdt = 0 (carga saldo en testnet)
-- Revisa logs: `docker logs backend-python`
-
----
-
-## Test 4: Create Grid
+## Test 3: Create Grid
 
 Crea una grid (conjunto de órdenes).
 
 ```bash
-curl -X POST http://localhost:8000/create-grid \
+curl -X POST http://localhost:8000/api/v1/grids \
   -H "Content-Type: application/json" \
   -d '{
     "symbol": "BTCUSDT",
     "lower_price": 62500,
     "upper_price": 65000,
-    "levels": 15,
-    "risk_pct": 0.02
+    "levels": 4,
+    "quantity_per_order": 0.002,
+    "grid_type": "GEOMETRIC",
+    "stop_loss": 100.0
   }'
 ```
 
 **Respuesta esperada:**
 ```json
 {
-  "grid_id": "GRID_20260705_001",
+  "id": "uuid-grid-001",
   "symbol": "BTCUSDT",
-  "status": "ACTIVE",
+  "status": "RUNNING",
   "lower_price": 62500,
   "upper_price": 65000,
-  "levels": 15,
-  "orders_created": 15,
-  "total_quantity": 0.15,
+  "levels": 4,
+  "stop_loss": 100.0,
+  "orders": [...],
   "created_at": "2026-07-05T20:22:00Z"
 }
 ```
@@ -135,157 +115,120 @@ curl -X POST http://localhost:8000/create-grid \
 
 ---
 
-## Test 5: List Grids
+## Test 4: List Grids
 
 Lista las grids activas.
 
 ```bash
-curl http://localhost:8000/grids
-curl http://localhost:8000/grids?status=ACTIVE
+curl "http://localhost:8000/api/v1/grids"
+curl "http://localhost:8000/api/v1/grids?status=RUNNING"
 ```
 
 **Respuesta esperada:**
 ```json
-{
-  "grids": [
-    {
-      "grid_id": "GRID_20260705_001",
-      "symbol": "BTCUSDT",
-      "status": "ACTIVE",
-      "lower_price": 62500,
-      "upper_price": 65000,
-      "levels": 15,
-      "pnl_realized": 0.00,
-      "created_at": "2026-07-05T20:22:00Z"
-    }
-  ],
-  "total": 1
-}
+[
+  {
+    "id": "uuid-grid-001",
+    "symbol": "BTCUSDT",
+    "status": "RUNNING",
+    "lower_price": 62500,
+    "upper_price": 65000,
+    "levels": 4,
+    "created_at": "2026-07-05T20:22:00Z"
+  }
+]
 ```
 
 ---
 
-## Test 6: Get Orders
+## Test 5: Get Grid Detail
 
-Lista las órdenes de una grid.
+Obtiene detalle de una grid con órdenes.
 
 ```bash
-# Reemplaza GRID_ID con tu grid_id del Test 4
-curl http://localhost:8000/grids/GRID_20260705_001/orders
+# Reemplaza GRID_ID con el id del Test 3
+curl "http://localhost:8000/api/v1/grids/GRID_ID"
 ```
 
-**Respuesta esperada:**
-```json
-{
-  "grid_id": "GRID_20260705_001",
-  "orders": [
-    {
-      "order_id": "123456789",
-      "symbol": "BTCUSDT",
-      "type": "BUY",
-      "status": "OPEN",
-      "quantity": 0.01,
-      "price": 62500.00,
-      "created_at": "2026-07-05T20:22:00Z"
-    },
-    ...15 órdenes totales
-  ],
-  "total": 15
-}
-```
+**Respuesta esperada:** GridDetailResponse con array `orders[]`, cada orden con `status: "NEW"` o `"FILLED"`.
 
 ---
 
-## Test 7: Refresh Grid
+## Test 6: Refresh Grid
 
-Sincroniza órdenes con Binance (revisa cuáles se ejecutaron).
+Sincroniza órdenes con Binance (sync + replenish en un solo endpoint).
 
 ```bash
-curl -X POST http://localhost:8000/refresh-grid/GRID_20260705_001
+curl -X POST "http://localhost:8000/api/v1/grids/GRID_ID/refresh"
 ```
 
-**Respuesta esperada:**
-```json
-{
-  "grid_id": "GRID_20260705_001",
-  "status": "ACTIVE",
-  "orders_synced": 15,
-  "orders_filled": 0,
-  "timestamp": "2026-07-05T20:25:00Z"
-}
-```
-
-(Si no hay fills aún, orders_filled = 0, es normal)
+**Respuesta esperada:** GridDetailResponse actualizado. Si no hay fills aún, `executed_qty: 0` en todas las órdenes.
 
 ---
 
-## Test 8: Set Stop Loss
+## Test 7: Get PnL
 
-Configura stop loss para la grid.
+Obtiene ganancias/pérdidas (neto, ya deducidas fees 0.02%).
 
 ```bash
-curl -X POST http://localhost:8000/set-stop-loss/GRID_20260705_001 \
-  -H "Content-Type: application/json" \
-  -d '{"stop_loss_pct": 0.02}'
+curl "http://localhost:8000/api/v1/grids/GRID_ID/pnl"
 ```
 
 **Respuesta esperada:**
 ```json
 {
-  "grid_id": "GRID_20260705_001",
-  "stop_loss_pct": 0.02,
-  "stop_loss_price": 61250.00,
-  "status": "ACTIVE"
+  "grid_id": "uuid-grid-001",
+  "realized_pnl": 0.0,
+  "unrealized_pnl": 0.0,
+  "total_pnl": 0.0,
+  "net_position_qty": 0.0,
+  "filled_buy_qty": 0.0,
+  "filled_sell_qty": 0.0,
+  "current_price": 63500.0
 }
 ```
 
 ---
 
-## Test 9: Get PnL
+## Test 8: Check Close
 
-Obtiene ganancias/pérdidas.
+Evalúa si el grid debe cerrarse (SL/TP/EXPIRED).
 
 ```bash
-curl http://localhost:8000/pnl/GRID_20260705_001
+curl -X POST "http://localhost:8000/api/v1/grids/GRID_ID/check-close"
 ```
 
-**Respuesta esperada:**
+**Respuesta esperada (sin trigger):**
 ```json
 {
-  "grid_id": "GRID_20260705_001",
-  "pnl_realized": 0.00,
-  "pnl_unrealized": 0.00,
-  "pnl_total": 0.00,
-  "pnl_pct": 0.00,
-  "fees_paid": 0.00,
-  "timestamp": "2026-07-05T20:25:00Z"
+  "triggered": null,
+  "grid": { "status": "RUNNING", ... }
 }
 ```
 
 ---
 
-## Test 10: Close Grid
+## Test 9: Cancel Grid (Manual Close)
 
-Cierra la grid (cancela todas las órdenes).
+Cierra el grid manualmente (cancela todas las órdenes).
 
 ```bash
-curl -X POST http://localhost:8000/close-grid/GRID_20260705_001
+curl -X DELETE "http://localhost:8000/api/v1/grids/GRID_ID"
 ```
 
 **Respuesta esperada:**
 ```json
 {
-  "grid_id": "GRID_20260705_001",
-  "status": "CLOSED",
-  "orders_canceled": 15,
-  "pnl_realized": 0.00,
-  "closed_at": "2026-07-05T20:30:00Z"
+  "id": "uuid-grid-001",
+  "status": "CANCELED",
+  "orders": [...],
+  "created_at": "2026-07-05T20:22:00Z"
 }
 ```
 
 ---
 
-## Test 11: n8n Workflow 1
+## Test 10: n8n Workflow 1
 
 Prueba el workflow de Market Decision.
 
@@ -295,38 +238,40 @@ Prueba el workflow de Market Decision.
 3. Click **Execute** (▶️ button)
 4. Espera a que termine (~30 seg)
 5. Revisa el output:
-   - ✅ Market analysis devuelve datos
-   - ✅ IA devuelve decisión (bullish/bearish)
-   - ✅ Si bullish: grid creada
+   - ✅ Market analysis devuelve datos (incluyendo grid_viable)
+   - ✅ IF: Grid viable? → TRUE pasa a Gemini
+   - ✅ Gemini devuelve decisión (launch: true/false)
+   - ✅ Si launch=true: grid creada
 
 **Resultado esperado:**
 - Grid creada en backend
 - Telegram notificación recibida
-- Status ACTIVE
+- Status RUNNING (no ACTIVE)
 
 ---
 
-## Test 12: n8n Workflow 2
+## Test 11: n8n Workflow 2
 
 Prueba el workflow de Monitoring.
 
 **Paso a paso:**
 1. Abre http://localhost:5678
-2. Busca "Workflow 2" (Monitor)
+2. Busca "Workflow 2 - Grid Monitor & Close"
 3. Click **Execute**
 4. Espera a que termine (~5 seg)
 5. Revisa el output:
-   - ✅ Grids monitoreadas
-   - ✅ Órdenes sincronizadas
-   - ✅ (Si hay fills) Órdenes replenished
+   - ✅ GET /api/v1/grids?status=RUNNING devuelve grids
+   - ✅ POST /refresh actualiza órdenes (+ replenish si hay fills)
+   - ✅ POST /check-close evalúa SL/TP/EXPIRED
 
 **Resultado esperado:**
 - Sin errores
-- Telegram notificación con resumen
+- Si hay grids RUNNING: se procesan todas
+- Si no hay grids RUNNING: Telegram "Sin grids en ejecución"
 
 ---
 
-## Test 13: BD Persistence
+## Test 12: BD Persistence
 
 Verifica que datos se guardan.
 
@@ -340,11 +285,11 @@ Deberías ver: `1` (la grid que creaste)
 docker-compose exec backend-python sqlite3 grid_trading.db "SELECT COUNT(*) FROM orders;"
 ```
 
-Deberías ver: `15` (las 15 órdenes)
+Deberías ver el número de órdenes del grid (= levels configurados)
 
 ---
 
-## Test 14: Rate Limiting
+## Test 13: Rate Limiting
 
 Verifica que el sistema respeta rate limits de Binance.
 
@@ -362,19 +307,18 @@ Esperado: Todos 200 OK (no 429 errors)
 ## Checklist de Verificación
 
 - [ ] Test 1: Health OK
-- [ ] Test 2: Market Analysis OK
-- [ ] Test 3: Account balance > 0
-- [ ] Test 4: Grid creada
-- [ ] Test 5: Grids listadas
-- [ ] Test 6: Órdenes listadas (15)
-- [ ] Test 7: Refresh sin errores
-- [ ] Test 8: SL setado
-- [ ] Test 9: PnL consultas OK
-- [ ] Test 10: Grid cierra sin errores
-- [ ] Test 11: Workflow 1 ejecuta (manual)
-- [ ] Test 12: Workflow 2 ejecuta (manual)
-- [ ] Test 13: BD tiene datos
-- [ ] Test 14: Rate limiting OK
+- [ ] Test 2: Market Analysis OK (con grid_viable)
+- [ ] Test 3: Grid creada con status RUNNING
+- [ ] Test 4: Grids listadas por status=RUNNING
+- [ ] Test 5: Grid detail con órdenes
+- [ ] Test 6: Refresh sin errores
+- [ ] Test 7: PnL consultas OK
+- [ ] Test 8: Check-close devuelve triggered: null
+- [ ] Test 9: Grid cancela sin errores
+- [ ] Test 10: Workflow 1 ejecuta (manual)
+- [ ] Test 11: Workflow 2 ejecuta (manual)
+- [ ] Test 12: BD tiene datos
+- [ ] Test 13: Rate limiting OK
 
 ---
 

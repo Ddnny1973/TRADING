@@ -41,25 +41,27 @@ Validación de lógica de grid.
 ```python
 def test_create_grid_valid():
     """Grid válida se crea correctamente"""
-    request = CreateGridRequest(
+    request = GridRequest(
         symbol="BTCUSDT",
         lower_price=62500,
         upper_price=65000,
-        levels=15,
-        risk_pct=0.02
+        levels=4,
+        quantity_per_order=0.002,
+        grid_type="GEOMETRIC"
     )
-    response = grid_service.create_grid(request)
-    assert response.status == "ACTIVE"
-    assert response.orders_created == 15
+    response = grid_service.create_grid(...)
+    assert response.status == "RUNNING"
+    assert len(response.orders) == 4
 
 def test_create_grid_step_too_small():
     """Grid con paso pequeño se rechaza"""
-    request = CreateGridRequest(
+    request = GridRequest(
         symbol="BTCUSDT",
         lower_price=62500,
-        upper_price=62600,  # Rango muy pequeño
+        upper_price=62510,  # Rango muy pequeño — step < 0.2%
         levels=15,
-        risk_pct=0.02
+        quantity_per_order=0.01,
+        grid_type="ARITHMETIC"
     )
     with pytest.raises(ValidationError):
         grid_service.create_grid(request)
@@ -84,8 +86,8 @@ def test_replenish_grid():
 def test_close_grid():
     """Cierre de grid cancela todas las órdenes"""
     grid = create_grid(request)
-    close_result = grid_service.close_grid(grid.id)
-    assert close_result.status == "CLOSED"
+    close_result = grid_service.cancel_grid(grid.id)
+    assert close_result.status == "CANCELED"
     assert all(o.status == "CANCELED" for o in close_result.orders)
 ```
 
@@ -175,36 +177,38 @@ def test_health_endpoint(client):
     assert response.json()["status"] == "healthy"
 
 def test_create_grid_endpoint(client):
-    """POST /create-grid crea grid"""
+    """POST /api/v1/grids crea grid"""
     payload = {
         "symbol": "BTCUSDT",
         "lower_price": 62500,
         "upper_price": 65000,
-        "levels": 15,
-        "risk_pct": 0.02
+        "levels": 4,
+        "quantity_per_order": 0.002,
+        "grid_type": "GEOMETRIC"
     }
-    response = client.post("/create-grid", json=payload)
+    response = client.post("/api/v1/grids", json=payload)
     assert response.status_code == 200
-    assert "grid_id" in response.json()
+    assert "id" in response.json()
+    assert response.json()["status"] == "RUNNING"
 
 def test_create_grid_invalid_params(client):
-    """POST /create-grid con params inválidos falla"""
+    """POST /api/v1/grids con params inválidos falla"""
     payload = {
         "symbol": "BTCUSDT",
         "lower_price": 65000,
         "upper_price": 62500,  # upper < lower
-        "levels": 15,
-        "risk_pct": 0.02
+        "levels": 4,
+        "quantity_per_order": 0.002,
+        "grid_type": "GEOMETRIC"
     }
-    response = client.post("/create-grid", json=payload)
-    assert response.status_code == 400
-    assert "error" in response.json()
+    response = client.post("/api/v1/grids", json=payload)
+    assert response.status_code in (400, 422)
 
 def test_list_grids_endpoint(client):
-    """GET /grids devuelve lista de grids"""
-    response = client.get("/grids")
+    """GET /api/v1/grids devuelve lista de grids"""
+    response = client.get("/api/v1/grids")
     assert response.status_code == 200
-    assert "grids" in response.json()
+    assert isinstance(response.json(), list)  # Array directo, no objeto
 ```
 
 ---
@@ -238,10 +242,10 @@ def test_grid():
     return Grid(
         id="TEST_GRID_001",
         symbol="BTCUSDT",
-        status="ACTIVE",
+        status="RUNNING",
         lower_price=62500,
         upper_price=65000,
-        levels=15,
+        levels=4,
         created_at=datetime.now()
     )
 ```
@@ -283,7 +287,7 @@ async def test_full_grid_lifecycle():
     """
     # Crear grid
     grid = await grid_service.create_grid(request)
-    assert grid.status == "ACTIVE"
+    assert grid.status == "RUNNING"
     
     # Simular fill en BUY order
     binance_order = await mock_binance.get_order(...)
@@ -300,8 +304,8 @@ async def test_full_grid_lifecycle():
     assert len(sells) > 0
     
     # Cierre
-    await grid_service.close_grid(grid.id)
-    assert grid.status == "CLOSED"
+    await grid_service.cancel_grid(grid.id)
+    assert grid.status == "CANCELED"
 ```
 
 ---

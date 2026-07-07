@@ -43,7 +43,7 @@ curl http://localhost:8000/health
 1. n8n → **Create New** → **Import from File**
 2. Importa `n8n-workflows/workflow1-market-decision.json`
 3. Importa `n8n-workflows/workflow2-monitor.json`
-4. Configura credenciales (Telegram, OpenAI/Gemini)
+4. Configura credenciales (Telegram Bot, Gemini API via HTTP Header Auth)
 
 ### Paso 5: Ejecutar Primer Test
 
@@ -52,9 +52,11 @@ curl http://localhost:8000/health
 curl http://localhost:8000/health
 # Debe devolver: {"status": "healthy", "service": "grid-trading-backend", ...}
 
-# Test 2: Market Analysis (GET, no POST)
-curl "http://localhost:8000/api/v1/market-analysis/BTCUSDT?atr_period=14&atr_multiplier=2.0&klines_interval=4h"
-# Debe devolver: {symbol, current_price, atr, suggested_lower_price, allocated_capital, suggested_stop_loss}
+# Test 2: Market Analysis (GET, no POST) — con levels para obtener campos de viabilidad
+curl "http://localhost:8000/api/v1/market-analysis/BTCUSDT?atr_period=14&atr_multiplier=2.0&klines_interval=4h&risk_pct=0.05&levels=4"
+# Debe devolver: {symbol, current_price, atr, suggested_lower_price, suggested_upper_price,
+#                suggested_quantity_per_order, allocated_capital, suggested_stop_loss,
+#                min_viable_quantity, grid_viable, required_risk_pct}
 ```
 
 Si ambos devuelven datos → **¡Ready!**

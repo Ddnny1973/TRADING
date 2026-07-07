@@ -50,11 +50,11 @@ docker-compose up -d
 
 **Solución:**
 ```bash
-# 1. Lista grids activas
-curl http://localhost:8000/grids?status=ACTIVE
+# 1. Lista grids en ejecución
+curl "http://localhost:8000/api/v1/grids?status=RUNNING"
 
 # 2. Cierra una (reemplaza GRID_ID)
-curl -X POST http://localhost:8000/close-grid/GRID_ID
+curl -X DELETE "http://localhost:8000/api/v1/grids/GRID_ID"
 
 # 3. Ahora puedes crear una nueva
 ```
@@ -75,10 +75,11 @@ curl -X POST http://localhost:8000/close-grid/GRID_ID
      ```
 
 2. **Verifica Balance en Testnet:**
+   - Abre el market analysis con risk_pct para ver si hay USDT disponible:
    ```bash
-   curl http://localhost:8000/account
+   curl "http://localhost:8000/api/v1/market-analysis/BTCUSDT?risk_pct=0.05&levels=4"
    ```
-   - balance_usdt debe ser > 0
+   - Si error "No available USDT balance" → recarga saldo en testnet faucet
 
 3. **Verifica IP Whitelist en Binance:**
    - Si tienes IP whitelist, agrega tu IP a Binance account
@@ -103,13 +104,14 @@ curl -X POST http://localhost:8000/close-grid/GRID_ID
 
 2. **Verifica que hay fills:**
    ```bash
-   # Ver órdenes ejecutadas
-   curl http://localhost:8000/grids/{GRID_ID}/orders?status=FILLED
+   # Ver detalle del grid con órdenes
+   curl "http://localhost:8000/api/v1/grids/{GRID_ID}"
+   # Busca órdenes con executed_qty > 0
    ```
 
-3. **Ejecuta replenish manualmente:**
+3. **Ejecuta refresh manualmente (incluye replenish en backend):**
    ```bash
-   curl -X POST http://localhost:8000/replenish-grid/{GRID_ID}
+   curl -X POST "http://localhost:8000/api/v1/grids/{GRID_ID}/refresh"
    ```
 
 4. **Si sigue sin funcionar:**
@@ -238,7 +240,7 @@ docker-compose restart backend-python
 - [ ] Backend responde: `curl http://localhost:8000/health`
 - [ ] n8n es accesible: `http://localhost:5678`
 - [ ] Binance API key es válida
-- [ ] Testnet tiene balance (> 10 USDT)
+- [ ] Testnet tiene balance (> 50 USDT para cumplir min_notional)
 - [ ] Workflows están habilitados en n8n
 - [ ] BACKEND_URL es correcta en n8n
 - [ ] Docker está corriendo: `docker-compose ps`

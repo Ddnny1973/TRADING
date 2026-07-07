@@ -42,14 +42,15 @@ Analiza mercado: ATR, precios sugeridos, capital y SL automático.
 - `atr_period` — Default: 14
 - `atr_multiplier` — Default: 2.0
 - `klines_interval` — Default: "4h" (4h, 1h, 15m, etc.)
-- `risk_pct` — Default: 0.02 (2%)
+- `risk_pct` — Opcional; si se omite, usa `DEFAULT_RISK_PCT` del servidor (default 0.02). WF1 usa 0.05.
+- `levels` — Opcional; si se omite, no se calculan campos de viabilidad. WF1 usa 4.
 
-**Example request:**
+**Example request (con levels, para obtener campos de viabilidad):**
 ```bash
-GET /api/v1/market-analysis/BTCUSDT?atr_period=14&atr_multiplier=2.0&klines_interval=4h&risk_pct=0.02
+GET /api/v1/market-analysis/BTCUSDT?atr_period=14&atr_multiplier=2.0&klines_interval=4h&risk_pct=0.05&levels=4
 ```
 
-**Response:**
+**Response (con `levels` pasado):**
 ```json
 {
   "symbol": "BTCUSDT",
@@ -60,18 +61,24 @@ GET /api/v1/market-analysis/BTCUSDT?atr_period=14&atr_multiplier=2.0&klines_inte
   "suggested_lower_price": 42100.0,
   "suggested_upper_price": 42900.0,
   "suggested_range": 800.0,
-  "suggested_quantity_per_order": 0.002,
-  "allocated_capital": 85.0,
-  "suggested_stop_loss": 4250.0,
+  "suggested_quantity_per_order": 0.001,
+  "allocated_capital": 500.0,
+  "suggested_stop_loss": 250.0,
+  "min_viable_quantity": 0.001,
+  "grid_viable": true,
+  "required_risk_pct": 0.042,
   "klines_interval": "4h"
 }
 ```
 
 **Field explanations:**
-- `suggested_lower_price/upper_price` — Grid bounds based on ATR (Fase 1: Correctitud)
-- `suggested_quantity_per_order` — Per-order qty calculated from risk_pct (Fase 2: Rentabilidad)
-- `allocated_capital` — Total capital at risk = qty × levels × avg_price (Fase 2: Rentabilidad)
-- `suggested_stop_loss` — Automatic SL threshold based on PnL calculation (Fase 2: Rentabilidad)
+- `suggested_lower_price/upper_price` — Grid bounds based on ATR
+- `suggested_quantity_per_order` — Per-order qty calculated from risk_pct (solo si se pasa `levels`)
+- `allocated_capital` — Capital asignado = balance × risk_pct (solo si se pasa `levels`)
+- `suggested_stop_loss` — SL sugerido = allocated_capital × 0.5 (solo si se pasa `levels`)
+- `min_viable_quantity` — Cantidad mínima para cumplir min_notional 50 USDT + step_size (solo si se pasa `levels`)
+- `grid_viable` — true si suggested_quantity_per_order >= min_viable_quantity (solo si se pasa `levels`)
+- `required_risk_pct` — risk_pct necesario para que el grid sea viable (solo si se pasa `levels`)
 
 **Status codes:**
 - `200` — Market data available
@@ -151,22 +158,21 @@ Lista todas las grids.
 
 **Response:**
 ```json
-{
-  "grids": [
-    {
-      "id": "grid_20260705_abc123",
-      "symbol": "BTCUSDT",
-      "status": "RUNNING",
-      "lower_price": 42100.0,
-      "upper_price": 42900.0,
-      "levels": 10,
-      "stop_loss": 4250.0,
-      "created_at": "2026-07-05T20:22:00Z"
-    }
-  ],
-  "total": 1
-}
+[
+  {
+    "id": "grid_20260705_abc123",
+    "symbol": "BTCUSDT",
+    "status": "RUNNING",
+    "lower_price": 42100.0,
+    "upper_price": 42900.0,
+    "levels": 10,
+    "stop_loss": 4250.0,
+    "created_at": "2026-07-05T20:22:00Z"
+  }
+]
 ```
+
+*Nota: La respuesta es un array directo (no un objeto con `grids`).*
 
 ---
 

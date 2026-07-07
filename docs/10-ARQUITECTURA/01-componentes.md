@@ -13,7 +13,7 @@
     │ Workflow 1       │          │ Workflow 2         │
     │ Market Decision  │          │ Grid Monitor       │
     │ (Trigger: Cron/  │          │ (Trigger: Cron     │
-    │  Manual, 4h)     │          │  15min)            │
+    │  Manual, 4h)     │          │  5min)             │
     └────┬─────────────┘          └─────┬──────────────┘
          │                               │
          └───────────────┬───────────────┘
@@ -70,17 +70,19 @@
    - `quantity_per_order: $json.suggested_quantity_per_order` (sin Math.max inflation)
 5. Notify a Telegram con capital y SL
 
-**Input (desde n8n):**
+**Input (desde n8n Config node):**
 ```json
 {
   "symbol": "BTCUSDT",
   "klines_interval": "4h",
   "atr_period": 14,
-  "atr_multiplier": 2.0
+  "atr_multiplier": 2.0,
+  "risk_pct": 0.05,
+  "levels": 4
 }
 ```
 
-**Output (Backend Market Analysis):**
+**Output (Backend Market Analysis, con levels pasado):**
 ```json
 {
   "symbol": "BTCUSDT",
@@ -90,7 +92,10 @@
   "suggested_upper_price": 42900.0,
   "suggested_quantity_per_order": 0.002,
   "allocated_capital": 85.0,
-  "suggested_stop_loss": 4250.0
+  "suggested_stop_loss": 42.5,
+  "min_viable_quantity": 0.001,
+  "grid_viable": true,
+  "required_risk_pct": 0.042
 }
 ```
 
@@ -102,8 +107,8 @@
   "status": "RUNNING",
   "lower_price": 42100.0,
   "upper_price": 42900.0,
-  "stop_loss": 4250.0,
-  "levels": 10,
+  "stop_loss": 42.5,
+  "levels": 4,
   "orders": [...]
 }
 ```
@@ -116,16 +121,14 @@
 **Función:** Sincronizar estado, replenish fills, evaluar SL/TP/EXPIRED con visibilidad mejorada
 
 **Pasos:**
-1. Fetch active grids
-2. Call `/api/v1/grids/{id}/refresh` → Sync orders con Binance
-3. Call `/api/v1/grids/{id}/pnl` → Calcula PnL (con deducción de fees)
-4. Replenish órdenes ejecutadas (ciclos BUY → SELL → BUY)
-5. Call `/api/v1/grids/{id}/check-close` → Evalúa triggers:
+1. Fetch grids con status=RUNNING (`GET /api/v1/grids?status=RUNNING`)
+2. Call `/api/v1/grids/{id}/refresh` → Sync orders con Binance + replenish automático (ambos en el mismo endpoint)
+3. Call `/api/v1/grids/{id}/check-close` → Evalúa triggers:
    - **STOP_LOSS:** Pérdida > threshold (mostrado como ❌)
    - **TAKE_PROFIT:** Ganancia > threshold (mostrado como ✅)
    - **EXPIRED:** Grid vencido (mostrado como ⏰)
    - **Manual:** Cerrado manualmente (mostrado como 🤷)
-6. Update DB y notify a Telegram con razón de cierre
+4. Notify a Telegram con razón de cierre
 
 **Input:** None (automático)  
 **Output:**
@@ -232,7 +235,7 @@
 CREATE TABLE grids (
   id TEXT PRIMARY KEY,
   symbol TEXT NOT NULL,
-  status TEXT (ACTIVE, CLOSED, REFRESHING),
+  status TEXT (RUNNING, CLOSED, CANCELED),
   lower_price REAL,
   upper_price REAL,
   levels INTEGER,
@@ -278,24 +281,25 @@ CREATE TABLE pnl_history (
 
 #### Market Data
 ```
-GET /dapi/v1/klines              — Klines históricos (para ATR/SMA)
-GET /dapi/v1/ticker/24hr         — Precio actual
-GET /dapi/v1/premium/index       — Mark price (precio actual)
+GET /fapi/v1/klines              — Klines históricos (para ATR)
+GET /fapi/v1/ticker/price        — Último precio
+GET /fapi/v1/premiumIndex        — Mark price (precio de referencia)
 ```
 
 #### Trading
 ```
-POST /dapi/v1/order              — Coloca orden LIMIT (batch)
-DELETE /dapi/v1/order            — Cancela orden
-GET /dapi/v1/allOrders           — Lista órdenes
-GET /dapi/v1/openOrders          — Órdenes abiertas
-GET /dapi/v1/positionRisk        — Posición actual
+POST /fapi/v1/order              — Coloca orden LIMIT
+POST /fapi/v1/batchOrders        — Coloca hasta 5 órdenes en batch
+DELETE /fapi/v1/order            — Cancela orden
+DELETE /fapi/v1/allOpenOrders    — Cancela todas las órdenes abiertas (atómico)
+GET /fapi/v1/openOrders          — Órdenes abiertas
+GET /fapi/v2/positionRisk        — Posición actual
 ```
 
 #### Account
 ```
-GET /dapi/v1/account             — Balance, max leverage, commission rates
-GET /dapi/v1/commissionRates     — Comisiones (maker/taker 0.02%-0.04%)
+GET /fapi/v2/balance             — Balance por asset (USDT, BTC, etc.)
+GET /fapi/v1/commissionRate      — Comisiones reales (maker/taker, respeta VIP)
 ```
 
 ### Nuestros Endpoints (FastAPI Backend)
@@ -309,9 +313,12 @@ GET /market-analysis/{symbol}
   Return: {
     current_price, atr, 
     suggested_lower_price, suggested_upper_price,
-    suggested_quantity_per_order,    ← NUEVO (Fase 2)
-    allocated_capital,                ← NUEVO (Fase 2)
-    suggested_stop_loss               ← NUEVO (Fase 2)
+    suggested_quantity_per_order,    ← calculado si se pasan levels
+    allocated_capital,                ← calculado si se pasan levels
+    suggested_stop_loss,              ← calculado si se pasan levels
+    min_viable_quantity,              ← cantidad mínima para cumplir min_notional 50 USDT
+    grid_viable,                      ← true si suggested_quantity_per_order >= min_viable_quantity
+    required_risk_pct                 ← risk_pct necesario para que el grid sea viable
   }
 ```
 
@@ -380,15 +387,15 @@ DELETE /grids/{id}
      "symbol": "BTCUSDT",
      "lower_price": 42100,
      "upper_price": 42900,
-     "quantity_per_order": 0.002,        ← Sin Math.max inflation
-     "levels": 10,
-     "stop_loss": 4250,                   ← Valor real (no null)
+     "quantity_per_order": 0.002,        ← $json.suggested_quantity_per_order (sin Math.max inflation)
+     "levels": 4,                         ← cappado al Config.levels=4
+     "stop_loss": 42.5,                   ← $json.suggested_stop_loss (valor real, no null)
      "grid_type": "GEOMETRIC"
    }
    ```
 
 4. **Backend: create_grid()**
-   - ✅ Valida min_notional (50 USDT, no 5)
+   - ✅ Valida min_notional (50 USDT, Binance Futures)
    - ✅ Calcula 10 órdenes (BUY LIMIT a 0.33% intervals)
    - ✅ Valida min_step dinámico por instrumento
    - ✅ Coloca órdenes en Binance (batch)
@@ -408,19 +415,17 @@ DELETE /grids/{id}
    ```
    📊 GRID CREADO
    Capital en riesgo: 85 USDT
-   Stop Loss: 4250 USDT (si PnL < SL, cierra TODO)
-   Niveles: 10 | Rango: 42100-42900
+   Stop Loss: 42.5 USDT (si PnL < -SL, cierra TODO)
+   Niveles: 4 | Rango: 42100-42900
    ```
 
 7. **n8n Workflow 2 (Grid Monitor) - cada 5 min**
    ```
-   → GET /api/v1/grids (obtiene activos)
+   → GET /api/v1/grids?status=RUNNING (obtiene grids activos)
    → POST /api/v1/grids/{id}/refresh
-      (Sync órdenes con Binance)
-   → GET /api/v1/grids/{id}/pnl
-      (Calcula PnL neto = bruto - fees 0.02%)
+      (Sync órdenes con Binance + replenish automático en backend)
    → POST /api/v1/grids/{id}/check-close
-      (Evalúa triggers)
+      (Evalúa triggers SL/TP/EXPIRED)
    ```
 
 8. **Si BUY se ejecutó:**
@@ -445,9 +450,9 @@ DELETE /grids/{id}
 ```
 CREATE (Workflow 1)
   ↓
-ACTIVE (Órdenes BUY/SELL en Binance)
+RUNNING (Órdenes BUY/SELL en Binance)
   ↓
-REPLENISHING (Workflow 2 crea órdenes nuevas)
+RUNNING + replenish (Workflow 2 llama /refresh, backend crea órdenes nuevas)
   ├─ Ciclos: BUY → SELL → BUY → ...
   ├─ Si SL hit → CLOSED (pérdida)
   ├─ Si TP hit → CLOSED (ganancia)

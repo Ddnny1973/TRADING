@@ -22,7 +22,7 @@ R: No necesitas. Docker maneja todo. Solo necesitas Docker + n8n.
 R: Cada 4 horas (o manualmente). Valida mercado y crea nuevas grids si es bullish.
 
 **P: ¿Y Workflow 2?**
-R: Cada 15 minutos automáticamente. Monitorea grids activas, sincroniza fills, replenish.
+R: Cada 5 minutos automáticamente. Monitorea grids RUNNING, sincroniza fills, replenish (dentro del /refresh backend).
 
 **P: ¿Cuántas grids puedo tener?**
 R: Máximo 2 simultáneas. Esto evita riesgo concentrado.
@@ -47,7 +47,7 @@ R: BUY @ 62500 → SELL @ 62710 → BUY @ 62500 → ... Repetidas veces.
 R: No. Grid trading funciona mejor en mercados alcistas o laterales. En bajista, espera o cierra.
 
 **P: ¿Cuánto debo poner de capital inicial?**
-R: Mínimo ~1000 USDT para que tenga sentido (~50-100 USDT por grid). Mejor 5000+ USDT.
+R: Mínimo ~1000 USDT para que tenga sentido. Con risk_pct=5% → 50 USDT por grid (mínimo notional = 50 USDT). Mejor 5000+ USDT para tener ciclos rentables.
 
 **P: ¿Cuáles son los riesgos?**
 R: Mercado bearish (SL se ejecuta), bugs de software (mitigados con tests), Binance API issues (mitigados con reintentos).
@@ -89,9 +89,9 @@ R:
 
 **P: Workflow 2 no replenish.**
 R:
-1. Verifica que hay fills (órdenes ejecutadas)
+1. Verifica que hay fills (órdenes ejecutadas): `GET /api/v1/grids/{id}`
 2. Verifica logs de n8n
-3. Ejecuta `refresh-grid` manualmente
+3. Ejecuta refresh manualmente: `POST /api/v1/grids/{id}/refresh` (el replenish se hace dentro)
 
 **P: Backend está lento.**
 R:
@@ -179,7 +179,7 @@ R: Balance entre diversificación y riesgo de concentración.
 R: Reduce riesgo de liquidación. Leverage = peligro.
 
 **P: ¿Por qué sin WebSocket?**
-R: Simplifica deployment. REST API polling es suficiente para 15 min cron.
+R: Simplifica deployment. REST API polling es suficiente para el cron de 5 min.
 
 **P: ¿Por qué solo Binance Futures?**
 R: Liquidez + documentación. Spot trading es diferente (no hay short).
@@ -189,7 +189,7 @@ R: Liquidez + documentación. Spot trading es diferente (no hay short).
 ## Mejoras Futuras
 
 **P: ¿Habrá WebSocket?**
-R: Posiblemente. Daría fills en tiempo real (hoy: 15 min polling).
+R: Posiblemente. Daría fills en tiempo real (hoy: 5 min polling).
 
 **P: ¿Habrá múltiples símbolos?**
 R: Tal vez. Hoy: máx 2 simultáneos (limitación de riesgo).
