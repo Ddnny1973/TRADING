@@ -28,7 +28,20 @@
         },
         {
             "parameters": {
-                "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+                "jsCode": "const chatIds = $env.TELEGRAM_CHAT_ID.split(',');\nreturn chatIds.map(id => ({\n  json: {\n    chatId: id.trim(),\n    triggered: $json.triggered,\n    grid: $json.grid\n  }\n}));"
+            },
+            "id": "split-chat-ids-closed",
+            "name": "Split Chat IDs (Grid Closed)",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                828,
+                272
+            ]
+        },
+        {
+            "parameters": {
+                "chatId": "={{ $json.chatId }}",
                 "text": "={{ '🔒 GRID CERRADO - ' + $json.grid.symbol + '\n\n📌 Motivo: ' + ($json.triggered === 'STOP_LOSS' ? '❌ Stop Loss' : $json.triggered === 'TAKE_PROFIT' ? '✅ Take Profit' : $json.triggered === 'EXPIRED' ? '⏰ Expiración' : '🤷 Manual') + '\n📊 PnL Total: ' + ($json.grid.total_pnl || 'N/A') + ' USDT\n🆔 Grid ID: ' + $json.grid.id + '\n✨ Ciclos: ' + ($json.grid.cycles_completed || '0') }}",
                 "additionalFields": {}
             },
@@ -84,8 +97,21 @@
         },
         {
             "parameters": {
-                "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
-                "text": "={{ '⚠️ CHECK-CLOSE FALLIDO - Grid ' + $json.gridId + ' (' + $json.symbol + ')\\n\\nError: ' + $json.errorMessage + '\\n\\nSe reintentara en el proximo ciclo (5 min).' }}",
+                "jsCode": "const chatIds = $env.TELEGRAM_CHAT_ID.split(',');\nreturn chatIds.map(id => ({\n  json: {\n    chatId: id.trim(),\n    gridId: $json.gridId,\n    symbol: $json.symbol,\n    errorMessage: $json.errorMessage\n  }\n}));"
+            },
+            "id": "split-chat-ids-error",
+            "name": "Split Chat IDs (Errors)",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                600,
+                144
+            ]
+        },
+        {
+            "parameters": {
+                "chatId": "={{ $json.chatId }}",
+                "text": "={{ '⚠️ CHECK-CLOSE FALLIDO - Grid ' + $json.gridId + ' (' + $json.symbol + ')\\n\\nError: ' + $json.errorMessage + '\\n\\nSe reintentara en el proximo ciclo (15 min).' }}",
                 "additionalFields": {}
             },
             "id": "f5eea5b9-7148-439f-b23b-1dd49adadb19",
@@ -175,8 +201,21 @@
         },
         {
             "parameters": {
-                "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
-                "text": "={{ '⚠️ REFRESH FALLIDO - Grid ' + $json.gridId + ' (' + $json.symbol + ')\\n\\nError: ' + $json.errorMessage + '\\n\\nSe reintentara en el proximo ciclo (5 min).' }}",
+                "jsCode": "const chatIds = $env.TELEGRAM_CHAT_ID.split(',');\nreturn chatIds.map(id => ({\n  json: {\n    chatId: id.trim(),\n    gridId: $json.gridId,\n    symbol: $json.symbol,\n    errorMessage: $json.errorMessage\n  }\n}));"
+            },
+            "id": "split-chat-ids-refresh",
+            "name": "Split Chat IDs (Refresh)",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -100,
+                32
+            ]
+        },
+        {
+            "parameters": {
+                "chatId": "={{ $json.chatId }}",
+                "text": "={{ '⚠️ REFRESH FALLIDO - Grid ' + $json.gridId + ' (' + $json.symbol + ')\\n\\nError: ' + $json.errorMessage + '\\n\\nSe reintentara en el proximo ciclo (15 min).' }}",
                 "additionalFields": {}
             },
             "id": "ef695bca-14d1-4406-a857-7e47bdc7f702",
@@ -266,7 +305,20 @@
         },
         {
             "parameters": {
-                "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+                "jsCode": "const chatIds = $env.TELEGRAM_CHAT_ID.split(',');\nreturn chatIds.map(id => ({\n  json: {\n    chatId: id.trim()\n  }\n}));"
+            },
+            "id": "split-chat-ids-no-grids",
+            "name": "Split Chat IDs (No Running Grids)",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -820,
+                256
+            ]
+        },
+        {
+            "parameters": {
+                "chatId": "={{ $json.chatId }}",
                 "text": "={{ 'ℹ️ Sin grids en ejecución\\n\\n⏳ Próximo monitoreo: en 5 minutos\\n\\n📋 Status: Esperando nuevas ordenes' }}",
                 "additionalFields": {}
             },
@@ -442,7 +494,7 @@
             "main": [
                 [
                     {
-                        "node": "Notify: Grid Closed",
+                        "node": "Split Chat IDs (Grid Closed)",
                         "type": "main",
                         "index": 0
                     }
@@ -450,6 +502,17 @@
                 [
                     {
                         "node": "Wait (1.5s between items)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Split Chat IDs (Grid Closed)": {
+            "main": [
+                [
+                    {
+                        "node": "Notify: Grid Closed",
                         "type": "main",
                         "index": 0
                     }
@@ -471,7 +534,7 @@
             "main": [
                 [
                     {
-                        "node": "Notify: Check-close Error",
+                        "node": "Split Chat IDs (Errors)",
                         "type": "main",
                         "index": 0
                     }
@@ -479,6 +542,17 @@
                 [
                     {
                         "node": "IF: Grid closed?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Split Chat IDs (Errors)": {
+            "main": [
+                [
+                    {
+                        "node": "Notify: Check-close Error",
                         "type": "main",
                         "index": 0
                     }
@@ -522,7 +596,7 @@
             "main": [
                 [
                     {
-                        "node": "Notify: Refresh Error",
+                        "node": "Split Chat IDs (Refresh)",
                         "type": "main",
                         "index": 0
                     }
@@ -530,6 +604,17 @@
                 [
                     {
                         "node": "Check Close (POST)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Split Chat IDs (Refresh)": {
+            "main": [
+                [
+                    {
+                        "node": "Notify: Refresh Error",
                         "type": "main",
                         "index": 0
                     }
@@ -596,6 +681,17 @@
                         "index": 0
                     }
                 ],
+                [
+                    {
+                        "node": "Split Chat IDs (No Running Grids)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Split Chat IDs (No Running Grids)": {
+            "main": [
                 [
                     {
                         "node": "Notify: No Running Grids",
