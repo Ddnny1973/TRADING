@@ -85,7 +85,7 @@
         {
             "parameters": {
                 "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
-                "text": "={{ '⚠️ CHECK-CLOSE FALLIDO - Grid ' + $json.gridId + ' (' + $json.symbol + ')\\n\\nError: ' + $json.errorMessage + '\\n\\nSe reintentara en el proximo ciclo (15 min).' }}",
+                "text": "={{ '⚠️ CHECK-CLOSE FALLIDO - Grid ' + $json.gridId + ' (' + $json.symbol + ')\\n\\nError: ' + $json.errorMessage + '\\n\\nSe reintentara en el proximo ciclo (5 min).' }}",
                 "additionalFields": {}
             },
             "id": "f5eea5b9-7148-439f-b23b-1dd49adadb19",
@@ -176,7 +176,7 @@
         {
             "parameters": {
                 "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
-                "text": "={{ '⚠️ REFRESH FALLIDO - Grid ' + $json.gridId + ' (' + $json.symbol + ')\\n\\nError: ' + $json.errorMessage + '\\n\\nSe reintentara en el proximo ciclo (15 min).' }}",
+                "text": "={{ '⚠️ REFRESH FALLIDO - Grid ' + $json.gridId + ' (' + $json.symbol + ')\\n\\nError: ' + $json.errorMessage + '\\n\\nSe reintentara en el proximo ciclo (5 min).' }}",
                 "additionalFields": {}
             },
             "id": "ef695bca-14d1-4406-a857-7e47bdc7f702",
