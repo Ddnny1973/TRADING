@@ -48,20 +48,20 @@ T=0:     Precio = 63500 (mercado actual)
 T=1:     Precio sube a 63750
          ✅ BUY @ 63750 EJECUTADA (compré 1 BTC)
          Replenish: Crea SELL @ 64050 (precio + 0.4%)
-         
+       
          Estado: Tengo 1 BTC, esperando vender más alto
 
 T=2:     Precio sube a 64050
          ✅ SELL @ 64050 EJECUTADA (vendí 1 BTC)
          Ganancia realizada: 64050 - 63750 = 300 USDT (tras fees: ~290 USDT)
          Replenish: Crea BUY @ 63750 (nueva orden)
-         
+       
          Estado: Sin BTC, esperando comprar más bajo
 
 T=3:     Precio baja a 63750
          ✅ BUY @ 63750 EJECUTADA (compré 1 BTC de nuevo)
          Replenish: Crea SELL @ 64050
-         
+       
          ✅ CICLO COMPLETADO
          Ganancia total: ~290 USDT
 ```
@@ -86,11 +86,13 @@ Nivel 1:  BUY @ 62500
 ```
 
 ### Ventajas
+
 - **Más órdenes** = Más oportunidades de ejecución
 - **Pasos pequeños** = Ciclos más rápidos
-- **Riego diversificado** = No todo cae en una orden
+- **Riesgo diversificado** = No todo cae en una orden
 
 ### Desventajas
+
 - Más órdenes = Más comisiones
 - Pasos muy pequeños = No rentable tras fees
 
@@ -99,6 +101,7 @@ Nivel 1:  BUY @ 62500
 ## Tipos de Grid
 
 ### GEOMETRIC (Geométrico)
+
 Espacios **porcentuales** iguales.
 
 ```
@@ -108,10 +111,11 @@ Precio 2: 62500 × (1 + 0.004) = 62750
 Precio 3: 62750 × (1 + 0.004) = 63001
 ```
 
-**Ventaja:** Mejor para mercados volátiles  
+**Ventaja:** Mejor para mercados volátiles
 **Desventaja:** Órdenes apretadas en precios altos
 
 ### ARITHMETIC (Aritmético)
+
 Espacios **absolutos** iguales.
 
 ```
@@ -121,7 +125,7 @@ Precio 2: 62500 + 178.57 = 62678.57
 Precio 3: 62678.57 + 178.57 = 62857.14
 ```
 
-**Ventaja:** Distribución uniforme  
+**Ventaja:** Distribución uniforme
 **Desventaja:** Puede ser ineficiente en mercados calientes
 
 ---
@@ -151,6 +155,7 @@ Así que ajustamos a cantidad viable: ~0.0008 BTC (~50 USDT)
 ## Stop Loss & Take Profit
 
 ### Stop Loss (SL)
+
 Si el mercado cae más del threshold → **CIERRA TODO**.
 
 ```
@@ -165,6 +170,7 @@ Si precio cae a 61250 (o menos):
 ```
 
 ### Take Profit (TP)
+
 Si ganancia alcanza threshold → **CIERRA TODO**.
 
 ```
@@ -241,15 +247,18 @@ Razón: Comisiones consumen toda la ganancia
 ## Cuándo Funciona un Grid
 
 ✅ **Mercado alcista (BULLISH)**
+
 - Órdenes BUY se ejecutan
 - Órdenes SELL se ejecutan
 - Ciclos ocurren naturalmente
 
 ✅ **Mercado lateral (SIDEWAYS)**
+
 - Si el rango es predecible
 - Ciclos ocurren arriba-abajo
 
 ❌ **Mercado bajista (BEARISH)**
+
 - Órdenes BUY se ejecutan pero no se venden
 - SELL está arriba, nunca se ejecutan
 - Sin ciclos, acumulas posición
