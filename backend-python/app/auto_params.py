@@ -1,0 +1,360 @@
+"""
+Auto-derivation of grid parameters from symbol and balance only.
+Pure trading logic with exact formulas from specification.
+"""
+
+from decimal import Decimal, ROUND_DOWN
+from typing import Dict, List, Optional, Tuple, Any
+import logging
+
+from app.config_auto_params import (
+    FEE_ROUNDTRIP, FEE_MARGIN_FACTOR, MAX_RISK_PCT, CAPITAL_BUFFER,
+    MULTIPLIER_BOUNDS, LEVELS_BOUNDS, ATR_PERIOD,
+    CANDIDATE_INTERVALS, ER_LOOKBACK, ER_MAX_TRADEABLE, RANGE_LOOKBACK,
+    MIN_NOTIONAL_FALLBACK
+)
+from app.services.binance_client import BinanceClient
+from app.services.indicators import calculate_atr
+
+logger = logging.getLogger(__name__)
+
+
+async def fetch_klines(
+    client: BinanceClient,
+    symbol: str,
+    interval: str,
+    limit: int = 100
+) -> Optional[List[Dict[str, Any]]]:
+    """
+    Fetch klines from Binance public API.
+
+    Args:
+        client: BinanceClient instance
+        symbol: Trading pair (e.g., BTCUSDT)
+        interval: Kline interval (1m, 5m, 1h, 4h, 1d, etc.)
+        limit: Number of candles to fetch
+
+    Returns:
+        List of klines with Decimal values, or None if request fails
+    """
+    try:
+        klines = await client.get_klines(symbol, interval, limit)
+        if klines is None:
+            logger.warning(f"fetch_klines failed for {symbol} {interval}")
+            return None
+        return klines
+    except Exception as e:
+        logger.error(f"fetch_klines exception: {e}")
+        return None
+
+
+async def fetch_min_notional(
+    client: BinanceClient,
+    symbol: str
+) -> Decimal:
+    """
+    Fetch min_notional from exchangeInfo.
+    Falls back to MIN_NOTIONAL_FALLBACK if not found or error.
+
+    Args:
+        client: BinanceClient instance
+        symbol: Trading pair
+
+    Returns:
+        Minimum notional as Decimal (USDT)
+    """
+    try:
+        filters = await client.get_symbol_filters(symbol)
+        if filters and "min_notional" in filters:
+            return filters["min_notional"]
+    except Exception as e:
+        logger.warning(f"fetch_min_notional exception for {symbol}: {e}")
+
+    logger.info(f"Using fallback min_notional for {symbol}: {MIN_NOTIONAL_FALLBACK}")
+    return MIN_NOTIONAL_FALLBACK
+
+
+async def derive_interval(
+    client: BinanceClient,
+    symbol: str
+) -> Tuple[str, Dict[str, Decimal], bool, str]:
+    """
+    Select the flattest interval (lowest Efficiency Ratio).
+
+    For each interval in CANDIDATE_INTERVALS:
+        ER = abs(close[-1] - close[0]) / sum(abs(close[i] - close[i-1]))
+
+    Returns:
+        (selected_interval, er_per_interval_dict, grid_viable, reason)
+
+    If ER_min > ER_MAX_TRADEABLE, returns grid_viable=False.
+    """
+    ers = {}
+    detailed_reasons = []
+
+    for interval in CANDIDATE_INTERVALS:
+        klines = await fetch_klines(client, symbol, interval, limit=ER_LOOKBACK + 1)
+        if not klines or len(klines) < 2:
+            logger.warning(f"Not enough klines for {symbol} {interval}")
+            ers[interval] = Decimal("1.0")  # Default to "trending"
+            continue
+
+        closes = [k["close"] for k in klines]
+
+        # ER = abs(first - last) / sum(abs changes)
+        price_change = abs(closes[-1] - closes[0])
+        total_change = sum(abs(closes[i] - closes[i-1]) for i in range(1, len(closes)))
+
+        if total_change == 0:
+            er = Decimal("1.0")
+        else:
+            er = price_change / total_change
+
+        ers[interval] = er
+        detailed_reasons.append(f"{interval}={er:.4f}")
+
+    selected = min(ers.items(), key=lambda x: x[1])
+    selected_interval = selected[0]
+    min_er = selected[1]
+
+    reason = f"ER {selected_interval}={min_er:.4f} (selected, lowest) vs " + ", ".join(detailed_reasons)
+
+    # Check if all timeframes are too trendy
+    if min_er > ER_MAX_TRADEABLE:
+        logger.info(f"Market in trend on all timeframes: min ER={min_er:.4f} > {ER_MAX_TRADEABLE}")
+        return selected_interval, ers, False, f"Market trending: all ER > {ER_MAX_TRADEABLE}"
+
+    return selected_interval, ers, True, reason
+
+
+async def derive_multiplier(
+    client: BinanceClient,
+    symbol: str,
+    selected_interval: str,
+    atr: Decimal
+) -> Tuple[Decimal, str]:
+    """
+    Calculate multiplier from real price range vs ATR.
+
+    multiplier = range_real / (2 * atr)
+
+    Clamp to MULTIPLIER_BOUNDS and round to 1 decimal.
+
+    Returns:
+        (multiplier, reason)
+    """
+    klines = await fetch_klines(client, symbol, selected_interval, limit=RANGE_LOOKBACK + 1)
+    if not klines or len(klines) < 2:
+        # Fallback to 2.0 if can't compute
+        logger.warning(f"Not enough klines for multiplier calculation, using 2.0")
+        return Decimal("2.0"), "Fallback (insufficient data)"
+
+    highs = [k["high"] for k in klines]
+    lows = [k["low"] for k in klines]
+
+    range_real = max(highs) - min(lows)
+    multiplier_raw = range_real / (Decimal("2") * atr) if atr > 0 else Decimal("2.0")
+
+    # Clamp to bounds
+    min_mult, max_mult = MULTIPLIER_BOUNDS
+    multiplier = max(min_mult, min(max_mult, multiplier_raw))
+
+    # Round to 1 decimal
+    multiplier = multiplier.quantize(Decimal("0.1"), rounding=ROUND_DOWN)
+
+    reason = f"Range {range_real:.2f} / (2*ATR) = {multiplier_raw:.2f}, clamped to {multiplier}"
+    return multiplier, reason
+
+
+async def derive_levels(
+    price: Decimal,
+    atr: Decimal,
+    multiplier: Decimal
+) -> Tuple[int, str]:
+    """
+    Calculate number of levels based on grid range and fee coverage.
+
+    range_grid = 2 * multiplier * atr
+    step_min_pct = FEE_ROUNDTRIP * FEE_MARGIN_FACTOR
+    levels = floor(range_grid / (price * step_min_pct))
+
+    Clamp to LEVELS_BOUNDS.
+
+    Returns:
+        (levels, reason)
+    """
+    range_grid = Decimal("2") * multiplier * atr
+    step_min_pct = FEE_ROUNDTRIP * FEE_MARGIN_FACTOR
+
+    denominator = price * step_min_pct
+    if denominator <= 0:
+        logger.warning(f"Invalid denominator for levels calculation")
+        levels = LEVELS_BOUNDS[0]
+        return levels, f"Fallback to min levels due to invalid calculation"
+
+    levels_raw = int(range_grid / denominator)
+
+    # Clamp
+    min_lvl, max_lvl = LEVELS_BOUNDS
+    levels = max(min_lvl, min(max_lvl, levels_raw))
+
+    reason = f"Range {range_grid:.2f} / (price {price:.2f} * step_min {step_min_pct}) = {levels_raw} levels, clamped to {levels}"
+    return levels, reason
+
+
+def derive_risk_pct_and_levels(
+    levels: int,
+    min_notional: Decimal,
+    balance: Decimal
+) -> Tuple[Decimal, int, bool, str]:
+    """
+    Calculate risk_pct. If it exceeds MAX_RISK_PCT, reduce levels until it fits.
+
+    capital_min = levels * min_notional * CAPITAL_BUFFER
+    risk_pct = capital_min / balance
+
+    If risk_pct > MAX_RISK_PCT: reduce levels by 1, recalculate, repeat.
+    If no valid levels: return viable=False.
+
+    Returns:
+        (risk_pct, levels_final, viable, reason)
+    """
+    min_lvl, max_lvl = LEVELS_BOUNDS
+    current_levels = levels
+
+    while current_levels >= min_lvl:
+        capital_min = Decimal(current_levels) * min_notional * CAPITAL_BUFFER
+        risk_pct = capital_min / balance
+
+        if risk_pct <= MAX_RISK_PCT:
+            # Fits
+            risk_pct_rounded = risk_pct.quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
+            reason = f"{current_levels} levels * {min_notional} USDT * {CAPITAL_BUFFER} buffer / {balance} balance = {risk_pct_rounded}"
+            return risk_pct_rounded, current_levels, True, reason
+
+        # Doesn't fit, reduce
+        current_levels -= 1
+
+    # Even min levels doesn't fit
+    reason = f"Balance {balance} too low: even {min_lvl} levels * {min_notional} USDT * {CAPITAL_BUFFER} buffer exceeds {MAX_RISK_PCT} risk limit"
+    return Decimal("0"), 0, False, reason
+
+
+async def auto_derive_params(
+    symbol: str,
+    balance: Decimal,
+    client: Optional[BinanceClient] = None
+) -> Dict[str, Any]:
+    """
+    Main orchestration function: derive all grid parameters from symbol + balance.
+
+    Returns dict with:
+    - symbol, current_price, grid_viable
+    - params (if viable): levels, risk_pct, atr_multiplier, klines_interval, atr_period
+    - reasoning (detailed for each derivation)
+    - policy (the config constants used)
+
+    If grid_viable=False, params is None and reasoning includes "no_viable".
+    """
+    if balance <= 0:
+        raise ValueError("balance must be > 0")
+
+    # Initialize client if not provided
+    if client is None:
+        from app.services.grid_service import GridService
+        grid_service = GridService()
+        client = grid_service.binance
+
+    reasoning = {}
+
+    # Step 1: Get market data and min_notional
+    klines = await fetch_klines(client, symbol, "4h", limit=ATR_PERIOD + 1)
+    if not klines:
+        raise ValueError(f"Symbol {symbol} not found or network error")
+
+    current_price = klines[-1]["close"]
+    min_notional = await fetch_min_notional(client, symbol)
+
+    # Step 2: Calculate ATR
+    try:
+        atr = calculate_atr(klines, ATR_PERIOD)
+    except Exception as e:
+        logger.error(f"calculate_atr failed: {e}")
+        raise ValueError(f"Could not calculate ATR for {symbol}")
+
+    # Step 3: Derive interval (flattest timeframe)
+    interval, ers_dict, interval_viable, interval_reason = await derive_interval(client, symbol)
+    reasoning["klines_interval"] = interval_reason
+
+    if not interval_viable:
+        # Market is trending on all timeframes
+        return {
+            "symbol": symbol,
+            "current_price": float(current_price),
+            "grid_viable": False,
+            "params": None,
+            "reasoning": {
+                "no_viable": interval_reason,
+                "klines_interval": interval_reason
+            },
+            "policy": {
+                "fee_roundtrip": float(FEE_ROUNDTRIP),
+                "fee_margin_factor": float(FEE_MARGIN_FACTOR),
+                "max_risk_pct": float(MAX_RISK_PCT),
+                "multiplier_bounds": [float(MULTIPLIER_BOUNDS[0]), float(MULTIPLIER_BOUNDS[1])]
+            }
+        }
+
+    # Step 4: Derive multiplier
+    multiplier, multiplier_reason = await derive_multiplier(client, symbol, interval, atr)
+    reasoning["atr_multiplier"] = multiplier_reason
+
+    # Step 5: Derive levels (initial)
+    levels_initial, levels_reason = await derive_levels(current_price, atr, multiplier)
+    reasoning["levels"] = levels_reason
+
+    # Step 6: Derive risk_pct, reducing levels if necessary
+    risk_pct, levels_final, risk_viable, risk_reason = derive_risk_pct_and_levels(
+        levels_initial, min_notional, balance
+    )
+    reasoning["risk_pct"] = risk_reason
+
+    if not risk_viable:
+        # Balance too low
+        return {
+            "symbol": symbol,
+            "current_price": float(current_price),
+            "grid_viable": False,
+            "params": None,
+            "reasoning": {
+                "no_viable": risk_reason,
+                **reasoning
+            },
+            "policy": {
+                "fee_roundtrip": float(FEE_ROUNDTRIP),
+                "fee_margin_factor": float(FEE_MARGIN_FACTOR),
+                "max_risk_pct": float(MAX_RISK_PCT),
+                "multiplier_bounds": [float(MULTIPLIER_BOUNDS[0]), float(MULTIPLIER_BOUNDS[1])]
+            }
+        }
+
+    # All viable
+    return {
+        "symbol": symbol,
+        "current_price": float(current_price),
+        "grid_viable": True,
+        "params": {
+            "levels": levels_final,
+            "risk_pct": float(risk_pct),
+            "atr_multiplier": float(multiplier),
+            "klines_interval": interval,
+            "atr_period": ATR_PERIOD
+        },
+        "reasoning": reasoning,
+        "policy": {
+            "fee_roundtrip": float(FEE_ROUNDTRIP),
+            "fee_margin_factor": float(FEE_MARGIN_FACTOR),
+            "max_risk_pct": float(MAX_RISK_PCT),
+            "multiplier_bounds": [float(MULTIPLIER_BOUNDS[0]), float(MULTIPLIER_BOUNDS[1])]
+        }
+    }

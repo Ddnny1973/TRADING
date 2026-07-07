@@ -162,3 +162,56 @@ class MarketAnalysisResponse(BaseModel):
                 "suggested_stop_loss": 100.0,
             }
         }
+
+
+class AutoParamsRequest(BaseModel):
+    """Schema for GET /auto-params query parameters"""
+    symbol: str = Field(..., description="Trading pair (e.g., BTCUSDT)")
+    balance: float = Field(..., gt=0, description="Available balance in USDT")
+
+
+class AutoParamsParams(BaseModel):
+    """Derived grid parameters from auto-derivation"""
+    levels: int
+    risk_pct: float
+    atr_multiplier: float
+    klines_interval: str
+    atr_period: int
+
+
+class AutoParamsResponse(BaseModel):
+    """Schema for GET /auto-params response"""
+    symbol: str
+    current_price: float
+    grid_viable: bool
+    params: Optional[AutoParamsParams] = None  # None if grid_viable is False
+    reasoning: dict  # Detailed derivation steps
+    policy: dict  # Policy constants used
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "symbol": "BTCUSDT",
+                "current_price": 63515.2,
+                "grid_viable": True,
+                "params": {
+                    "levels": 8,
+                    "risk_pct": 0.0111,
+                    "atr_multiplier": 2.3,
+                    "klines_interval": "4h",
+                    "atr_period": 14
+                },
+                "reasoning": {
+                    "klines_interval": "ER 4h=0.18 (selected, lowest) vs 1h=0.34, 1d=0.41",
+                    "atr_multiplier": "Range 2828.06 / (2*ATR) = 2.3",
+                    "levels": "Range grid / min step = 8 levels",
+                    "risk_pct": "8 * 5.0 * 1.2 / 5200 = 0.0111"
+                },
+                "policy": {
+                    "fee_roundtrip": 0.002,
+                    "fee_margin_factor": 2.5,
+                    "max_risk_pct": 0.05,
+                    "multiplier_bounds": [1.5, 3.5]
+                }
+            }
+        }

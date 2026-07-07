@@ -13,7 +13,8 @@ from contextlib import asynccontextmanager
 # Import configuration and services
 from app.core.config import settings
 from app.database.connection import init_db
-from app.schemas.grid_schema import GridRequest, GridResponse, GridDetailResponse, GridPnlResponse, GridCloseCheckResponse, MarketAnalysisResponse
+from app.schemas.grid_schema import GridRequest, GridResponse, GridDetailResponse, GridPnlResponse, GridCloseCheckResponse, MarketAnalysisResponse, AutoParamsResponse
+from app.auto_params import auto_derive_params
 from app.services.grid_service import GridService
 from app.services.indicators import calculate_atr, calculate_grid_bounds, calculate_position_size
 from decimal import Decimal, ROUND_UP
@@ -319,6 +320,44 @@ async def check_close_grid(grid_id: str):
     if not result:
         raise HTTPException(status_code=404, detail="Grid not found")
     return result
+
+
+# ==========================================
+# AUTO PARAMETER DERIVATION
+# ==========================================
+
+@app.get("/auto-params", response_model=AutoParamsResponse, tags=["Auto Derivation"])
+async def get_auto_params(symbol: str, balance: float):
+    """
+    Auto-derive grid parameters from symbol and balance only.
+
+    Derivation process:
+    1. Fetch market data (klines, min_notional)
+    2. Calculate ATR(14)
+    3. Select flattest interval (lowest Efficiency Ratio)
+    4. Derive multiplier from real price range
+    5. Derive levels based on fee coverage
+    6. Derive risk_pct, reducing levels if needed to fit within MAX_RISK_PCT
+
+    Returns:
+    - grid_viable=True with params if derivation succeeds
+    - grid_viable=False with reasoning if market is too trendy or balance too low
+
+    Example:
+        GET /auto-params?symbol=BTCUSDT&balance=5200
+    """
+    try:
+        result = await auto_derive_params(symbol, Decimal(str(balance)), client=grid_service.binance)
+        return result
+    except ValueError as e:
+        # Symbol not found or invalid input
+        if "not found" in str(e).lower() or "network" in str(e).lower():
+            raise HTTPException(status_code=404, detail=str(e))
+        else:
+            raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"auto_derive_params failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Binance API error: {str(e)}")
 
 
 # ==========================================
