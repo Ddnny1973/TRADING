@@ -298,7 +298,7 @@
                     "conditions": [
                         {
                             "id": "cond_has_grids",
-                            "leftValue": "={{ Boolean($json.id) }}",
+                            "leftValue": "={{ Array.isArray($json) && $json.length > 0 }}",
                             "rightValue": true,
                             "operator": {
                                 "type": "boolean",
