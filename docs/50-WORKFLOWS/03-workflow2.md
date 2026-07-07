@@ -1,318 +1,224 @@
 # Workflow 2: Grid Monitor - Especificación Detallada
 
-**Referencia completa:** Ver `docs/workflow2-monitor.md` (archivo original)
-
----
-
 ## Resumen Ejecutivo
 
-**Trigger:** Cron cada 5 minutos (automático, Fase 3: Estrategia mejorada)  
-**Duración:** ~3-5 segundos  
-**Función:** Sincronizar grids + replenish fills + evaluar closures
+**ID n8n:** `96qAStQwfrHAVXRd`  
+**Trigger:** Cron cada 5 minutos (`minutesInterval: 5`, nodo: "Cron: Every 5 min")  
+**Duración:** ~3-5 segundos por ejecución  
+**Función:** Refresh órdenes + evaluar SL/TP/EXPIRED — el replenish lo hace el backend dentro de `/refresh`
 
 ---
 
-## Flujo Step-by-Step
-
-### 1. Trigger
+## Flujo Completo (según JSON real)
 
 ```
-Cron: Cada 5 minutos automáticamente
-00:00, 00:05, 00:10, 00:15, ... 23:55 (every day, 24/7)
-288 ejecuciones/día (vs 96 con 15 min)
-```
-
-### 2. Fetch Active Grids
-
-Llama Backend:
-```
-GET /grids?status=ACTIVE
-```
-
-Backend responde:
-```json
-{
-  "grids": [
-    {
-      "grid_id": "GRID_20260705_001",
-      "symbol": "BTCUSDT",
-      "status": "ACTIVE",
-      "lower_price": 61275,
-      "upper_price": 65725,
-      "levels": 15,
-      "pnl_realized": 0.00
-    },
-    {
-      "grid_id": "GRID_20260705_002",
-      "symbol": "ETHUSDT",
-      "status": "ACTIVE",
-      ...
-    }
-  ],
-  "total": 2
-}
-```
-
-### 3. Para Cada Grid: Refresh
-
-Llama Backend:
-```
-POST /refresh-grid/GRID_20260705_001
-```
-
-Qué hace:
-- Fetch órdenes OPEN/FILLED de Binance
-- Sincroniza estado en BD
-- Detecta fills nuevas
-
-Backend responde:
-```json
-{
-  "grid_id": "GRID_20260705_001",
-  "status": "ACTIVE",
-  "orders_synced": 15,
-  "orders_filled": 3,
-  "timestamp": "2026-07-05T20:35:00Z"
-}
-```
-
-### 4. Para Cada Grid: Replenish
-
-Llama Backend:
-```
-POST /replenish-grid/GRID_20260705_001
-```
-
-Qué hace:
-- Busca órdenes FILLED sin su "par"
-- Si BUY ejecutado → Crea SELL a precio + 0.4%
-- Si SELL ejecutado → Crea BUY a precio - 0.4%
-- **Crea ciclos automáticos**
-
-Backend responde:
-```json
-{
-  "grid_id": "GRID_20260705_001",
-  "orders_replenished": 2,
-  "total_orders_now": 14,
-  "timestamp": "2026-07-05T20:35:00Z"
-}
-```
-
-### 5. Evaluate Closures
-
-Para cada grid, chequea:
-- **Stop Loss hit?** Si precio < SL → Cierra
-- **Take Profit hit?** Si precio > TP → Cierra
-- **EXPIRED?** Si edad > 224h → Cierra
-
-Si aplica alguno:
-```
-POST /close-grid/GRID_ID
-```
-
-Backend responde:
-```json
-{
-  "grid_id": "GRID_20260705_001",
-  "status": "CLOSED",
-  "reason": "STOP_LOSS",
-  "pnl_realized": -2.50
-}
-```
-
-### 6. Aggregate Results
-
-Sumario:
-```
-Grids monitored: 2
-Orders synced: 30
-Orders filled: 3
-Orders replenished: 2
-Grids closed: 0
-Uptime: 100%
-```
-
-### 7. Send Telegram Notification
-
-```
-📊 Monitoring Report (15:35 UTC)
-
-Grids checked: 2 ✅
-- GRID_001 (BTC): 15 orders, 0 filled
-- GRID_002 (ETH): 15 orders, 2 filled
-
-Orders synced: 30
-Orders replenished: 2
-Grids closed: 0
-
-Status: ✅ HEALTHY
+Cron / Manual / WF-Monitoreo-Trading
+         ↓
+  List Running Grids
+  GET /api/v1/grids?status=RUNNING
+         ↓
+  IF: Hay grids running?
+    ├── FALSE → Notify: No Running Grids → Monitor cycle complete
+    └── TRUE  → Split in Batches (Sequential)
+                    ↓ (por cada grid)
+              Refresh Orders (POST)
+              POST /api/v1/grids/{id}/refresh
+                    ↓
+              Interpret Refresh Result
+                    ↓
+              IF: Refresh failed?
+                ├── TRUE  → Notify: Refresh Error → Wait 1.5s → siguiente grid
+                └── FALSE → Check Close (POST)
+                            POST /api/v1/grids/{id}/check-close
+                                  ↓
+                            Interpret Check-Close Result
+                                  ↓
+                            IF: Check-close failed?
+                              ├── TRUE  → Notify: Check-close Error → Wait 1.5s → siguiente grid
+                              └── FALSE → IF: Grid closed?
+                                            ├── TRUE  → Notify: Grid Closed → Wait 1.5s → siguiente grid
+                                            └── FALSE → Wait 1.5s → siguiente grid
+                    ↓ (todos los grids procesados)
+              Split done → Monitor cycle complete
 ```
 
 ---
 
-## Variables Importantes
+## Nodos Detallados
 
-| Variable | Ejemplo | Descripción |
-|----------|---------|-------------|
-| grids_active | 2 | Cuántos grids están activos |
-| orders_synced | 30 | Total de órdenes sincronizadas |
-| orders_filled | 3 | Órdenes ejecutadas en este ciclo |
-| orders_replenished | 2 | Órdenes nuevas creadas |
-| grids_closed | 0 | Grids cerradas (SL/TP/EXP) |
-| pnl_total | +5.50 | PnL acumulado |
-| errors | 0 | Errores detectados |
+### Triggers (3 modos de entrada)
+
+| Nodo | Tipo | Cuándo |
+|------|------|--------|
+| `Cron: Every 5 min` | scheduleTrigger | Automático, 288 veces/día |
+| `Start (Manual)` | manualTrigger | Test/debug en n8n UI |
+| `WF-Monitoreo-Trading` | executeWorkflowTrigger | Llamado por otro workflow |
 
 ---
 
-## Configuración
+### List Running Grids
 
-### Cron (Automático)
-
-En n8n UI:
 ```
-Trigger Node → Type: "Cron"
-Interval: Minutes
-Minutes: 15
+GET $env.BACKEND_URL/api/v1/grids?status=RUNNING
 ```
 
-### Environment Variables
+- Usa `alwaysOutputData: true` → siempre pasa aunque array esté vacío
+
+---
+
+### IF: Hay grids running?
+
+**Condición:** `!!$json.id === true`
+
+- **TRUE** → `Split in Batches (Sequential)` → procesa cada grid
+- **FALSE** → `Notify: No Running Grids`
+  - Mensaje Telegram: `"ℹ️ Sin grids en ejecución\n⏳ Próximo monitoreo: en 5 minutos"`
+
+---
+
+### Refresh Orders (POST)
+
+```
+POST $env.BACKEND_URL/api/v1/grids/{id}/refresh
+```
+
+- `fullResponse: true`, `neverError: true` (nunca lanza excepción, siempre retorna)
+- El backend ejecuta el **replenish automáticamente** dentro de este endpoint
+
+**Interpret Refresh Result** extrae:
+```javascript
+{
+  gridId, symbol,
+  isError: statusCode !== 200,
+  errorMessage,  // si isError
+  grid           // body completo si ok
+}
+```
+
+**IF: Refresh failed?** → `isError === true`
+- **TRUE** → `Notify: Refresh Error` (Telegram) → `Wait 1.5s`
+- **FALSE** → continúa a `Check Close`
+
+---
+
+### Check Close (POST)
+
+```
+POST $env.BACKEND_URL/api/v1/grids/{gridId}/check-close
+```
+
+- `fullResponse: true`, `neverError: true`
+
+**Interpret Check-Close Result** extrae:
+```javascript
+{
+  gridId, symbol,
+  isError: statusCode !== 200,
+  triggered,  // "STOP_LOSS" | "TAKE_PROFIT" | "EXPIRED" | null
+  grid        // GridDetailResponse si ok
+}
+```
+
+**IF: Check-close failed?** → `isError === true`
+- **TRUE** → `Notify: Check-close Error` (Telegram) → `Wait 1.5s`
+- **FALSE** → `IF: Grid closed?`
+
+---
+
+### IF: Grid closed?
+
+**Condición:** `$json.triggered` is not empty
+
+- **TRUE** → `Notify: Grid Closed`
+- **FALSE** → `Wait 1.5s` → siguiente grid
+
+**Notify: Grid Closed** (Telegram):
+```
+🔒 GRID CERRADO - {symbol}
+
+📌 Motivo:
+  STOP_LOSS   → ❌ Stop Loss
+  TAKE_PROFIT → ✅ Take Profit
+  EXPIRED     → ⏰ Expiración
+  otro        → 🤷 Manual
+
+📊 PnL Total: {grid.total_pnl} USDT
+🆔 Grid ID: {grid.id}
+✨ Ciclos: {grid.cycles_completed}
+```
+
+---
+
+### Wait (1.5s between items) + Loop
+
+Espera 1.5s → vuelve a `Split in Batches` → siguiente grid.  
+Cuando todos los grids están procesados → `Monitor cycle complete` (noOp).
+
+---
+
+## Variables de Entorno Requeridas
 
 ```
 BACKEND_URL=http://backend-python:8000
 N8N_BLOCK_ENV_ACCESS_IN_NODE=false
-TELEGRAM_CHAT_ID=<tu-chat-id>
+TELEGRAM_CHAT_ID=1060878323
 ```
 
 ---
 
-## Ciclo Completo Ejemplo
+## Ejemplo de Ejecución
 
-### Hour 0: Workflow 1 Ejecuta
+### Ciclo sin fills
 ```
-✅ GRID_001 creada (BTC)
-   15 órdenes BUY en rango 61275-65725
-   Status: ACTIVE
-```
-
-### Hour 0:15: Workflow 2 Ejecuta #1
-```
-Grids checked: 1
-Orders synced: 15
-Orders filled: 0
-Orders replenished: 0
-Status: ✅ No fills yet (esperando mercado)
+Cron (00:05) → List Running Grids → 1 grid RUNNING
+→ Refresh Orders → OK, 0 fills
+→ Check Close → triggered: null
+→ Wait 1.5s → Monitor cycle complete
 ```
 
-### Hour 0:30: Workflow 2 Ejecuta #2
+### Ciclo con fill + cierre por TP
 ```
-Grids checked: 1
-Orders synced: 15
-Orders filled: 1 (BUY @ 63500)
-Orders replenished: 1 (SELL @ 63710)
-Status: ✅ Ciclo iniciado
-```
-
-### Hour 0:45: Workflow 2 Ejecuta #3
-```
-Grids checked: 1
-Orders synced: 15
-Orders filled: 2 (SELL @ 63710 ejecutado)
-Orders replenished: 1 (BUY @ 63500)
-Status: ✅ Ciclo completado, ganancia realizada
+Cron (00:10) → List Running Grids → 1 grid RUNNING
+→ Refresh Orders → OK (backend detecta fill, crea orden opuesta)
+→ Check Close → triggered: "TAKE_PROFIT"
+→ Notify: Grid Closed "✅ Take Profit | PnL: +12.5 USDT"
+→ Wait 1.5s → Monitor cycle complete
 ```
 
-### Hour 1:00: Workflow 2 Ejecuta #4 - 96 (96 veces / 24 horas)
+### Sin grids activos
 ```
-Ciclos continuos: BUY → SELL → BUY → ...
-PnL acumulado: +0.38% × N ciclos
+Cron (00:15) → List Running Grids → [] vacío
+→ IF: Hay grids running? → FALSE
+→ Notify: "ℹ️ Sin grids en ejecución"
+→ Monitor cycle complete
 ```
 
 ---
 
-## Error Handling & Retry Logic
+## Manejo de Errores
 
-| Escenario | Acción |
-|-----------|--------|
-| Backend timeout | Reintentar 3x con backoff |
-| Binance API 429 | Esperar 60 seg, reintentar |
-| Grid not found | Log error, continuar siguiente |
-| Order cancel fail | Log, marcador para revisión |
+| Fallo | Nodo que lo detecta | Acción |
+|-------|-------------------|--------|
+| `/refresh` HTTP ≠ 200 | IF: Refresh failed? | Telegram error + skip check-close |
+| `/check-close` HTTP ≠ 200 | IF: Check-close failed? | Telegram error + skip cierre |
+| Sin grids RUNNING | IF: Hay grids running? | Telegram info + fin normal |
 
----
-
-## Monitoreo Continuo (24/7)
-
-**Workflow 2 se ejecuta 288 veces/día** (cada 5 min, Fase 3: Estrategia mejorada):
-```
-Uptime esperado: > 99% (3 fallos/día = aceptable)
-Grids procesadas: 1-2 simultáneamente
-Latencia: < 5 seg por ejecución
-Ventaja: Detecta fills 3x más rápido
-```
+Todos los errores son **no fatales**: el workflow continúa con el siguiente grid.
 
 ---
 
-## Métricas de Salud
+## Métricas
 
-Cada ejecución de Workflow 2 debe:
-- ✅ Completarse en < 10 segundos
-- ✅ Sincronizar 15-30 órdenes
-- ✅ Replenish fills sin errores
-- ✅ Enviar notificación
-- ✅ 0 crashes/errores críticos
-
----
-
-## Testing Workflow 2
-
-### Manual Execution (Desarrollo)
-
-```
-1. n8n UI → Workflow 2 → Execute
-2. Espera ~5 seg
-3. Revisa output final
-4. Verifica órdenes sincronizadas: curl http://localhost:8000/grids/GRID_ID/orders
-```
-
-### Automated (Cron 24/7)
-
-```
-1. Workflow 2 → Activate (switch ON)
-2. Monitorea "Executions" tab cada hora
-3. Revisa logs de n8n
-4. Verifica PnL acumulado (curl /grids)
-```
-
-### 48-Hour Test
-
-```
-Duración: 48 horas
-Objetivo: Validar ciclos continuos
-Success: >= 10 ciclos sin errores
-```
-
----
-
-## Performance Optimization
-
-Si Workflow 2 es lento:
-
-1. **Reducir sync frequency:** De 15 min → 30 min
-2. **Batch grids:** Procesar múltiples grids en paralelo
-3. **Cache market data:** Evitar redundantes calls
-4. **Async HTTP:** Non-blocking requests
+- **Frecuencia:** cada 5 min → 288 ejecuciones/día
+- **Latencia esperada:** < 5 segundos por ejecución
+- **Rate limiting:** Wait 1.5s entre grids para respetar Binance API
+- **Errores tolerables:** hasta 3 fallos/día manteniendo > 99% uptime
 
 ---
 
 ## Próximas Secciones
 
 - [Workflow 1: Market Decision](02-workflow1.md)
-- [Visión General](01-vision-general.md)
+- [Visión General de Workflows](01-vision-general.md)
 - [Setup de n8n](../20-SETUP/01-setup-n8n.md)
-
----
-
-## Referencia Técnica
-
-Para detalles completos, ver: `/docs/workflow2-monitor.md`
+- [Troubleshooting](../40-OPERACIONAL/01-troubleshooting.md)
