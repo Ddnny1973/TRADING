@@ -12,6 +12,7 @@
 |---|---|---|
 | `/grids` | Lista grids RUNNING (símbolo, niveles, rango, edad, ID) | `GET /api/v1/grids?status=RUNNING` |
 | `/grid-detail SYMBOL` | Detalle + PnL de la grid más reciente del símbolo | `GET /api/v1/grids` + `/{id}` + `/{id}/pnl` |
+| `/salud` o `/health` | Valida que el backend esté operativo | `GET /health` |
 | `/lanzar` | Lanza WF1 (Market Decision) directo — comando histórico del WF1 original | Execute Workflow (n8n) |
 | `/monitorear` | Ejecuta un ciclo de WF2 (Monitor) — comando histórico | Execute Workflow (n8n) |
 | `/trigger-wf1 confirm` | Igual que `/lanzar` pero con confirmación obligatoria | Execute Workflow (n8n) |
@@ -84,11 +85,12 @@ Desde el chat autorizado en Telegram:
 2. `/grids` → lista de grids RUNNING (o "No hay grids RUNNING").
 3. `/grid-detail BTCUSDT` → detalle + PnL (o "No se encontraron grids").
 4. `/grid-detail` (sin símbolo) → mensaje de uso.
-5. `/lanzar` → "WF1 lanzado" + luego la notificación normal de WF1 (⚠️ puede crear grid real).
-6. `/monitorear` → "WF2 ejecutado" + notificaciones normales de WF2.
-7. `/trigger-wf1` → advertencia pidiendo `confirm`.
-8. `/trigger-wf1 confirm` → igual que `/lanzar`.
-9. Desde un chat NO autorizado: cualquier mensaje se ignora sin respuesta.
+5. `/salud` o `/health` → "✅ Estoy vivo y ganando dinero" o "❌ Backend caído".
+6. `/lanzar` → "WF1 lanzado" + luego la notificación normal de WF1 (⚠️ puede crear grid real).
+7. `/monitorear` → "WF2 ejecutado" + notificaciones normales de WF2.
+8. `/trigger-wf1` → advertencia pidiendo `confirm`.
+9. `/trigger-wf1 confirm` → igual que `/lanzar`.
+10. Desde un chat NO autorizado: cualquier mensaje se ignora sin respuesta.
 
 ---
 
