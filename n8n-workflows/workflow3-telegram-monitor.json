@@ -230,6 +230,30 @@
               },
               "renameOutput": true,
               "outputKey": "monitorear"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cmd-salud",
+                    "leftValue": "={{ /^\\/salud|^\\/health/.test($json.command) }}",
+                    "rightValue": "{{ true }}",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "salud"
             }
           ]
         },
@@ -582,6 +606,41 @@
     },
     {
       "parameters": {
+        "url": "={{ $env.BACKEND_URL }}/health",
+        "method": "GET",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "g6b7c8d9-0e1f-4a2b-9c3d-4e5f6a7b8c9d",
+      "name": "Backend Health Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -560,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = $('Parse Command').first().json.chatId;\nconst resp = $json;\nconst isHealthy = resp.statusCode === 200;\nconst text = isHealthy ? '✅ Estoy vivo y ganando dinero' : ('❌ Backend caído (HTTP ' + (resp.statusCode || 'N/A') + ')');\nreturn [{ json: { chatId, text } }];"
+      },
+      "id": "h7c8d9e0-1f2a-4b3c-9d4e-5f6a7b8c9d0e",
+      "name": "Format: Health",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -340,
+        800
+      ]
+    },
+    {
+      "parameters": {
         "chatId": "={{ $json.chatId }}",
         "text": "={{ $json.text }}",
         "additionalFields": {}
@@ -691,6 +750,13 @@
         [
           {
             "node": "Format: Help",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Backend Health Check",
             "type": "main",
             "index": 0
           }
@@ -906,6 +972,28 @@
       ]
     },
     "Format: Help": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Backend Health Check": {
+      "main": [
+        [
+          {
+            "node": "Format: Health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format: Health": {
       "main": [
         [
           {
