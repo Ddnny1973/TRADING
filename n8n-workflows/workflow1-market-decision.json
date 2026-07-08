@@ -8,7 +8,7 @@
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        -1984,
+        -2200,
         -128
       ]
     },
@@ -24,32 +24,8 @@
             },
             {
               "id": "2",
-              "name": "atr_period",
-              "value": 14,
-              "type": "number"
-            },
-            {
-              "id": "3",
-              "name": "atr_multiplier",
-              "value": 2,
-              "type": "number"
-            },
-            {
-              "id": "4",
-              "name": "klines_interval",
-              "value": "4h",
-              "type": "string"
-            },
-            {
-              "id": "5",
-              "name": "risk_pct",
-              "value": 0.05,
-              "type": "number"
-            },
-            {
-              "id": "6",
-              "name": "levels",
-              "value": 4,
+              "name": "balance",
+              "value": 5000,
               "type": "number"
             }
           ]
@@ -61,34 +37,69 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        -1744,
+        -1960,
         80
       ]
     },
     {
       "parameters": {
-        "url": "={{ $env.BACKEND_URL + '/api/v1/market-analysis/' + $json.symbol + '?risk_pct=' + $json.risk_pct + '&levels=' + $json.levels + '&atr_period=' + $json.atr_period + '&atr_multiplier=' + $json.atr_multiplier + '&klines_interval=' + $json.klines_interval }}",
+        "method": "GET",
+        "url": "={{ $env.BACKEND_URL + '/auto-params?symbol=' + $json.symbol + '&balance=' + $json.balance }}",
         "options": {}
       },
-      "id": "829a086b-17aa-471c-bf79-1fec53a796a8",
-      "name": "Market Analysis",
+      "id": "f1a2b3c4-d5e6-f7a8-b9c0-d1e2f3a4b5c6",
+      "name": "Get Auto Params (FIX 4)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -1520,
+        -1720,
         80
       ]
     },
     {
       "parameters": {
-        "jsCode": "const marketData = $json;\nconst ctx = $('Config').item.json;\nconst symbol = ctx.symbol;\n\nconst systemPrompt = `Eres el modulo de decision de un bot de grid trading en Binance Futures.\nRecibes datos de mercado ya calculados (no los recalcules). Tu unica tarea es decidir si conviene lanzar un grid ahora y con que parametros.\n\nReglas de criterio:\n- Si atr_pct (ATR/current_price) es muy bajo (<0.3%), el rango sera demasiado angosto para capturar movimiento -> considera no lanzar.\n- Si atr_pct es muy alto (>2%), el mercado puede estar en tendencia fuerte, no lateral -> los grids funcionan peor -> considera no lanzar o reducir gridCount.\n- gridCount razonable: entre 5 y 20 segun el ATR. Ejemplo: si atr_pct ~0.5%, usa 10-15 levels. Si atr_pct ~1.5%, usa 8-12 levels.\n- Siempre explica tu razonamiento en el campo reasoning ANTES de fijar launch.\n- lowerLimit/upperLimit: puedes ajustar los suggested_* si tienes razon fundamental, pero generalmente respeta los sugeridos.\n- Si launch=false, devuelve lowerLimit, upperLimit y gridCount como null.\n\nResponde UNICAMENTE en JSON valido, sin texto adicional.`;\n\nconst geminiRequestBody = {\n  systemInstruction: { parts: [{ text: systemPrompt }] },\n  contents: [{ role: 'user', parts: [{ text: JSON.stringify(marketData) }] }],\n  generationConfig: {\n    temperature: 0.4,\n    responseMimeType: 'application/json',\n    responseSchema: {\n      type: 'OBJECT',\n      properties: {\n        reasoning: { type: 'STRING' },\n        launch: { type: 'BOOLEAN' },\n        lowerLimit: { type: 'NUMBER', nullable: true },\n        upperLimit: { type: 'NUMBER', nullable: true },\n        gridCount: { type: 'INTEGER', nullable: true }\n      },\n      required: ['reasoning', 'launch', 'lowerLimit', 'upperLimit', 'gridCount']\n    }\n  }\n};\n\nreturn {\n  json: {\n    geminiRequestBody,\n    symbol,\n    suggested_quantity_per_order: marketData.suggested_quantity_per_order,\n    allocated_capital: marketData.allocated_capital,\n    suggested_stop_loss: marketData.suggested_stop_loss,\n    atr_period: ctx.atr_period,\n    atr_multiplier: ctx.atr_multiplier,\n    klines_interval: ctx.klines_interval\n  }\n};"
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond_viable",
+              "leftValue": "={{ $json.grid_viable }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "87d5e9f1-5678-90ab-cdef-0123456789ab",
+      "name": "IF: Grid Viable? (FIX 4)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1496,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const autoParams = $json;\nconst config = $('Config').item.json;\n\nconst systemPrompt = `Eres el modulo de decision de un bot de grid trading en Binance Futures.\nRecibes datos de mercado ya calculados Y validados (grid_viable=true).\nTu unica tarea es decidir si lanzar el grid con los parametros derivados.\n\nParametros ya validados (no cambiar):\n- levels: ${autoParams.params.levels}\n- risk_pct: ${autoParams.params.risk_pct}\n- atr_multiplier: ${autoParams.params.atr_multiplier}\n- klines_interval: ${autoParams.params.klines_interval}\n\nDecision:\n- launch=true: usar los parametros exactos derivados\n- launch=false: NO colocar grid, explicar razon en reasoning\n\nResponde UNICAMENTE en JSON: {\"reasoning\": \"...\", \"launch\": true/false}`;\n\nconst geminiRequestBody = {\n  systemInstruction: { parts: [{ text: systemPrompt }] },\n  contents: [{ role: 'user', parts: [{ text: JSON.stringify(autoParams) }] }],\n  generationConfig: {\n    temperature: 0.3,\n    responseMimeType: 'application/json',\n    responseSchema: {\n      type: 'OBJECT',\n      properties: {\n        reasoning: { type: 'STRING' },\n        launch: { type: 'BOOLEAN' }\n      },\n      required: ['reasoning', 'launch']\n    }\n  }\n};\n\nreturn {\n  json: {\n    geminiRequestBody,\n    autoParams,\n    symbol: config.symbol,\n    balance: config.balance\n  }\n};"
       },
       "id": "354b35a0-28ae-4b5c-b2b6-e7f2cc362417",
-      "name": "Build Gemini Request",
+      "name": "Build Gemini Request (with derived params)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1296,
+        -1272,
         80
       ]
     },
@@ -101,33 +112,34 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ $json.geminiRequestBody }}",
-        "options": {}
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
       },
-      "id": "a14c94fc-9493-4dfc-a03f-42c2f90aef29",
+      "id": "82f4c5d6-e7f8-a9b0-c1d2-e3f4a5b6c7d8",
       "name": "Gemini: AI Decision",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -1088,
+        -1048,
         80
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "NQnuuYpP2Pax6Nvr",
-          "name": "Header Auth GeminiAI"
-        }
-      }
+      ]
     },
     {
       "parameters": {
-        "jsCode": "const geminiResponse = $json;\nconst rawText = geminiResponse?.candidates?.[0]?.content?.parts?.[0]?.text;\nif (!rawText) {\n  throw new Error('Respuesta de Gemini sin contenido de texto: ' + JSON.stringify(geminiResponse));\n}\n\nlet decision;\ntry {\n  decision = JSON.parse(rawText);\n} catch (e) {\n  throw new Error('No se pudo parsear JSON de Gemini: ' + rawText);\n}\n\nconst ctx = $('Build Gemini Request').item.json;\nconst configLevels = $('Config').item.json.levels;\n\n// Tope de seguridad: la IA puede sugerir su propio gridCount (5-20 segun el\n// prompt), pero nunca debe superar el 'levels' configurado manualmente en el\n// nodo Config -- eso limita la exposicion/cantidad de ordenes en fase de pruebas.\nconst cappedGridCount = decision.gridCount != null\n  ? Math.min(decision.gridCount, configLevels)\n  : decision.gridCount;\n\nreturn {\n  json: {\n    symbol: ctx.symbol,\n    reasoning: decision.reasoning,\n    launch: decision.launch === true,\n    lowerLimit: decision.lowerLimit,\n    upperLimit: decision.upperLimit,\n    gridCount: cappedGridCount,\n    suggested_quantity_per_order: ctx.suggested_quantity_per_order,\n    allocated_capital: ctx.allocated_capital,\n    suggested_stop_loss: ctx.suggested_stop_loss,\n    atr_period: ctx.atr_period,\n    atr_multiplier: ctx.atr_multiplier,\n    klines_interval: ctx.klines_interval\n  }\n};"
+        "jsCode": "const resp = $json;\nconst statusCode = resp.statusCode || 200;\nconst body = resp.body || {};\n\nif (statusCode === 200 && body.candidates && body.candidates.length > 0) {\n  const content = body.candidates[0].content;\n  if (content && content.parts && content.parts[0]) {\n    const text = content.parts[0].text;\n    try {\n      const parsed = JSON.parse(text);\n      return { json: parsed };\n    } catch (e) {\n      return { json: { reasoning: 'Parse error: ' + text, launch: false } };\n    }\n  }\n}\n\nreturn { json: { reasoning: 'Gemini error or no response', launch: false } };"
       },
-      "id": "abf35d94-d138-46af-abf6-2f14764833ec",
+      "id": "c9e0f1a2-b3c4-d5e6-f7a8-b9c0-d1e2f3a4",
       "name": "Parse AI Decision",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -864,
+        -824,
         80
       ]
     },
@@ -161,7 +173,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -640,
+        -600,
         80
       ]
     },
@@ -171,7 +183,7 @@
         "url": "={{ $env.BACKEND_URL }}/api/v1/grids",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { symbol: $json.symbol, lower_price: $json.lowerLimit, upper_price: $json.upperLimit, levels: $json.gridCount, grid_type: 'GEOMETRIC', quantity_per_order: $json.suggested_quantity_per_order, atr_period: $json.atr_period, atr_multiplier: $json.atr_multiplier, klines_interval: $json.klines_interval, stop_loss: $json.suggested_stop_loss, take_profit: null, max_duration_hours: null } }}",
+        "jsonBody": "={{ { symbol: $('Config').item.json.symbol, levels: $('Get Auto Params (FIX 4)').item.json.params.levels, grid_type: 'GEOMETRIC', quantity_per_order: $('Get Auto Params (FIX 4)').item.json.params.risk_pct * $('Config').item.json.balance / ($('Get Auto Params (FIX 4)').item.json.params.levels * $('Get Auto Params (FIX 4)').item.json.current_price), atr_period: $('Get Auto Params (FIX 4)').item.json.params.atr_period, atr_multiplier: $('Get Auto Params (FIX 4)').item.json.params.atr_multiplier, klines_interval: $('Get Auto Params (FIX 4)').item.json.params.klines_interval, stop_loss: null, take_profit: null, max_duration_hours: null } }}",
         "options": {
           "response": {
             "response": {
@@ -182,24 +194,24 @@
         }
       },
       "id": "914a7e83-3438-48b0-bfb4-948d28e12494",
-      "name": "Create Grid (POST)",
+      "name": "Create Grid (POST) with derived params",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -416,
+        -376,
         -16
       ]
     },
     {
       "parameters": {
-        "jsCode": "const resp = $json;\nconst statusCode = resp.statusCode;\nconst body = resp.body || {};\nconst decisionCtx = $('Parse AI Decision').item.json;\n\nif (statusCode === 200) {\n  return { json: { isError: false, alreadyExists: false, grid: body, symbol: decisionCtx.symbol, reasoning: decisionCtx.reasoning } };\n}\n\nconst detailRaw = body.detail !== undefined ? body.detail : body;\nconst detail = typeof detailRaw === 'string' ? detailRaw : JSON.stringify(detailRaw);\n\nif (statusCode === 400 && detail.toLowerCase().includes('already exists')) {\n  return { json: { isError: false, alreadyExists: true, grid: null, symbol: decisionCtx.symbol, reasoning: decisionCtx.reasoning, detail } };\n}\n\nreturn { json: { isError: true, alreadyExists: false, grid: null, symbol: decisionCtx.symbol, reasoning: decisionCtx.reasoning, statusCode, detail } };"
+        "jsCode": "const resp = $json;\nconst statusCode = resp.statusCode;\nconst body = resp.body || {};\nconst decisionCtx = $('Parse AI Decision').item.json;\nconst autoParams = $('Get Auto Params (FIX 4)').item.json;\n\nif (statusCode === 200) {\n  return { json: { isError: false, alreadyExists: false, grid: body, reasoning: decisionCtx.reasoning, autoParams: autoParams } };\n}\n\nconst detailRaw = body.detail !== undefined ? body.detail : body;\nconst detail = typeof detailRaw === 'string' ? detailRaw : JSON.stringify(detailRaw);\n\nif (statusCode === 400 && detail.toLowerCase().includes('already exists')) {\n  return { json: { isError: false, alreadyExists: true, grid: null, reasoning: decisionCtx.reasoning, autoParams: autoParams, detail } };\n}\n\nreturn { json: { isError: true, alreadyExists: false, grid: null, reasoning: decisionCtx.reasoning, autoParams: autoParams, statusCode, detail } };"
       },
       "id": "f81ed401-d9e9-4609-9e38-7b9a581d4d0f",
       "name": "Interpret Grid Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -208,
+        -168,
         -16
       ]
     },
@@ -233,25 +245,24 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        16,
+        56,
         -16
       ]
     },
     {
       "parameters": {
-        "chatId": "={{ $('TRADINGTrigger').item.json.message.chat.id }}",
-        "text": "={{ $json.alreadyExists ? ('ℹ️ Grid ya existia para ' + $json.symbol + ' (no se creo uno nuevo).\\n\\n💭 ' + $json.reasoning) : ('✅ Grid lanzado: ' + $json.symbol + '\\n📊 ID: ' + $json.grid.id + ' | Niveles: ' + $json.grid.levels + ' | Rango: ' + $json.grid.lower_price + '-' + $json.grid.upper_price + '\\n💭 ' + $json.reasoning) }}",
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $json.alreadyExists ? ('ℹ️ Grid ya existia para ' + $('Config').item.json.symbol + '\\n\\n💭 ' + $json.reasoning) : ('✅ Grid LANZADO\\n━━━━━━━━━━━━━━━━━━━━\\n📊 Symbol: ' + $json.grid.symbol + '\\n🆔 ID: ' + $json.grid.id.substring(0, 16) + '...\\n📈 Niveles: ' + $json.grid.levels + '\\n💰 Rango: ' + $json.grid.lower_price + ' - ' + $json.grid.upper_price + '\\n🎯 Órdenes: ' + $json.grid.orders.length + '\\n\\n💡 Parámetros (auto-derivados):\\n   • risk_pct: ' + $json.autoParams.params.risk_pct + '\\n   • atr_mult: ' + $json.autoParams.params.atr_multiplier + '\\n   • interval: ' + $json.autoParams.params.klines_interval + '\\n\\n💭 ' + $json.reasoning) }}",
         "additionalFields": {}
       },
-      "id": "50b859f2-dfb1-48bc-944b-2a91a94635f3",
+      "id": "61eb1e23-9e4c-4d64-a34e-5d8f2e3a9b7c",
       "name": "Notify: Grid Launched",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        224,
-        96
+        256,
+        -144
       ],
-      "webhookId": "102d6856-20eb-4bc6-857a-ced333741f0b",
       "credentials": {
         "telegramApi": {
           "id": "zurDfqIC4Qy17sUA",
@@ -261,19 +272,18 @@
     },
     {
       "parameters": {
-        "chatId": "={{ $('TRADINGTrigger').item.json.message.chat.id }}",
-        "text": "={{ '🚨 ERROR creando grid ' + $json.symbol + ' (HTTP ' + $json.statusCode + ')\\n' + $json.detail }}",
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ '❌ ERROR al crear grid\\n━━━━━━━━━━━━━━━━━━━━\\n' + ($json.statusCode ? ('HTTP ' + $json.statusCode + '\\n') : '') + 'Detalle: ' + $json.detail + '\\n\\nSe reintentará en próximo ciclo.' }}",
         "additionalFields": {}
       },
-      "id": "c150be26-36f7-4586-9cbd-cf7a20bf7444",
+      "id": "7f2c3d4e-5a6b-7c8d-9e0f-a1b2c3d4e5f6",
       "name": "Notify: Grid Error",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        208,
-        -144
+        256,
+        112
       ],
-      "webhookId": "4af67a14-2e23-4136-8972-a8ba66656e0d",
       "credentials": {
         "telegramApi": {
           "id": "zurDfqIC4Qy17sUA",
@@ -283,19 +293,39 @@
     },
     {
       "parameters": {
-        "chatId": "={{ $('TRADINGTrigger').item.json.message.chat.id }}",
-        "text": "={{ '⏭️ Grid NO lanzado para ' + $json.symbol + '\\n\\n💭 ' + $json.reasoning }}",
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ '⚠️ Grid NO LANZADO\\n━━━━━━━━━━━━━━━━━━━━\\n📍 Razón (IA): ' + $json.reasoning }}",
         "additionalFields": {}
       },
-      "id": "7a3ce3b2-f9aa-45ee-9130-7252593c84ce",
+      "id": "8e3f4a5b-6c7d-8e9f-0a1b-2c3d4e5f6a7b",
       "name": "Notify: Skipped (No Launch)",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -416,
-        208
+        256,
+        -288
       ],
-      "webhookId": "0bd3f620-b7d1-4cef-a41f-655caa3d0633",
+      "credentials": {
+        "telegramApi": {
+          "id": "zurDfqIC4Qy17sUA",
+          "name": "TRADING"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ '⚠️ GRID NO VIABLE\\n━━━━━━━━━━━━━━━━━━━━\\n🚫 ' + ($json.reasoning && $json.reasoning.no_viable ? $json.reasoning.no_viable : 'Parámetros insuficientes para este balance') + '\\n\\n💰 Balance: ' + $('Config').item.json.balance + ' USDT\\n📊 Symbol: ' + $('Config').item.json.symbol }}",
+        "additionalFields": {}
+      },
+      "id": "9f4a5b6c-7d8e-9f0a-1b2c-3d4e5f6a7b8c",
+      "name": "Notify: Not Viable (FIX 4)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1272,
+        -144
+      ],
       "credentials": {
         "telegramApi": {
           "id": "zurDfqIC4Qy17sUA",
@@ -308,404 +338,49 @@
         "rule": {
           "interval": [
             {
-              "field": "cronExpression",
-              "expression": "0 */4 * * *"
+              "triggerAtHour": 0
+            },
+            {
+              "triggerAtHour": 4
+            },
+            {
+              "triggerAtHour": 8
+            },
+            {
+              "triggerAtHour": 12
+            },
+            {
+              "triggerAtHour": 16
+            },
+            {
+              "triggerAtHour": 20
             }
           ]
         }
       },
+      "id": "aabbccdd-eeff-0011-2233-445566778899",
+      "name": "Schedule Trigger (every 4h)",
       "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.3,
-      "position": [
-        -1984,
-        80
-      ],
-      "id": "33691ad2-a294-4e6a-9973-510a88bf2394",
-      "name": "Schedule Trigger"
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose",
-            "version": 3
-          },
-          "conditions": [
-            {
-              "id": "22825ef6-0b9c-40da-92c6-571fee8f76e8",
-              "leftValue": "={{ $env.TELEGRAM_CHAT_ID.split(',').map(id => id.trim()).includes(String($json.message.chat.id)) }}",
-              "rightValue": "={{ true }}",
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "looseTypeValidation": true,
-        "options": {}
-      },
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.3,
-      "position": [
-        -2016,
-        400
-      ],
-      "id": "70323c80-65cc-44dd-a3ed-fd9a13f0baf9",
-      "name": "IF: Chat autorizado?"
-    },
-    {
-      "parameters": {
-        "mode": "rules",
-        "rules": {
-          "values": [
-            {
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "loose",
-                  "version": 3
-                },
-                "conditions": [
-                  {
-                    "id": "cond_switch_lanzar",
-                    "leftValue": "={{ $json.message.text }}",
-                    "rightValue": "/lanzar",
-                    "operator": {
-                      "type": "string",
-                      "operation": "startsWith"
-                    }
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputKey": "Lanzar"
-            },
-            {
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "loose",
-                  "version": 3
-                },
-                "conditions": [
-                  {
-                    "id": "cond_switch_monitorear",
-                    "leftValue": "={{ /^\\/monitorea(r|o)?/.test($json.message.text) }}",
-                    "rightValue": "={{ true }}",
-                    "operator": {
-                      "type": "boolean",
-                      "operation": "equals"
-                    }
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputKey": "Monitorear"
-            }
-          ]
-        },
-        "options": {
-          "fallbackOutput": "none"
-        }
-      },
-      "type": "n8n-nodes-base.switch",
-      "typeVersion": 3.2,
-      "position": [
-        -1904,
-        400
-      ],
-      "id": "b1c2d3e4-f5a6-47b8-9c0d-1e2f3a4b5c6d",
-      "name": "Switch: Comando"
-    },
-    {
-      "parameters": {
-        "updates": [
-          "message"
-        ],
-        "additionalFields": {}
-      },
-      "type": "n8n-nodes-base.telegramTrigger",
-      "typeVersion": 1.3,
-      "position": [
-        -2224,
-        400
-      ],
-      "id": "11dffbf2-d967-4621-9d70-8c362acc2c5f",
-      "name": "TRADINGTrigger",
-      "webhookId": "9d552227-c4b5-437e-b8b9-fc4a42bfd117",
-      "credentials": {
-        "telegramApi": {
-          "id": "zurDfqIC4Qy17sUA",
-          "name": "TRADING"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "schema": {
-          "__rl": true,
-          "mode": "list",
-          "value": "public"
-        },
-        "table": {
-          "__rl": true,
-          "value": "metricas_personalizadas",
-          "mode": "list",
-          "cachedResultName": "metricas_personalizadas"
-        },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "workflow_id": "={{ $workflow.id }}",
-            "cantidad": "={{ $json.cantidad }}",
-            "fecha": "={{ $today }}",
-            "workflow_nombre": "={{ $workflow.name }}",
-            "tipo": "={{ $json.tipo }}",
-            "detalle": "={{ $json.detalle }}",
-            "execution_id": "={{ $execution.id }}"
-          },
-          "matchingColumns": [
-            "id"
-          ],
-          "schema": [
-            {
-              "id": "id",
-              "displayName": "id",
-              "required": false,
-              "defaultMatch": true,
-              "display": true,
-              "type": "number",
-              "canBeUsedToMatch": true,
-              "removed": true
-            },
-            {
-              "id": "fecha",
-              "displayName": "fecha",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "dateTime",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "workflow_id",
-              "displayName": "workflow_id",
-              "required": true,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "workflow_nombre",
-              "displayName": "workflow_nombre",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "tipo",
-              "displayName": "tipo",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "detalle",
-              "displayName": "detalle",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "object",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "cantidad",
-              "displayName": "cantidad",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "number",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "execution_id",
-              "displayName": "execution_id",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true,
-              "removed": false
-            }
-          ],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        -656,
-        400
-      ],
-      "id": "f272d304-3aa1-40f3-8560-56b205ef0f00",
-      "name": "Postgres1",
-      "credentials": {
-        "postgres": {
-          "id": "6l9jrmQ4BmCnUgXq",
-          "name": "Postgres n8n"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "const respuestaGemini = $input.first().json;\nconst modelVersion = respuestaGemini.modelVersion;\nconst usageMetadata = respuestaGemini.usageMetadata || {};\n\nconst detalle = {\n  modelo: modelVersion,\n  promptTokens: usageMetadata.promptTokenCount || 0,\n  completionTokens: usageMetadata.candidatesTokenCount || 0,\n  thoughtsTokens: usageMetadata.thoughtsTokenCount || 0,\n  totalTokens: usageMetadata.totalTokenCount || 0\n};\n\nreturn [{\n  json: {\n    tipo: 'ia',\n    detalle,\n    cantidad: 1\n  }\n}];"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -864,
-        400
-      ],
-      "id": "339f5d55-c38c-4424-891a-c92d1310a4c8",
-      "name": "Log de ejecución2"
-    },
-    {
-      "parameters": {
-        "workflowId": {
-          "__rl": true,
-          "value": "96qAStQwfrHAVXRd",
-          "mode": "list",
-          "cachedResultUrl": "/workflow/96qAStQwfrHAVXRd",
-          "cachedResultName": "Workflow 2 - Grid Monitor & Close"
-        },
-        "workflowInputs": {
-          "mappingMode": "defineBelow",
-          "value": {},
-          "matchingColumns": [],
-          "schema": [],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": true
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.3,
-      "position": [
-        -1504,
-        400
-      ],
-      "id": "9506755e-13ce-43eb-b8b0-6d34ab8f8360",
-      "name": "Call 'Workflow 2 - Grid Monitor & Close'"
-    },
-    {
-      "id": "6b47069b-ce7f-4cbf-a20f-edf05d4e0772",
-      "name": "IF: Grid viable?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        -1424,
-        80
-      ],
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 1
-          },
-          "conditions": [
-            {
-              "id": "cond_viable",
-              "leftValue": "={{ $json.grid_viable }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      }
-    },
-    {
-      "id": "71fd7f3d-c57e-446d-af15-09e4b984422b",
-      "name": "Notify: Grid No Viable",
-      "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -1296,
-        256
-      ],
-      "webhookId": "bc3e1e45-3e9a-49b4-bdd9-5ec9ae3eb8a5",
-      "credentials": {
-        "telegramApi": {
-          "id": "zurDfqIC4Qy17sUA",
-          "name": "TRADING"
-        }
-      },
-      "parameters": {
-        "chatId": "={{ $('TRADINGTrigger').item.json.message.chat.id }}",
-        "text": "={{ '⚠️ Grid NO viable para ' + $json.symbol + '\\n\\nCantidad sugerida: ' + $json.suggested_quantity_per_order + ' (min: ' + $json.min_viable_quantity + ')\\nRiesgo configurado insuficiente. Se requiere risk_pct >= ' + Math.ceil($json.required_risk_pct * 1000) / 1000 + '\\n\\nNo se llamo a la IA ni se creo el grid.' }}",
-        "additionalFields": {}
-      }
+        -2200,
+        400
+      ]
     }
   ],
-  "pinData": {
-    "TRADINGTrigger": [
-      {
-        "json": {
-          "update_id": 843410626,
-          "message": {
-            "message_id": 19,
-            "from": {
-              "id": 1561962049,
-              "is_bot": false,
-              "first_name": "Daniel",
-              "language_code": "es"
-            },
-            "chat": {
-              "id": 1561962049,
-              "first_name": "Daniel",
-              "type": "private"
-            },
-            "date": 1783170877,
-            "text": "/monitoreo",
-            "entities": [
-              {
-                "offset": 0,
-                "length": 10,
-                "type": "bot_command"
-              }
-            ]
-          }
-        },
-        "pairedItem": {
-          "item": 0
-        }
-      }
-    ]
-  },
   "connections": {
     "Start (Manual)": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger (every 4h)": {
       "main": [
         [
           {
@@ -720,25 +395,43 @@
       "main": [
         [
           {
-            "node": "Market Analysis",
+            "node": "Get Auto Params (FIX 4)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Market Analysis": {
+    "Get Auto Params (FIX 4)": {
       "main": [
         [
           {
-            "node": "IF: Grid viable?",
+            "node": "IF: Grid Viable? (FIX 4)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Build Gemini Request": {
+    "IF: Grid Viable? (FIX 4)": {
+      "main": [
+        [
+          {
+            "node": "Build Gemini Request (with derived params)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify: Not Viable (FIX 4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Gemini Request (with derived params)": {
       "main": [
         [
           {
@@ -754,11 +447,6 @@
         [
           {
             "node": "Parse AI Decision",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Log de ejecución2",
             "type": "main",
             "index": 0
           }
@@ -780,7 +468,7 @@
       "main": [
         [
           {
-            "node": "Create Grid (POST)",
+            "node": "Create Grid (POST) with derived params",
             "type": "main",
             "index": 0
           }
@@ -794,7 +482,7 @@
         ]
       ]
     },
-    "Create Grid (POST)": {
+    "Create Grid (POST) with derived params": {
       "main": [
         [
           {
@@ -833,101 +521,6 @@
           }
         ]
       ]
-    },
-    "Schedule Trigger": {
-      "main": [
-        [
-          {
-            "node": "Config",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "IF: Chat autorizado?": {
-      "main": [
-        [
-          {
-            "node": "Switch: Comando",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        []
-      ]
-    },
-    "Switch: Comando": {
-      "main": [
-        [
-          {
-            "node": "Config",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Call 'Workflow 2 - Grid Monitor & Close'",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "TRADINGTrigger": {
-      "main": [
-        [
-          {
-            "node": "IF: Chat autorizado?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Log de ejecución2": {
-      "main": [
-        [
-          {
-            "node": "Postgres1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "IF: Grid viable?": {
-      "main": [
-        [
-          {
-            "node": "Build Gemini Request",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Notify: Grid No Viable",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
     }
-  },
-  "active": true,
-  "settings": {
-    "executionOrder": "v1",
-    "binaryMode": "separate",
-    "availableInMCP": false
-  },
-  "versionId": "99a756f6-cf53-4d28-98b6-26440e659b6f",
-  "meta": {
-    "templateCredsSetupCompleted": true,
-    "instanceId": "6471357be079e574ad4f9e3ce2e07a9201267c14e828bbf21e10ed02ba0644ee"
-  },
-  "nodeGroups": [],
-  "id": "yggk1wajL1tsmABi",
-  "tags": []
+  }
 }
