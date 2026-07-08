@@ -93,7 +93,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const resp = $json;\nconst statusCode = resp.statusCode || 200;\nconst body = resp.body || {};\n\nif (statusCode === 200 && body.candidates && body.candidates.length > 0) {\n  const content = body.candidates[0].content;\n  if (content && content.parts && content.parts[0]) {\n    const text = content.parts[0].text;\n    try {\n      const parsed = JSON.parse(text);\n      return { json: parsed };\n    } catch (e) {\n      return { json: { reasoning: 'Parse error: ' + text, launch: false } };\n    }\n  }\n}\n\nreturn { json: { reasoning: 'Gemini error or no response', launch: false } };"
+        "jsCode": "const resp = $json;\n\n// 1) Formato LLM Chain / OpenAI en n8n: { text: \"...\" }\nlet text = null;\nif (typeof resp.text === 'string') {\n  text = resp.text;\n// 2) Formato OpenAI API crudo: choices[0].message.content\n} else if (resp.choices && resp.choices[0] && resp.choices[0].message) {\n  text = resp.choices[0].message.content;\n// 3) Formato Gemini HTTP antiguo: body.candidates[0].content.parts[0].text\n} else if (resp.body && resp.body.candidates && resp.body.candidates.length > 0) {\n  const content = resp.body.candidates[0].content;\n  if (content && content.parts && content.parts[0]) {\n    text = content.parts[0].text;\n  }\n}\n\nif (text) {\n  let clean = text.trim();\n  // El modelo a veces envuelve el JSON en ```json ... ```\n  const fence = clean.match(/```(?:json)?\\s*([\\s\\S]*?)\\s*```/);\n  if (fence) clean = fence[1];\n  try {\n    const parsed = JSON.parse(clean);\n    return { json: parsed };\n  } catch (e) {\n    return { json: { reasoning: 'Parse error: ' + clean, launch: false } };\n  }\n}\n\nreturn { json: { reasoning: 'AI error or no response', launch: false } };"
       },
       "id": "c9e0f1a2-b3c4-d5e6-f7a8-b9c0-d1e2f3a4",
       "name": "Parse AI Decision",
@@ -172,8 +172,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        48,
-        -112
+        -32,
+        -96
       ]
     },
     {
@@ -206,13 +206,13 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        224,
-        32
+        176,
+        -96
       ]
     },
     {
       "parameters": {
-        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "chatId": "={{ $('WF-Trigger-Externo').item.json.chatId }}",
         "text": "={{ $json.alreadyExists ? ('ℹ️ Grid ya existia para ' + $('Config').item.json.symbol + '\\n\\n💭 ' + $json.reasoning) : ('✅ Grid LANZADO\\n━━━━━━━━━━━━━━━━━━━━\\n📊 Symbol: ' + $json.grid.symbol + '\\n🆔 ID: ' + $json.grid.id.substring(0, 16) + '...\\n📈 Niveles: ' + $json.grid.levels + '\\n💰 Rango: ' + $json.grid.lower_price + ' - ' + $json.grid.upper_price + '\\n🎯 Órdenes: ' + $json.grid.orders.length + '\\n\\n💡 Parámetros (auto-derivados):\\n   • risk_pct: ' + $json.autoParams.params.risk_pct + '\\n   • atr_mult: ' + $json.autoParams.params.atr_multiplier + '\\n   • interval: ' + $json.autoParams.params.klines_interval + '\\n\\n💭 ' + $json.reasoning) }}",
         "additionalFields": {}
       },
@@ -222,7 +222,7 @@
       "typeVersion": 1.2,
       "position": [
         416,
-        -96
+        48
       ],
       "webhookId": "e22b0dde-b321-4687-9915-0a66ac2a0c7b",
       "credentials": {
@@ -234,7 +234,7 @@
     },
     {
       "parameters": {
-        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "chatId": "={{ $('WF-Trigger-Externo').item.json.chatId }}",
         "text": "={{ '❌ ERROR al crear grid\\n━━━━━━━━━━━━━━━━━━━━\\n' + ($json.statusCode ? ('HTTP ' + $json.statusCode + '\\n') : '') + 'Detalle: ' + $json.detail + '\\n\\nSe reintentará en próximo ciclo.' }}",
         "additionalFields": {}
       },
@@ -244,7 +244,7 @@
       "typeVersion": 1.2,
       "position": [
         416,
-        160
+        -160
       ],
       "webhookId": "e95707f3-02cd-4a86-8e8a-3392bf647fa5",
       "credentials": {
@@ -256,7 +256,7 @@
     },
     {
       "parameters": {
-        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "chatId": "={{ $('WF-Trigger-Externo').item.json.chatId }}",
         "text": "={{ '⚠️ Grid NO LANZADO\\n━━━━━━━━━━━━━━━━━━━━\\n📍 Razón (IA): ' + $json.reasoning }}",
         "additionalFields": {}
       },
@@ -265,8 +265,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        416,
-        -240
+        -240,
+        240
       ],
       "webhookId": "727fc471-ab72-4de1-a6fc-55af4d24a700",
       "credentials": {
@@ -278,7 +278,7 @@
     },
     {
       "parameters": {
-        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "chatId": "={{ $('WF-Trigger-Externo').item.json.chatId }}",
         "text": "={{ '⚠️ GRID NO VIABLE\\n━━━━━━━━━━━━━━━━━━━━\\n🚫 ' + ($json.reasoning && $json.reasoning.no_viable ? $json.reasoning.no_viable : 'Parámetros insuficientes para este balance') + '\\n\\n💰 Balance: ' + $('Config').item.json.balance + ' USDT\\n📊 Symbol: ' + $('Config').item.json.symbol }}",
         "additionalFields": {}
       },
@@ -287,8 +287,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -1280,
-        -144
+        -1328,
+        304
       ],
       "webhookId": "615da7cb-f784-41ff-9045-232f3f2c7043",
       "credentials": {
@@ -326,8 +326,8 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        -2208,
-        400
+        -2336,
+        304
       ]
     },
     {
@@ -337,8 +337,8 @@
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.2,
       "position": [
-        -2208,
-        624
+        -2368,
+        560
       ],
       "id": "a7f3c2d1-4b5e-4f6a-8c9d-0e1f2a3b4c5d",
       "name": "WF-Trigger-Externo"
@@ -372,8 +372,8 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
       "typeVersion": 1.3,
       "position": [
-        -1184,
-        400
+        -1088,
+        336
       ],
       "id": "d8cf6428-f2c8-4a04-9f54-b0fe69284bec",
       "name": "OpenAI Chat Model1",
@@ -464,7 +464,7 @@
     "WF-Trigger-Externo": [
       {
         "json": {
-          "chatId": "1561962049",
+          "chatId": "1060878323",
           "text": "/lanzar",
           "command": "/lanzar",
           "args": [],
@@ -660,7 +660,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "98fe02bb-8035-4443-adb9-fed61a9981ba",
+  "versionId": "67143df1-aaa0-406a-a36d-e4d0a669fbd1",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "6471357be079e574ad4f9e3ce2e07a9201267c14e828bbf21e10ed02ba0644ee"
