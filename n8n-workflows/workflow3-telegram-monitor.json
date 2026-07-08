@@ -182,6 +182,54 @@
               },
               "renameOutput": true,
               "outputKey": "trigger-wf2"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cmd-lanzar",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "/lanzar",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "lanzar"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cmd-monitorear",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "/monitorear",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "monitorear"
             }
           ]
         },
@@ -521,7 +569,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const chatId = $('Parse Command').first().json.chatId;\nconst text = '🤖 COMANDOS DISPONIBLES\\n\\n' +\n  '📊 Consulta\\n' +\n  '/grids — Grids activos\\n' +\n  '/grid-detail SYMBOL — Detalle + PnL de una grid\\n\\n' +\n  '🚀 Ejecución\\n' +\n  '/trigger-wf1 confirm — Lanzar Market Decision (WF1)\\n' +\n  '/trigger-wf2 — Ejecutar ciclo de monitoreo (WF2)\\n\\n' +\n  'ℹ️ Próximamente: /history, /stats, /config';\nreturn [{ json: { chatId, text } }];"
+        "jsCode": "const chatId = $('Parse Command').first().json.chatId;\nconst text = '🤖 COMANDOS DISPONIBLES\n\n' +\n  '📊 Consulta\n' +\n  '/grids — Grids activos\n' +\n  '/grid-detail SYMBOL — Detalle + PnL de una grid\n\n' +\n  '🚀 Ejecución\n' +\n  '/lanzar — Lanzar Market Decision (WF1) directo\n' +\n  '/monitorear — Ejecutar ciclo de monitoreo (WF2)\n' +\n  '/trigger-wf1 confirm — Lanzar WF1 (con confirmación)\n' +\n  '/trigger-wf2 — Igual que /monitorear\n\n' +\n  'ℹ️ Próximamente: /history, /stats, /config';\nreturn [{ json: { chatId, text } }];"
       },
       "id": "f5a6b7c8-9d0e-4f1a-8b2c-3d4e5f6a7b8c",
       "name": "Format: Help",
@@ -615,6 +663,20 @@
         [
           {
             "node": "IF: WF1 Confirmed?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute WF2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute WF1",
             "type": "main",
             "index": 0
           }

@@ -12,9 +12,16 @@
 |---|---|---|
 | `/grids` | Lista grids RUNNING (símbolo, niveles, rango, edad, ID) | `GET /api/v1/grids?status=RUNNING` |
 | `/grid-detail SYMBOL` | Detalle + PnL de la grid más reciente del símbolo | `GET /api/v1/grids` + `/{id}` + `/{id}/pnl` |
-| `/trigger-wf1 confirm` | Lanza WF1 (Market Decision). Sin `confirm` solo advierte | Execute Workflow (n8n) |
-| `/trigger-wf2` | Ejecuta un ciclo de WF2 (Monitor) | Execute Workflow (n8n) |
+| `/lanzar` | Lanza WF1 (Market Decision) directo — comando histórico del WF1 original | Execute Workflow (n8n) |
+| `/monitorear` | Ejecuta un ciclo de WF2 (Monitor) — comando histórico | Execute Workflow (n8n) |
+| `/trigger-wf1 confirm` | Igual que `/lanzar` pero con confirmación obligatoria | Execute Workflow (n8n) |
+| `/trigger-wf2` | Alias de `/monitorear` | Execute Workflow (n8n) |
 | Cualquier otro texto | Mensaje de ayuda con los comandos | — |
+
+> Los comandos `/lanzar` y `/monitorear` vivían en el WF1 original (nodos
+> `TRADINGTrigger` → `IF: Chat autorizado?` → `Switch: Comando`). Se movieron
+> aquí: **WF1 ya no tiene Telegram Trigger** y WF3 es el único punto de entrada
+> de comandos del bot.
 
 **Seguridad:**
 - Solo responde a chats cuyo ID esté en `$env.TELEGRAM_CHAT_ID` (soporta varios separados por coma). Mensajes de otros chats se ignoran en silencio (rama `Ignore (Unauthorized)`).
@@ -52,9 +59,10 @@ Telegram Trigger (mensajes al bot)
      cambiaron (p. ej. por re-importación), re-seleccionar el workflow en el
      dropdown de cada nodo.
 
-3. **WF1 actualizado:** `workflow1-market-decision.json` ahora incluye el nodo
-   `WF-Trigger-Externo` (Execute Workflow Trigger) conectado a `Config`, necesario
-   para poder lanzarlo desde WF3. Re-importar WF1 si ya estaba en n8n.
+3. **Re-importar WF1:** `workflow1-market-decision.json` ahora incluye el nodo
+   `WF-Trigger-Externo` (Execute Workflow Trigger, necesario para lanzarlo desde
+   WF3) y **ya no tiene** el `TRADINGTrigger` de Telegram (movido a WF3).
+   Re-importar WF1 para que no queden dos triggers de Telegram activos.
 
 4. **Credenciales / env:**
    - Credencial Telegram `TRADING` (la misma de WF1/WF2).
@@ -76,10 +84,11 @@ Desde el chat autorizado en Telegram:
 2. `/grids` → lista de grids RUNNING (o "No hay grids RUNNING").
 3. `/grid-detail BTCUSDT` → detalle + PnL (o "No se encontraron grids").
 4. `/grid-detail` (sin símbolo) → mensaje de uso.
-5. `/trigger-wf1` → advertencia pidiendo `confirm`.
-6. `/trigger-wf1 confirm` → "WF1 lanzado" + luego la notificación normal de WF1.
-7. `/trigger-wf2` → "WF2 ejecutado" + notificaciones normales de WF2.
-8. Desde un chat NO autorizado: cualquier mensaje se ignora sin respuesta.
+5. `/lanzar` → "WF1 lanzado" + luego la notificación normal de WF1 (⚠️ puede crear grid real).
+6. `/monitorear` → "WF2 ejecutado" + notificaciones normales de WF2.
+7. `/trigger-wf1` → advertencia pidiendo `confirm`.
+8. `/trigger-wf1 confirm` → igual que `/lanzar`.
+9. Desde un chat NO autorizado: cualquier mensaje se ignora sin respuesta.
 
 ---
 
