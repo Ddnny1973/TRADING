@@ -593,7 +593,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const chatId = $('Parse Command').first().json.chatId;\nconst text = '🤖 COMANDOS DISPONIBLES\n\n' +\n  '📊 Consulta\n' +\n  '/grids — Grids activos\n' +\n  '/grid-detail SYMBOL — Detalle + PnL de una grid\n\n' +\n  '🚀 Ejecución\n' +\n  '/lanzar — Lanzar Market Decision (WF1) directo\n' +\n  '/monitorear — Ejecutar ciclo de monitoreo (WF2)\n' +\n  '/trigger-wf1 confirm — Lanzar WF1 (con confirmación)\n' +\n  '/trigger-wf2 — Igual que /monitorear\n\n' +\n  'ℹ️ Próximamente: /history, /stats, /config';\nreturn [{ json: { chatId, text } }];"
+        "jsCode": "const chatId = $('Parse Command').first().json.chatId;\nconst text = `🤖 COMANDOS DISPONIBLES\n\n📊 Consulta\n/grids — Grids activos\n/grid-detail SYMBOL — Detalle + PnL de una grid\n\n🚀 Ejecución\n/lanzar — Lanzar Market Decision (WF1) directo\n/monitorear — Ejecutar ciclo de monitoreo (WF2)\n/trigger-wf1 confirm — Lanzar WF1 (con confirmación)\n/trigger-wf2 — Igual que /monitorear\n\nℹ️ Próximamente: /history, /stats, /config`;\nreturn [{ json: { chatId, text } }];"
       },
       "id": "f5a6b7c8-9d0e-4f1a-8b2c-3d4e5f6a7b8c",
       "name": "Format: Help",
