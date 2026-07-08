@@ -2,6 +2,20 @@
 
 Estos son los archivos **operativos** para importar en n8n. Reemplazan a las plantillas antiguas en `docs/n8n-templates/` (que quedan solo como referencia narrativa/histórica; ver nota al inicio de `docs/n8n-templates/SETUP.md`).
 
+## Contenido de esta carpeta
+
+| Archivo | Qué es |
+|---|---|
+| `workflow1-market-decision.json` | WF1 — decisión de mercado cada 4h: auto-params (FIX 4) → Gemini → crea grid |
+| `workflow2-monitor.json` | WF2 — monitor cada 5 min: refresh → replenish → check-close |
+| `workflow3-telegram-monitor.json` | WF3 — comandos del bot de Telegram (`/lanzar`, `/monitorear`, `/grids`, `/grid-detail`…) |
+| `README.md` | Este documento — instancia real, credenciales, API de n8n, sincronización repo↔n8n |
+| `WORKFLOW3_TELEGRAM_MONITOR.md` | Guía de instalación y pruebas de WF3 |
+| `TELEGRAM_TRIGGERS_GUIDE.md` | Especificación de comandos futuros (fases 2-3: `/history`, `/stats`, `/config`) |
+| `backups/` | Exports de la instancia real (no importar — solo respaldo) |
+
+Los nombres de los tres `workflow*.json` son **estándar para CI/CD** — no renombrarlos.
+
 Cambios respecto a las plantillas originales de `docs/n8n-templates/`:
 
 1. **Proveedor de IA:** Gemini (`gemini-2.5-flash`) vía HTTP Request directo a la API de Google, en vez de un nodo `openAi` mal referenciado con modelo `claude-opus-4-8`. Se usa `responseSchema` de Gemini para forzar la salida JSON estructurada (`reasoning`, `launch`, `lowerLimit`, `upperLimit`, `gridCount`). (`gemini-2.0-flash` fue probado primero pero la API respondió "model no longer available"; `gemini-2.5-flash` es la versión estable vigente al momento de escribir esto — verifica `GET https://generativelanguage.googleapis.com/v1beta/models` si vuelve a fallar).
@@ -28,12 +42,24 @@ Durante las pruebas de Workflow 1 se detectó que **todas** las órdenes de un g
   |---|---|
   | `workflow1-market-decision` | `yggk1wajL1tsmABi` |
   | `workflow2-monitor` | `96qAStQwfrHAVXRd` |
+  | `workflow3-telegram-monitor` | *(pendiente — se asigna al importarlo por primera vez; anotarlo aquí)* |
 
 - **Infra multi-servidor:** n8n corre en un servidor (IP privada `10.0.0.5`), el backend en otro (`10.0.0.4`) — ver la nota de `BACKEND_URL` más abajo, es la causa de varios problemas de conectividad ya resueltos en esta sesión.
 - **Credenciales ya creadas en esa instancia** (no se pueden reutilizar en otra instancia, hay que recrearlas): Telegram API `"TRADING"` (id `zurDfqIC4Qy17sUA`), Header Auth `"Header Auth GeminiAI"` (id `NQnuuYpP2Pax6Nvr`), Postgres `"Postgres n8n"` (id `6l9jrmQ4BmCnUgXq`, usada para loguear tokens de Gemini en la tabla `public.metricas_personalizadas`).
-- **Comandos de Telegram habilitados** (bot "TRADING", un solo Telegram Trigger en Workflow 1 para evitar el conflicto de "un webhook por bot"):
-  - `/lanzar` → corre el flujo normal de Workflow 1 (Market Analysis → Gemini → crea grid).
-  - `/monitorear` → dispara Workflow 2 bajo demanda vía nodo **Execute Sub-workflow** (`workflowId: 96qAStQwfrHAVXRd`), sin esperar el cron de 15 min.
+- **Comandos de Telegram** (bot "TRADING"): TODOS viven ahora en **Workflow 3**
+  (`workflow3-telegram-monitor`), el ÚNICO workflow con Telegram Trigger — regla
+  de "un webhook por bot". El `TRADINGTrigger` que existía en Workflow 1 fue
+  removido (2026-07-07); WF1 ahora expone un `Execute Workflow Trigger`
+  (`WF-Trigger-Externo`) para que WF3 lo lance.
+  - `/lanzar` → lanza Workflow 1 (auto-params → Gemini → crea grid). Directo, sin confirmación (comportamiento histórico).
+  - `/monitorear` → dispara Workflow 2 bajo demanda, sin esperar el cron.
+  - `/grids` → lista grids RUNNING (símbolo, niveles, rango, edad, ID).
+  - `/grid-detail SYMBOL` → detalle + PnL de la grid más reciente del símbolo.
+  - `/trigger-wf1 confirm` / `/trigger-wf2` → alias de los dos primeros (el de WF1 con confirmación obligatoria).
+  - Cualquier otro texto → mensaje de ayuda. Chats fuera de `TELEGRAM_CHAT_ID` se ignoran en silencio (soporta varios IDs separados por coma).
+
+  Guía de instalación y pruebas: [WORKFLOW3_TELEGRAM_MONITOR.md](WORKFLOW3_TELEGRAM_MONITOR.md).
+  Especificación de comandos futuros (fases 2-3: `/history`, `/stats`, `/config`): [TELEGRAM_TRIGGERS_GUIDE.md](TELEGRAM_TRIGGERS_GUIDE.md).
 
 ## API pública de n8n
 
@@ -125,7 +151,7 @@ Durante la primera prueba, el `PUT` con el body completo daba **500 Internal Ser
 ## Cómo importar
 
 1. Abre n8n → **Workflows** → **Create New** → **Import from File**.
-2. Selecciona `workflow1-market-decision.json` o `workflow2-monitor.json`.
+2. Selecciona `workflow1-market-decision.json`, `workflow2-monitor.json` o `workflow3-telegram-monitor.json`.
 3. Configura credenciales tras importar (ver abajo). n8n marcará en rojo los nodos que requieren credencial.
 
 ## Credenciales / variables a configurar en n8n

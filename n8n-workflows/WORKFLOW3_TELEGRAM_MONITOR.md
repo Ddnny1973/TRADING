@@ -101,4 +101,4 @@ Desde el chat autorizado en Telegram:
 | `/last-execution` | API REST de n8n (sin backend) |
 | `/config` | `GET /api/v1/config` o valores en el workflow |
 
-Especificación completa en `TELEGRAM_TRIGGERS_GUIDE.md` y `TELEGRAM_TRIGGERS_IMPLEMENTATION.md`.
+Especificación completa en `TELEGRAM_TRIGGERS_GUIDE.md`.
