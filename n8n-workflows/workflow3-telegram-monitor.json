@@ -1,0 +1,861 @@
+{
+  "name": "workflow3-telegram-monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1400,
+        200
+      ],
+      "id": "b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c",
+      "name": "Telegram Trigger",
+      "webhookId": "7c8d9e0f-1a2b-4c3d-8e5f-6a7b8c9d0e1f",
+      "credentials": {
+        "telegramApi": {
+          "id": "zurDfqIC4Qy17sUA",
+          "name": "TRADING"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const msg = $json.message || {};\nconst chatId = String((msg.chat && msg.chat.id) || '');\nconst text = (msg.text || '').trim();\nconst allowed = ($env.TELEGRAM_CHAT_ID || '').split(',').map(s => s.trim()).filter(Boolean);\nconst authorized = allowed.includes(chatId);\nconst parts = text.split(/\\s+/);\nconst command = (parts[0] || '').toLowerCase().split('@')[0];\nconst args = parts.slice(1);\nreturn { json: { chatId, text, command, args, authorized, username: (msg.from && msg.from.username) || '' } };"
+      },
+      "id": "c4d5e6f7-8a9b-4c0d-9e1f-2a3b4c5d6e7f",
+      "name": "Parse Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1200,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond_authorized",
+              "leftValue": "={{ $json.authorized }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d5e6f7a8-9b0c-4d1e-af2a-3b4c5d6e7f8a",
+      "name": "IF: Authorized?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1000,
+        200
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "e6f7a8b9-0c1d-4e2f-ba3b-4c5d6e7f8a9b",
+      "name": "Ignore (Unauthorized)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -800,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cmd-grids",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "/grids",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "grids"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cmd-grid-detail",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "/grid-detail",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "grid-detail"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cmd-trigger-wf1",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "/trigger-wf1",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "trigger-wf1"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cmd-trigger-wf2",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "/trigger-wf2",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "trigger-wf2"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "f7a8b9c0-1d2e-4f3a-8b4c-5d6e7f8a9b0c",
+      "name": "Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -800,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.BACKEND_URL }}/api/v1/grids?status=RUNNING",
+        "options": {}
+      },
+      "id": "a8b9c0d1-2e3f-4a4b-9c5d-6e7f8a9b0c1d",
+      "name": "Get Running Grids",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -560,
+        -240
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = $('Parse Command').first().json.chatId;\nconst grids = $input.all().map(i => i.json).filter(g => g && g.id);\nlet text;\nif (grids.length === 0) {\n  text = 'ℹ️ No hay grids RUNNING en este momento.\\n\\n🚀 Lanzar WF1: /trigger-wf1 confirm';\n} else {\n  const lines = grids.map(g => {\n    const ageH = ((Date.now() - new Date(g.created_at).getTime()) / 3600000).toFixed(1);\n    return '🟢 ' + g.symbol + '\\n' +\n      '   📐 Niveles: ' + g.levels + '\\n' +\n      '   📊 Rango: ' + g.lower_price + ' – ' + g.upper_price + '\\n' +\n      '   ⏳ Edad: ' + ageH + 'h\\n' +\n      '   🆔 ' + g.id;\n  });\n  text = '📊 GRIDS ACTIVOS (' + grids.length + ')\\n\\n' + lines.join('\\n\\n') + '\\n\\nℹ️ Detalle: /grid-detail SYMBOL';\n}\nreturn [{ json: { chatId, text } }];"
+      },
+      "id": "b9c0d1e2-3f4a-4b5c-8d6e-7f8a9b0c1d2e",
+      "name": "Format: Grids",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -340,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond_has_symbol",
+              "leftValue": "={{ $json.args[0] || '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c0d1e2f3-4a5b-4c6d-9e7f-8a9b0c1d2e3f",
+      "name": "IF: Has Symbol?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -560,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = $('Parse Command').first().json.chatId;\nreturn [{ json: { chatId, text: '⚠️ Falta el símbolo.\\n\\nUso: /grid-detail SYMBOL\\nEjemplo: /grid-detail BTCUSDT' } }];"
+      },
+      "id": "d1e2f3a4-5b6c-4d7e-8f8a-9b0c1d2e3f4a",
+      "name": "Format: Missing Symbol",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -340,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.BACKEND_URL }}/api/v1/grids",
+        "options": {}
+      },
+      "id": "e2f3a4b5-6c7d-4e8f-9a9b-0c1d2e3f4a5b",
+      "name": "Get All Grids",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -340,
+        -120
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const parse = $('Parse Command').first().json;\nconst chatId = parse.chatId;\nconst symbol = (parse.args[0] || '').toUpperCase();\nconst grids = $input.all().map(i => i.json).filter(g => g && g.id && String(g.symbol).toUpperCase() === symbol);\ngrids.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));\nconst grid = grids.find(g => g.status === 'RUNNING') || grids[0];\nif (!grid) {\n  return [{ json: { chatId, found: false, symbol } }];\n}\nreturn [{ json: { chatId, found: true, symbol, gridId: grid.id } }];"
+      },
+      "id": "f3a4b5c6-7d8e-4f9a-8b0c-1d2e3f4a5b6c",
+      "name": "Pick Grid by Symbol",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -120,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond_grid_found",
+              "leftValue": "={{ $json.found }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a4b5c6d7-8e9f-4a0b-9c1d-2e3f4a5b6c7d",
+      "name": "IF: Grid Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        100,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nreturn [{ json: { chatId: item.chatId, text: 'ℹ️ No se encontraron grids para ' + item.symbol + '.\\n\\n📊 Ver activos: /grids' } }];"
+      },
+      "id": "b5c6d7e8-9f0a-4b1c-8d2e-3f4a5b6c7d8e",
+      "name": "Format: Grid Not Found",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.BACKEND_URL + '/api/v1/grids/' + $json.gridId }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "c6d7e8f9-0a1b-4c2d-9e3f-4a5b6c7d8e9f",
+      "name": "Get Grid Detail (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        320,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.BACKEND_URL + '/api/v1/grids/' + $('Pick Grid by Symbol').first().json.gridId + '/pnl' }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "d7e8f9a0-1b2c-4d3e-8f4a-5b6c7d8e9f0a",
+      "name": "Get Grid PnL (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        540,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = $('Parse Command').first().json.chatId;\nconst detailResp = $('Get Grid Detail (HTTP)').first().json;\nconst pnlResp = $input.first().json;\nif (detailResp.statusCode !== 200) {\n  const body = detailResp.body || {};\n  return [{ json: { chatId, text: '⚠️ Error obteniendo la grid (HTTP ' + detailResp.statusCode + '): ' + (body.detail || JSON.stringify(body)) } }];\n}\nconst g = detailResp.body;\nconst orders = g.orders || [];\nconst filled = orders.filter(o => o.status === 'FILLED').length;\nconst openOrders = orders.filter(o => ['NEW', 'OPEN', 'PARTIALLY_FILLED'].includes(o.status)).length;\nconst statusEmoji = g.status === 'RUNNING' ? '🟢' : '🔴';\nlet text = statusEmoji + ' GRID ' + g.symbol + ' [' + g.status + ']\\n\\n' +\n  '🆔 ' + g.id + '\\n' +\n  '📐 Niveles: ' + g.levels + '\\n' +\n  '📊 Rango: ' + g.lower_price + ' – ' + g.upper_price + '\\n' +\n  '🛑 SL: ' + (g.stop_loss ?? 'N/A') + ' | 🎯 TP: ' + (g.take_profit ?? 'N/A') + '\\n' +\n  '⏳ Creado: ' + g.created_at + '\\n\\n' +\n  '📋 Órdenes: ' + orders.length + ' (✅ ' + filled + ' filled | 📭 ' + openOrders + ' abiertas)';\nif (pnlResp.statusCode === 200 && pnlResp.body) {\n  const p = pnlResp.body;\n  const pnlEmoji = Number(p.total_pnl) >= 0 ? '📈' : '📉';\n  text += '\\n\\n' + pnlEmoji + ' PnL (precio actual: ' + p.current_price + ')\\n' +\n    '   Realizado: ' + Number(p.realized_pnl).toFixed(4) + ' USDT\\n' +\n    '   No realizado: ' + Number(p.unrealized_pnl).toFixed(4) + ' USDT\\n' +\n    '   Total: ' + Number(p.total_pnl).toFixed(4) + ' USDT\\n' +\n    '   Posición neta: ' + p.net_position_qty;\n}\nreturn [{ json: { chatId, text } }];"
+      },
+      "id": "e8f9a0b1-2c3d-4e4f-9a5b-6c7d8e9f0a1b",
+      "name": "Format: Grid Detail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond_wf1_confirm",
+              "leftValue": "={{ ($json.args[0] || '').toLowerCase() }}",
+              "rightValue": "confirm",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f9a0b1c2-3d4e-4f5a-8b6c-7d8e9f0a1b2c",
+      "name": "IF: WF1 Confirmed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -560,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = $('Parse Command').first().json.chatId;\nreturn [{ json: { chatId, text: '⚠️ Este comando lanza WF1 (Market Decision) y puede CREAR UN GRID REAL.\\n\\nPara confirmar envía:\\n/trigger-wf1 confirm' } }];"
+      },
+      "id": "a0b1c2d3-4e5f-4a6b-9c7d-8e9f0a1b2c3d",
+      "name": "Format: WF1 Needs Confirm",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -340,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "yggk1wajL1tsmABi",
+          "mode": "list",
+          "cachedResultName": "workflow1-market-decision"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "b1c2d3e4-5f6a-4b7c-8d8e-9f0a1b2c3d4e",
+      "name": "Execute WF1",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -340,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = $('Parse Command').first().json.chatId;\nreturn [{ json: { chatId, text: '🚀 WF1 (Market Decision) lanzado.\\n\\nPasos: auto-params → viabilidad → Gemini → create grid.\\n\\nRecibirás la notificación habitual de WF1 con el resultado.' } }];"
+      },
+      "id": "c2d3e4f5-6a7b-4c8d-9e9f-0a1b2c3d4e5f",
+      "name": "Format: WF1 Launched",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -120,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "96qAStQwfrHAVXRd",
+          "mode": "list",
+          "cachedResultName": "workflow2-monitor"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "d3e4f5a6-7b8c-4d9e-8f0a-1b2c3d4e5f6a",
+      "name": "Execute WF2",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -560,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = $('Parse Command').first().json.chatId;\nreturn [{ json: { chatId, text: '🔄 WF2 (Monitor) ejecutado.\\n\\nRevisando grids RUNNING: refresh → replenish → check-close.\\n\\nRecibirás notificaciones si hay novedades.' } }];"
+      },
+      "id": "e4f5a6b7-8c9d-4e0f-9a1b-2c3d4e5f6a7b",
+      "name": "Format: WF2 Launched",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -340,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = $('Parse Command').first().json.chatId;\nconst text = '🤖 COMANDOS DISPONIBLES\\n\\n' +\n  '📊 Consulta\\n' +\n  '/grids — Grids activos\\n' +\n  '/grid-detail SYMBOL — Detalle + PnL de una grid\\n\\n' +\n  '🚀 Ejecución\\n' +\n  '/trigger-wf1 confirm — Lanzar Market Decision (WF1)\\n' +\n  '/trigger-wf2 — Ejecutar ciclo de monitoreo (WF2)\\n\\n' +\n  'ℹ️ Próximamente: /history, /stats, /config';\nreturn [{ json: { chatId, text } }];"
+      },
+      "id": "f5a6b7c8-9d0e-4f1a-8b2c-3d4e5f6a7b8c",
+      "name": "Format: Help",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -560,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {}
+      },
+      "id": "a6b7c8d9-0e1f-4a2b-9c3d-4e5f6a7b8c9d",
+      "name": "Send Telegram Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1020,
+        200
+      ],
+      "webhookId": "8d9e0f1a-2b3c-4d4e-8f6a-7b8c9d0e1f2a",
+      "credentials": {
+        "telegramApi": {
+          "id": "zurDfqIC4Qy17sUA",
+          "name": "TRADING"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parse Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Command": {
+      "main": [
+        [
+          {
+            "node": "IF: Authorized?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Authorized?": {
+      "main": [
+        [
+          {
+            "node": "Router",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignore (Unauthorized)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Router": {
+      "main": [
+        [
+          {
+            "node": "Get Running Grids",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF: Has Symbol?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF: WF1 Confirmed?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute WF2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format: Help",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Running Grids": {
+      "main": [
+        [
+          {
+            "node": "Format: Grids",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format: Grids": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Has Symbol?": {
+      "main": [
+        [
+          {
+            "node": "Get All Grids",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format: Missing Symbol",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format: Missing Symbol": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get All Grids": {
+      "main": [
+        [
+          {
+            "node": "Pick Grid by Symbol",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Grid by Symbol": {
+      "main": [
+        [
+          {
+            "node": "IF: Grid Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Grid Found?": {
+      "main": [
+        [
+          {
+            "node": "Get Grid Detail (HTTP)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format: Grid Not Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format: Grid Not Found": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Grid Detail (HTTP)": {
+      "main": [
+        [
+          {
+            "node": "Get Grid PnL (HTTP)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Grid PnL (HTTP)": {
+      "main": [
+        [
+          {
+            "node": "Format: Grid Detail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format: Grid Detail": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: WF1 Confirmed?": {
+      "main": [
+        [
+          {
+            "node": "Execute WF1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format: WF1 Needs Confirm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format: WF1 Needs Confirm": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute WF1": {
+      "main": [
+        [
+          {
+            "node": "Format: WF1 Launched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format: WF1 Launched": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute WF2": {
+      "main": [
+        [
+          {
+            "node": "Format: WF2 Launched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format: WF2 Launched": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format: Help": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

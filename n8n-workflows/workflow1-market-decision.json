@@ -366,6 +366,19 @@
         -2200,
         400
       ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2200,
+        620
+      ],
+      "id": "a7f3c2d1-4b5e-4f6a-8c9d-0e1f2a3b4c5d",
+      "name": "WF-Trigger-Externo"
     }
   ],
   "connections": {
@@ -516,6 +529,17 @@
         [
           {
             "node": "Notify: Grid Launched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WF-Trigger-Externo": {
+      "main": [
+        [
+          {
+            "node": "Config",
             "type": "main",
             "index": 0
           }
