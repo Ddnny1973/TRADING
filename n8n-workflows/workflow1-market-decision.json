@@ -2,17 +2,6 @@
   "name": "workflow1-market-decision",
   "nodes": [
     {
-      "parameters": {},
-      "id": "295e7838-2a34-4202-958e-d7e30cf17a32",
-      "name": "Start (Manual)",
-      "type": "n8n-nodes-base.manualTrigger",
-      "typeVersion": 1,
-      "position": [
-        -2200,
-        -128
-      ]
-    },
-    {
       "parameters": {
         "assignments": {
           "assignments": [
@@ -37,13 +26,12 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        -1960,
+        -1968,
         80
       ]
     },
     {
       "parameters": {
-        "method": "GET",
         "url": "={{ $env.BACKEND_URL + '/auto-params?symbol=' + $json.symbol + '&balance=' + $json.balance }}",
         "options": {}
       },
@@ -52,7 +40,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -1720,
+        -1728,
         80
       ]
     },
@@ -86,7 +74,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -1496,
+        -1504,
         80
       ]
     },
@@ -99,35 +87,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1272,
-        80
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ $json.geminiRequestBody }}",
-        "options": {
-          "response": {
-            "response": {
-              "fullResponse": true,
-              "neverError": true
-            }
-          }
-        }
-      },
-      "id": "82f4c5d6-e7f8-a9b0-c1d2-e3f4a5b6c7d8",
-      "name": "Gemini: AI Decision",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        -1048,
-        80
+        -1280,
+        64
       ]
     },
     {
@@ -139,8 +100,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -824,
-        80
+        -688,
+        64
       ]
     },
     {
@@ -173,8 +134,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -600,
-        80
+        -480,
+        64
       ]
     },
     {
@@ -198,8 +159,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -376,
-        -16
+        -240,
+        -96
       ]
     },
     {
@@ -211,8 +172,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -168,
-        -16
+        48,
+        -112
       ]
     },
     {
@@ -245,8 +206,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        56,
-        -16
+        224,
+        32
       ]
     },
     {
@@ -260,9 +221,10 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        256,
-        -144
+        416,
+        -96
       ],
+      "webhookId": "e22b0dde-b321-4687-9915-0a66ac2a0c7b",
       "credentials": {
         "telegramApi": {
           "id": "zurDfqIC4Qy17sUA",
@@ -281,9 +243,10 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        256,
-        112
+        416,
+        160
       ],
+      "webhookId": "e95707f3-02cd-4a86-8e8a-3392bf647fa5",
       "credentials": {
         "telegramApi": {
           "id": "zurDfqIC4Qy17sUA",
@@ -302,9 +265,10 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        256,
-        -288
+        416,
+        -240
       ],
+      "webhookId": "727fc471-ab72-4de1-a6fc-55af4d24a700",
       "credentials": {
         "telegramApi": {
           "id": "zurDfqIC4Qy17sUA",
@@ -323,9 +287,10 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -1272,
+        -1280,
         -144
       ],
+      "webhookId": "615da7cb-f784-41ff-9045-232f3f2c7043",
       "credentials": {
         "telegramApi": {
           "id": "zurDfqIC4Qy17sUA",
@@ -337,9 +302,7 @@
       "parameters": {
         "rule": {
           "interval": [
-            {
-              "triggerAtHour": 0
-            },
+            {},
             {
               "triggerAtHour": 4
             },
@@ -363,7 +326,7 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        -2200,
+        -2208,
         400
       ]
     },
@@ -374,25 +337,147 @@
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.2,
       "position": [
-        -2200,
-        620
+        -2208,
+        624
       ],
       "id": "a7f3c2d1-4b5e-4f6a-8c9d-0e1f2a3b4c5d",
       "name": "WF-Trigger-Externo"
-    }
-  ],
-  "connections": {
-    "Start (Manual)": {
-      "main": [
-        [
-          {
-            "node": "Config",
-            "type": "main",
-            "index": 0
-          }
-        ]
+    },
+    {
+      "parameters": {},
+      "id": "295e7838-2a34-4202-958e-d7e30cf17a32",
+      "name": "Start (Manual)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -2336,
+        32
       ]
     },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "deepseek-ai/deepseek-v4-pro",
+          "mode": "list",
+          "cachedResultName": "deepseek-ai/deepseek-v4-pro"
+        },
+        "responsesApiEnabled": false,
+        "options": {
+          "maxTokens": 16384,
+          "temperature": 0.3,
+          "topP": 1
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        -1184,
+        400
+      ],
+      "id": "d8cf6428-f2c8-4a04-9f54-b0fe69284bec",
+      "name": "OpenAI Chat Model1",
+      "credentials": {
+        "openAiApi": {
+          "id": "THcslCwcwDaKT3tD",
+          "name": "DeepSeek"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.geminiRequestBody.contents[0].parts[0].text }}",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "={{ $json.geminiRequestBody.systemInstruction.parts[0].text }}"
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        -1024,
+        64
+      ],
+      "id": "79db1cbf-8cec-4fea-9f7b-dc13ca3bdce0",
+      "name": "Gemini: AI Decision"
+    }
+  ],
+  "pinData": {
+    "TRADINGTrigger": [
+      {
+        "json": {
+          "update_id": 843410647,
+          "message": {
+            "message_id": 63,
+            "from": {
+              "id": 1561962049,
+              "is_bot": false,
+              "first_name": "Daniel",
+              "language_code": "es"
+            },
+            "chat": {
+              "id": 1561962049,
+              "first_name": "Daniel",
+              "type": "private"
+            },
+            "date": 1783369528,
+            "text": "/monitorear",
+            "entities": [
+              {
+                "offset": 0,
+                "length": 11,
+                "type": "bot_command"
+              }
+            ]
+          }
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ],
+    "Schedule Trigger": [
+      {
+        "json": {
+          "timestamp": "2026-07-06T16:00:00.020-05:00",
+          "Readable date": "July 6th 2026, 4:00:00 pm",
+          "Readable time": "4:00:00 pm",
+          "Day of week": "Monday",
+          "Year": "2026",
+          "Month": "July",
+          "Day of month": "06",
+          "Hour": "16",
+          "Minute": "00",
+          "Second": "00",
+          "Timezone": "America/Bogota (UTC-05:00)"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ],
+    "WF-Trigger-Externo": [
+      {
+        "json": {
+          "chatId": "1561962049",
+          "text": "/lanzar",
+          "command": "/lanzar",
+          "args": [],
+          "authorized": true,
+          "username": ""
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
     "Schedule Trigger (every 4h)": {
       "main": [
         [
@@ -449,17 +534,6 @@
         [
           {
             "node": "Gemini: AI Decision",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Gemini: AI Decision": {
-      "main": [
-        [
-          {
-            "node": "Parse AI Decision",
             "type": "main",
             "index": 0
           }
@@ -545,6 +619,53 @@
           }
         ]
       ]
+    },
+    "Start (Manual)": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Gemini: AI Decision",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini: AI Decision": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
-  }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "98fe02bb-8035-4443-adb9-fed61a9981ba",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6471357be079e574ad4f9e3ce2e07a9201267c14e828bbf21e10ed02ba0644ee"
+  },
+  "nodeGroups": [],
+  "id": "yggk1wajL1tsmABi",
+  "tags": []
 }
