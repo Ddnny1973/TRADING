@@ -1,0 +1,107 @@
+{
+  "name": "AutoParams Gate",
+  "nodes": [
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "{{ $env.BACKEND_URL }}/auto-params",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "symbol",
+              "value": "={{ $json.symbol }}"
+            },
+            {
+              "name": "balance",
+              "value": "={{ $json.balance }}"
+            }
+          ]
+        }
+      },
+      "id": "79c6e8f0-1234-5678-90ab-cdef01234567",
+      "name": "Get Auto Params",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond_viable",
+              "leftValue": "={{ $json.grid_viable }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "87d5e9f1-5678-90ab-cdef-0123456789ab",
+      "name": "Grid Viable?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/api/v1/grids",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { symbol: $json.symbol, levels: $json.params.levels, risk_pct: $json.params.risk_pct, atr_multiplier: $json.params.atr_multiplier, klines_interval: $json.params.klines_interval, atr_period: $json.params.atr_period, grid_type: 'GEOMETRIC', quantity_per_order: 0, stop_loss: null, take_profit: null } }}"
+      },
+      "id": "95f3e7g2-6789-01ab-cdef-0123456789cd",
+      "name": "Create Grid",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        440,
+        -80
+      ]
+    }
+  ],
+  "connections": {
+    "Get Auto Params": {
+      "main": [
+        [
+          {
+            "node": "Grid Viable?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Grid Viable?": {
+      "main": [
+        [
+          {
+            "node": "Create Grid",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  }
+}

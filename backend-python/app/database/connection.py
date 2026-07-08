@@ -119,6 +119,18 @@ def init_sqlite_tables():
     except sqlite3.OperationalError:
         pass
 
+    # Grid closure audit log (FIX 3)
+    cursor.execute(
+        "CREATE TABLE IF NOT EXISTS grid_closures ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "grid_id TEXT NOT NULL, "
+        "symbol TEXT NOT NULL, "
+        "trigger_condition TEXT NOT NULL, "
+        "total_pnl TEXT, "
+        "position_amt_at_close TEXT, "
+        "closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+    )
+
     conn.commit()
     conn.close()
 

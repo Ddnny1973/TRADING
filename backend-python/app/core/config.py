@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     DEFAULT_MARGIN_TYPE: str = "ISOLATED"  # Isolate grid risk from rest of account
     MIN_STEP_FEE_MULTIPLE: float = 5.0  # Grid step must be >= 5x round-trip fees to be profitable
     MAX_CONCURRENT_GRIDS: int = 2  # Maximum number of RUNNING grids at the same time
+    MAX_NET_POSITION_LEVELS: int = 3  # Max net position in multiples of quantity_per_order
     
     # ==========================================
     # NOTIFICATION CONFIGURATION

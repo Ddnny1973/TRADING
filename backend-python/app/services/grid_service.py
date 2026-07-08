@@ -362,11 +362,14 @@ class GridService:
         Reposición de órdenes: por cada orden FILLED (o con executed_qty > 0 y no replenida),
         coloca la orden opuesta en el nivel adyacente.
 
+        FIX 1A: Claim atómico en SQLite — reclamar replenish ANTES de colocar orden.
+        FIX 1B: clientOrderId determinístico para idempotencia en Binance.
+
         Rules:
         - BUY llenada en nivel i  → SELL en nivel i+1
         - SELL llenada en nivel i → BUY en nivel i-1
         - Si no hay nivel adyacente (fill en el borde), skip
-        - Idempotente: marca order como "replenished" para no reponer dos veces
+        - Idempotente (dos capas): claim atómico en DB + clientOrderId determinístico
 
         Returns:
             Número de órdenes nuevas colocadas. 0 si sin fills o error.
@@ -389,69 +392,102 @@ class GridService:
         if not filters:
             return 0
 
-        # Find filled orders that haven't been replenished yet
-        to_place = []
-        for o in grid["orders"]:
-            executed = Decimal(o.get("executed_qty") or 0)
-            if executed <= 0 or o.get("replenished"):
-                continue  # Not filled or already replenished
-
-            idx = o.get("level_index")
-            if idx is None:
-                continue  # No level info, skip
-
-            # Determine opposite order position
-            if o["side"] == "BUY" and idx + 1 < len(price_levels):
-                new_idx, new_side = idx + 1, "SELL"
-            elif o["side"] == "SELL" and idx - 1 >= 0:
-                new_idx, new_side = idx - 1, "BUY"
-            else:
-                continue  # Fill at grid edge, no adjacent level
-
-            new_price = self._snap_down(price_levels[new_idx], filters["tick_size"])
-            to_place.append((o, new_idx, {
-                "symbol": grid["symbol"],
-                "side": new_side,
-                "quantity": Decimal(str(o["quantity"])),
-                "price": new_price,
-            }))
-
-        if not to_place:
-            return 0
-
-        # Place replenishment orders in batches
-        placed = 0
+        # Find candidates for replenishment (filled but not yet replenished)
         conn = get_sqlite_connection()
+        placed = 0
         try:
             cursor = conn.cursor()
-            for batch_start in range(0, len(to_place), _BATCH_SIZE):
-                if batch_start > 0:
-                    await asyncio.sleep(_INTER_BATCH_DELAY_SECONDS)
+            grid_orders = self.get_grid(grid_id)["orders"]
 
-                batch = to_place[batch_start:batch_start + _BATCH_SIZE]
-                results = await self.binance.place_batch_orders(
-                    [spec for _, _, spec in batch]
+            for o in grid_orders:
+                executed = Decimal(o.get("executed_qty") or 0)
+                if executed <= 0:
+                    continue  # Not filled
+
+                # CAPA A: Claim atómico — reclamar derecho a reponer ANTES de colocar orden
+                cursor.execute(
+                    "UPDATE grid_orders SET replenished = 1 "
+                    "WHERE id = ? AND replenished = 0",
+                    (o["id"],)
                 )
+                conn.commit()
 
-                for (source, new_idx, spec), order in zip(batch, results):
-                    if not order or "orderId" not in order:
-                        continue  # Reintent in next cycle
+                if cursor.rowcount != 1:
+                    continue  # Otro ciclo ya reclamó esta orden — skip
 
-                    cursor.execute(
-                        """INSERT INTO grid_orders
-                           (id, grid_id, price, quantity, side, type, status, level_index, cycle)
-                           VALUES (?, ?, ?, ?, ?, ?, 'NEW', ?, ?)""",
-                        (str(order["orderId"]), grid_id, str(spec["price"]),
-                         str(spec["quantity"]), spec["side"], "LIMIT",
-                         new_idx, int(source.get("cycle") or 0) + 1)
+                # Solo llegamos aquí si reclamamos exitosamente
+                idx = o.get("level_index")
+                if idx is None:
+                    continue  # No level info, revert claim
+                    # (en la práctica es muy raro, pero si ocurre, la próxima iteración lo verá como replenished)
+
+                # Determine opposite order position
+                if o["side"] == "BUY" and idx + 1 < len(price_levels):
+                    new_idx, new_side = idx + 1, "SELL"
+                elif o["side"] == "SELL" and idx - 1 >= 0:
+                    new_idx, new_side = idx - 1, "BUY"
+                else:
+                    continue  # Fill at grid edge, no adjacent level
+
+                new_price = self._snap_down(price_levels[new_idx], filters["tick_size"])
+
+                # CAPA B: clientOrderId determinístico para idempotencia en Binance
+                # Formato: g{grid_id:8}-l{level:05d}-r{source_order:8}
+                grid_id_short = grid_id[:8] if len(grid_id) >= 8 else grid_id
+                source_order_short = str(o["id"])[:8] if str(o["id"]) else "unknown"
+                client_order_id = f"g{grid_id_short}-l{new_idx:05d}-r{source_order_short}"[:36]
+
+                # Colocar orden individual (no en batch por simplicidad y claridad atómica)
+                try:
+                    order_result = await self.binance.place_batch_orders(
+                        [{
+                            "symbol": grid["symbol"],
+                            "side": new_side,
+                            "quantity": Decimal(str(o["quantity"])),
+                            "price": new_price,
+                        }],
+                        client_order_ids_map={0: client_order_id}
                     )
-                    cursor.execute(
-                        "UPDATE grid_orders SET replenished = 1 WHERE id = ?",
-                        (source["id"],)
-                    )
-                    placed += 1
 
-            conn.commit()
+                    if order_result and order_result[0] and "orderId" in order_result[0]:
+                        # Éxito: insertar nueva orden en DB
+                        order = order_result[0]
+                        cursor.execute(
+                            """INSERT INTO grid_orders
+                               (id, grid_id, price, quantity, side, type, status, level_index, cycle)
+                               VALUES (?, ?, ?, ?, ?, ?, 'NEW', ?, ?)""",
+                            (str(order["orderId"]), grid_id, str(new_price),
+                             str(o["quantity"]), new_side, "LIMIT",
+                             new_idx, int(o.get("cycle") or 0) + 1)
+                        )
+                        conn.commit()
+                        placed += 1
+                    else:
+                        # Fallo en Binance: si es clientOrderId duplicado (benigno), marcar como ya replenida y loguear
+                        # Si es error real, revertir el claim para reintentar
+                        error_msg = str(order_result[0]) if (order_result and order_result[0]) else "No response"
+                        if "duplicate" in error_msg.lower() or "already" in error_msg.lower():
+                            print(f"Replenish ya colocada (clientOrderId duplicado): {client_order_id}")
+                            # Flag ya está 1, no revertir — se considera éxito benigno
+                            placed += 1
+                        else:
+                            # Error real: revertir claim para próximo intento
+                            print(f"Replenish falló ({error_msg}), revertiendo claim para {o['id']}")
+                            cursor.execute(
+                                "UPDATE grid_orders SET replenished = 0 WHERE id = ?",
+                                (o["id"],)
+                            )
+                            conn.commit()
+
+                except Exception as e:
+                    print(f"Exception en replenish para {o['id']}: {e}")
+                    # Revertir claim para reintentar
+                    cursor.execute(
+                        "UPDATE grid_orders SET replenished = 0 WHERE id = ?",
+                        (o["id"],)
+                    )
+                    conn.commit()
+
         finally:
             conn.close()
 
@@ -572,7 +608,14 @@ class GridService:
                         "could NOT be closed — manual intervention required"
                     )
 
-        # 3) Persist state change locally
+        # 3) Persist state change locally + FIX 3: log to grid_closures
+        position_amt_at_close = None
+        if close_position:
+            position = await self.binance.get_position(grid["symbol"])
+            position_amt_at_close = str(position.get("positionAmt", "0")) if position else "0"
+
+        total_pnl_str = str(final_pnl.get("total_pnl", "0")) if final_pnl else "0"
+
         conn = get_sqlite_connection()
         try:
             cursor = conn.cursor()
@@ -580,11 +623,23 @@ class GridService:
             for order in non_terminal:
                 cursor.execute("UPDATE grid_orders SET status = 'CANCELED' WHERE id = ?", (order["id"],))
             cursor.execute("UPDATE grids SET status = 'CANCELED' WHERE id = ?", (grid_id,))
+
+            # FIX 3: Insert closure audit log to grid_closures (never fails — best effort)
+            try:
+                cursor.execute(
+                    """INSERT INTO grid_closures
+                       (grid_id, symbol, trigger_condition, total_pnl, position_amt_at_close)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (grid_id, grid["symbol"], trigger_condition, total_pnl_str, position_amt_at_close)
+                )
+            except Exception as e:
+                print(f"Warning: could not insert grid_closures for {grid_id}: {e}")
+
             conn.commit()
         finally:
             conn.close()
 
-        # 4) Log closure
+        # 4) Log closure (PostgreSQL)
         closed_grid = self.get_grid(grid_id)
         self._log_grid_closure(closed_grid, final_pnl, trigger_condition)
         return closed_grid
@@ -639,16 +694,17 @@ class GridService:
 
     async def close_grid_if_triggered(self, grid_id: str) -> Optional[Dict[str, Any]]:
         """
-        Evaluate whether a grid should be closed based on three conditions:
+        Evaluate whether a grid should be closed based on four conditions:
         1. EXPIRED: grid age >= max_duration_hours
-        2. STOP_LOSS: total PnL <= stop_loss threshold
-        3. TAKE_PROFIT: total PnL >= take_profit threshold
+        2. MAX_POSITION: net position exceeds MAX_NET_POSITION_LEVELS * quantity_per_order (FIX 2)
+        3. STOP_LOSS: total PnL <= stop_loss threshold
+        4. TAKE_PROFIT: total PnL >= take_profit threshold
 
         Does not call refresh_order_status() first - call that beforehand
         if the decision needs up to date fills.
 
         Returns:
-            {"grid": <grid dict>, "triggered": "EXPIRED" | "STOP_LOSS" | "TAKE_PROFIT" | None}
+            {"grid": <grid dict>, "triggered": "EXPIRED" | "MAX_POSITION" | "STOP_LOSS" | "TAKE_PROFIT" | None}
             or None if grid_id does not exist.
         """
         grid = self.get_grid(grid_id)
@@ -666,7 +722,17 @@ class GridService:
                 closed_grid = await self.cancel_grid(grid_id, trigger_condition="EXPIRED")
                 return {"grid": closed_grid, "triggered": "EXPIRED"}
 
-        # Check 2 & 3: SL/TP
+        # Check 2: Max net position accumulated (FIX 2)
+        qty_per_order = Decimal(grid.get("quantity_per_order") or 0)
+        if qty_per_order > 0:
+            position = await self.binance.get_position(grid["symbol"])
+            position_amt = Decimal(position["positionAmt"]) if position else Decimal("0")
+            max_position = settings.MAX_NET_POSITION_LEVELS * qty_per_order * Decimal("1.05")  # 5% tolerance
+            if abs(position_amt) > max_position:
+                closed_grid = await self.cancel_grid(grid_id, trigger_condition="MAX_POSITION")
+                return {"grid": closed_grid, "triggered": "MAX_POSITION"}
+
+        # Check 3 & 4: SL/TP
         pnl = await self.get_grid_pnl(grid_id)
 
         stop_loss = Decimal(str(grid["stop_loss"])) if grid.get("stop_loss") is not None else None

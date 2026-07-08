@@ -337,7 +337,8 @@ class BinanceClient:
         return None
 
     async def place_batch_orders(self, orders: List[Dict[str, Any]],
-                                  max_retries: int = 3) -> List[Optional[Dict[str, Any]]]:
+                                  max_retries: int = 3,
+                                  client_order_ids_map: Optional[Dict[int, str]] = None) -> List[Optional[Dict[str, Any]]]:
         """
         Place up to 5 LIMIT orders in a single /fapi/v1/batchOrders request.
         Each element of `orders` must have: symbol, side, quantity, price.
@@ -348,6 +349,10 @@ class BinanceClient:
         "Timeout waiting for response..."}). Those per-order ambiguous
         timeouts are resolved by querying the order's clientOrderId before
         deciding whether to retry, to avoid duplicate order placement.
+
+        Args:
+            client_order_ids_map: Optional dict {index: clientOrderId} for deterministic IDs.
+                                 If provided, uses these instead of generating UUIDs.
         """
         url = f"{self.base_url}/fapi/v1/batchOrders"
         headers = self.security.get_headers()
@@ -367,7 +372,12 @@ class BinanceClient:
             if not pending_indices:
                 break
 
-            client_order_ids = {i: str(uuid.uuid4()).replace("-", "")[:32] for i in pending_indices}
+            # Use provided clientOrderIds or generate new UUIDs
+            if client_order_ids_map:
+                client_order_ids = {i: client_order_ids_map.get(i, str(uuid.uuid4()).replace("-", "")[:32])
+                                   for i in pending_indices}
+            else:
+                client_order_ids = {i: str(uuid.uuid4()).replace("-", "")[:32] for i in pending_indices}
             batch_payload = [
                 {
                     "symbol": orders[i]["symbol"],
