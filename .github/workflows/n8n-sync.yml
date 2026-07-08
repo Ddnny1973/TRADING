@@ -27,6 +27,8 @@ jobs:
           WORKFLOW1_FILE: n8n-workflows/workflow1-market-decision.json
           WORKFLOW2_ID: 96qAStQwfrHAVXRd
           WORKFLOW2_FILE: n8n-workflows/workflow2-monitor.json
+          WORKFLOW3_ID: zH79H6HyVleecAm7
+          WORKFLOW3_FILE: n8n-workflows/workflow3-telegram-monitor.json
         run: |
           set -e
           
@@ -106,6 +108,10 @@ jobs:
           
           if echo "$CHANGED_FILES" | grep -q "workflow2-monitor.json"; then
             sync_workflow "$WORKFLOW2_ID" "$WORKFLOW2_FILE"
+          fi
+          
+          if echo "$CHANGED_FILES" | grep -q "workflow3-telegram-monitor.json"; then
+            sync_workflow "$WORKFLOW3_ID" "$WORKFLOW3_FILE"
           fi
           
           if [ -z "$CHANGED_FILES" ]; then
