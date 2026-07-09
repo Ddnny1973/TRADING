@@ -15,7 +15,7 @@ import logging
 import aiohttp
 
 from app.config_auto_params import (
-    ATR_PERIOD, ER_MAX_TRADEABLE,
+    ATR_PERIOD, ER_MAX_TRADEABLE, CAPITAL_BUFFER,
     SYMBOL_SELECTION_WEIGHTS, MIN_VOLUME_24H_USDT, MAX_SPREAD_PCT,
     SYMBOL_CACHE_TTL_SECONDS, SYMBOL_BLACKLIST, MAX_CANDIDATES_TO_SCORE,
     MIN_NOTIONAL_FALLBACK
@@ -265,6 +265,31 @@ async def select_best_pair(
         )
 
     evaluated.sort(key=lambda e: e["score"], reverse=True)
+
+    # Final viability check: with the pair's ACTUAL derived leverage (2-5x,
+    # not leverage_max), does min_levels * min_notional fit in max_risk_pct?
+    # Without this, high-volume pairs like BTCUSDT win the score but get
+    # rejected downstream by derive_risk_pct_and_levels (grid_viable=false).
+    from app.auto_params import derive_leverage  # local import: avoid cycle
+
+    min_notionals = {p["symbol"]: _min_notional_from_filters(p["filters"]) for p in universe}
+    for e in evaluated:
+        lev = derive_leverage(e["atr_pct"])
+        margin_min = (
+            min_levels * min_notionals.get(e["symbol"], float(MIN_NOTIONAL_FALLBACK))
+            * float(CAPITAL_BUFFER) / lev
+        )
+        e["leverage"] = lev
+        e["viable_for_balance"] = (margin_min / balance) <= max_risk_pct
+
+    viable = [e for e in evaluated if e["viable_for_balance"]]
+    if viable:
+        evaluated = viable
+    else:
+        logger.warning(
+            f"pair_selector: ningún candidato viable para balance={balance} "
+            f"con su leverage derivado — se devuelve el mejor score igualmente"
+        )
     best = evaluated[0]
 
     return {
