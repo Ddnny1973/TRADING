@@ -10,8 +10,30 @@ FEE_ROUNDTRIP = Decimal("0.002")        # 0.1% (0.02% maker + 0.02% taker per si
 FEE_MARGIN_FACTOR = Decimal("2.5")      # step must cover 2.5x round-trip fees
 
 # Risk and viability constraints
-MAX_RISK_PCT = Decimal("0.05")          # Never commit more than 5% of balance per grid
-CAPITAL_BUFFER = Decimal("1.2")         # 20% margin above min_notional
+MAX_RISK_PCT = Decimal("0.15")          # Never commit more than 15% of balance per grid
+CAPITAL_BUFFER = Decimal("1.1")         # 10% margin above min_notional
+
+# Leverage por volatilidad del par (ATR% = ATR / precio)
+GRID_LEVERAGE_DEFAULT = 3
+LEVERAGE_BY_VOLATILITY = [
+    {"max_atr_pct": 0.01, "leverage": 5},   # ATR% < 1%  → 5x
+    {"max_atr_pct": 0.03, "leverage": 3},   # ATR% 1-3%  → 3x
+    {"max_atr_pct": 999,  "leverage": 2},   # ATR% > 3%  → 2x
+]
+LEVERAGE_BOUNDS = (2, 10)
+
+# Selección automática de par
+SYMBOL_SELECTION_WEIGHTS = {
+    "er":      0.40,
+    "volume":  0.30,
+    "atr_pct": 0.20,
+    "funding": 0.10,
+}
+MIN_VOLUME_24H_USDT = 50_000_000
+MAX_SPREAD_PCT      = 0.0005
+SYMBOL_CACHE_TTL_SECONDS = 900
+SYMBOL_BLACKLIST    = []
+MAX_CANDIDATES_TO_SCORE = 20            # cap de candidatos a puntuar (limita llamadas a klines)
 
 # Parameter bounds (will be applied after derivation)
 MULTIPLIER_BOUNDS = (Decimal("1.5"), Decimal("3.5"))

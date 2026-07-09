@@ -7,15 +7,15 @@
           "assignments": [
             {
               "id": "1",
-              "name": "symbol",
-              "value": "BTCUSDT",
+              "name": "balance",
+              "value": "={{ $('WF-Trigger-Externo').item?.json?.args?.[0] ? Number($('WF-Trigger-Externo').item.json.args[0]) : 5000 }}",
               "type": "string"
             },
             {
               "id": "2",
-              "name": "balance",
-              "value": 5000,
-              "type": "number"
+              "name": "symbol",
+              "value": "={{ $('WF-Trigger-Externo').item?.json?.args?.[1] || '' }}",
+              "type": "string"
             }
           ]
         },
@@ -32,7 +32,7 @@
     },
     {
       "parameters": {
-        "url": "={{ $env.BACKEND_URL + '/auto-params?symbol=' + $json.symbol + '&balance=' + $json.balance }}",
+        "url": "={{ $env.BACKEND_URL + '/auto-params?balance=' + $json.balance + ($json.symbol ? '&symbol=' + $json.symbol : '') }}",
         "options": {}
       },
       "id": "f1a2b3c4-d5e6-f7a8-b9c0-d1e2f3a4b5c6",
@@ -80,7 +80,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const autoParams = $json;\nconst config = $('Config').item.json;\n\nconst systemPrompt = `Eres el modulo de decision de un bot de grid trading en Binance Futures.\nRecibes datos de mercado ya calculados Y validados (grid_viable=true).\nTu unica tarea es decidir si lanzar el grid con los parametros derivados.\n\nParametros ya validados (no cambiar):\n- levels: ${autoParams.params.levels}\n- risk_pct: ${autoParams.params.risk_pct}\n- atr_multiplier: ${autoParams.params.atr_multiplier}\n- klines_interval: ${autoParams.params.klines_interval}\n\nDecision:\n- launch=true: usar los parametros exactos derivados\n- launch=false: NO colocar grid, explicar razon en reasoning\n\nResponde UNICAMENTE en JSON: {\"reasoning\": \"...\", \"launch\": true/false}`;\n\nconst geminiRequestBody = {\n  systemInstruction: { parts: [{ text: systemPrompt }] },\n  contents: [{ role: 'user', parts: [{ text: JSON.stringify(autoParams) }] }],\n  generationConfig: {\n    temperature: 0.3,\n    responseMimeType: 'application/json',\n    responseSchema: {\n      type: 'OBJECT',\n      properties: {\n        reasoning: { type: 'STRING' },\n        launch: { type: 'BOOLEAN' }\n      },\n      required: ['reasoning', 'launch']\n    }\n  }\n};\n\nreturn {\n  json: {\n    geminiRequestBody,\n    autoParams,\n    symbol: config.symbol,\n    balance: config.balance\n  }\n};"
+        "jsCode": "const autoParams = $json;\nconst config = $('Config').item.json;\n\nconst systemPrompt = \"Eres el modulo de decision de un bot de grid trading en Binance Futures USDT-M.\\nRecibes parametros ya calculados y validados (grid_viable=true).\\nTu unica tarea es decidir si lanzar el grid con estos parametros.\\n\\nCONTEXTO QUE RECIBES:\\n- symbol: par elegido automaticamente por scoring (ER, volumen, ATR, funding)\\n- symbol_selection.top_3: los 3 mejores pares evaluados\\n- params.leverage: derivado de la volatilidad del par (ATR%)\\n- params.risk_pct: capital asignado como % del balance\\n- reasoning: explicacion de cada parametro\\n\\nPUEDES DECIDIR:\\n- launch=true: usar los parametros exactos recibidos\\n- launch=false: NO lanzar, explicar razon en reasoning\\n\\nNO PUEDES:\\n- Cambiar parametros (solo aprobar o rechazar)\\n- Ignorar grid_viable=false (si llega aqui ya fue filtrado)\\n- Asumir informacion que no esta en el JSON\\n\\nCRITERIOS PARA launch=false:\\n- ER del par seleccionado > 0.35 (tendencia, no lateral)\\n- Leverage > 5x con ATR% > 2% (demasiado agresivo)\\n- top_3 vacio o candidatos_evaluados < 5 (mercado sin opciones)\\n- Cualquier anomalia en los parametros que indique riesgo extremo\\n\\nResponde UNICAMENTE en JSON: {\\\"reasoning\\\": \\\"...\\\", \\\"launch\\\": true/false}\";\n\nconst geminiRequestBody = {\n  systemInstruction: { parts: [{ text: systemPrompt }] },\n  contents: [{ role: 'user', parts: [{ text: JSON.stringify(autoParams) }] }],\n  generationConfig: {\n    temperature: 0.3,\n    responseMimeType: 'application/json',\n    responseSchema: {\n      type: 'OBJECT',\n      properties: {\n        reasoning: { type: 'STRING' },\n        launch: { type: 'BOOLEAN' }\n      },\n      required: ['reasoning', 'launch']\n    }\n  }\n};\n\nreturn {\n  json: {\n    geminiRequestBody,\n    autoParams,\n    symbol: autoParams.symbol,\n    balance: config.balance\n  }\n};"
       },
       "id": "354b35a0-28ae-4b5c-b2b6-e7f2cc362417",
       "name": "Build Gemini Request (with derived params)",
@@ -144,7 +144,7 @@
         "url": "={{ $env.BACKEND_URL }}/api/v1/grids",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { symbol: $('Config').item.json.symbol, levels: $('Get Auto Params (FIX 4)').item.json.params.levels, grid_type: 'GEOMETRIC', quantity_per_order: $('Get Auto Params (FIX 4)').item.json.params.risk_pct * $('Config').item.json.balance / ($('Get Auto Params (FIX 4)').item.json.params.levels * $('Get Auto Params (FIX 4)').item.json.current_price), atr_period: $('Get Auto Params (FIX 4)').item.json.params.atr_period, atr_multiplier: $('Get Auto Params (FIX 4)').item.json.params.atr_multiplier, klines_interval: $('Get Auto Params (FIX 4)').item.json.params.klines_interval, stop_loss: null, take_profit: null, max_duration_hours: null } }}",
+        "jsonBody": "={{ JSON.stringify({ symbol: $('Get Auto Params (FIX 4)').item.json.symbol, levels: $('Get Auto Params (FIX 4)').item.json.params.levels, grid_type: 'GEOMETRIC', quantity_per_order: $('Get Auto Params (FIX 4)').item.json.params.risk_pct * $('Config').item.json.balance * $('Get Auto Params (FIX 4)').item.json.params.leverage / ($('Get Auto Params (FIX 4)').item.json.params.levels * $('Get Auto Params (FIX 4)').item.json.current_price), atr_period: $('Get Auto Params (FIX 4)').item.json.params.atr_period, atr_multiplier: $('Get Auto Params (FIX 4)').item.json.params.atr_multiplier, klines_interval: $('Get Auto Params (FIX 4)').item.json.params.klines_interval, leverage: $('Get Auto Params (FIX 4)').item.json.params.leverage, stop_loss: null, take_profit: null, max_duration_hours: null }) }}",
         "options": {
           "response": {
             "response": {
@@ -213,7 +213,7 @@
     {
       "parameters": {
         "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
-        "text": "={{ $json.alreadyExists ? ('ℹ️ Grid ya existia para ' + $('Config').item.json.symbol + '\\n\\n💭 ' + $json.reasoning) : ('✅ Grid LANZADO\\n━━━━━━━━━━━━━━━━━━━━\\n📊 Symbol: ' + $json.grid.symbol + '\\n🆔 ID: ' + $json.grid.id.substring(0, 16) + '...\\n📈 Niveles: ' + $json.grid.levels + '\\n💰 Rango: ' + $json.grid.lower_price + ' - ' + $json.grid.upper_price + '\\n🎯 Órdenes: ' + $json.grid.orders.length + '\\n\\n💡 Parámetros (auto-derivados):\\n   • risk_pct: ' + $json.autoParams.params.risk_pct + '\\n   • atr_mult: ' + $json.autoParams.params.atr_multiplier + '\\n   • interval: ' + $json.autoParams.params.klines_interval + '\\n\\n💭 ' + $json.reasoning) }}",
+        "text": "={{ $json.alreadyExists ? ('ℹ️ Grid ya existia para ' + $json.autoParams.symbol + '\\n\\n💭 ' + $json.reasoning) : ('✅ Grid LANZADO\\n━━━━━━━━━━━━━━━━━━━━\\n📊 Symbol: ' + $json.grid.symbol + '\\n🆔 ID: ' + $json.grid.id.substring(0, 16) + '...\\n📈 Niveles: ' + $json.grid.levels + '\\n💰 Rango: ' + $json.grid.lower_price + ' - ' + $json.grid.upper_price + '\\n🎯 Órdenes: ' + $json.grid.orders.length + '\\n⚡ Leverage: ' + $json.autoParams.params.leverage + 'x\\n\\n💡 Parámetros (auto-derivados):\\n   • risk_pct: ' + $json.autoParams.params.risk_pct + '\\n   • atr_mult: ' + $json.autoParams.params.atr_multiplier + '\\n   • interval: ' + $json.autoParams.params.klines_interval + '\\n   • par elegido: ' + ($json.autoParams.symbol_selection?.method === 'auto' ? 'automático' : 'manual') + '\\n\\n💭 ' + $json.reasoning) }}",
         "additionalFields": {}
       },
       "id": "61eb1e23-9e4c-4d64-a34e-5d8f2e3a9b7c",
@@ -279,7 +279,7 @@
     {
       "parameters": {
         "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
-        "text": "={{ '⚠️ GRID NO VIABLE\\n━━━━━━━━━━━━━━━━━━━━\\n🚫 ' + ($json.reasoning && $json.reasoning.no_viable ? $json.reasoning.no_viable : 'Parámetros insuficientes para este balance') + '\\n\\n💰 Balance: ' + $('Config').item.json.balance + ' USDT\\n📊 Symbol: ' + $('Config').item.json.symbol }}",
+        "text": "={{ '⚠️ GRID NO VIABLE\\n━━━━━━━━━━━━━━━━━━━━\\n🚫 ' + ($json.reasoning?.no_viable || 'Parámetros insuficientes para este balance') + '\\n\\n💰 Balance: ' + $('Config').item.json.balance + ' USDT\\n📊 Symbol: ' + ($json.symbol || 'selección automática') }}",
         "additionalFields": {}
       },
       "id": "9f4a5b6c-7d8e-9f0a-1b2c-3d4e5f6a7b8c",

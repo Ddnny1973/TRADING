@@ -3,8 +3,9 @@ FastAPI Application - Grid Trading Hybrid Backend
 Main entry point for the trading engine microservice
 """
 
-from typing import List
+from typing import List, Optional
 import logging
+import time
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
@@ -13,11 +14,30 @@ from contextlib import asynccontextmanager
 # Import configuration and services
 from app.core.config import settings
 from app.database.connection import init_db
-from app.schemas.grid_schema import GridRequest, GridResponse, GridDetailResponse, GridPnlResponse, GridCloseCheckResponse, MarketAnalysisResponse, AutoParamsResponse
+from app.schemas.grid_schema import GridRequest, GridResponse, GridDetailResponse, GridPnlResponse, GridCloseCheckResponse, MarketAnalysisResponse, AutoParamsResponse, AutoParamsParams
 from app.auto_params import auto_derive_params
+from app.config_auto_params import MAX_RISK_PCT, LEVELS_BOUNDS, LEVERAGE_BOUNDS, SYMBOL_CACHE_TTL_SECONDS
+from app.pair_selector import select_best_pair_cached, _balance_bucket
 from app.services.grid_service import GridService
 from app.services.indicators import calculate_atr, calculate_grid_bounds, calculate_position_size
 from decimal import Decimal, ROUND_UP
+
+
+class GridRequestWithLeverage(GridRequest):
+    """GridRequest + dynamic leverage derived by /auto-params"""
+    leverage: Optional[int] = None
+
+
+class AutoParamsParamsV2(AutoParamsParams):
+    """AutoParamsParams + volatility-derived leverage"""
+    leverage: int
+
+
+class AutoParamsResponseV2(AutoParamsResponse):
+    """AutoParamsResponse + automatic symbol selection metadata"""
+    params: Optional[AutoParamsParamsV2] = None
+    symbol_selection: dict = {}
+    warnings: List[str] = []
 
 # Configure logging (Paso 13)
 logging.basicConfig(
@@ -27,6 +47,9 @@ logging.basicConfig(
 logger = logging.getLogger("grid_trading")
 
 grid_service = GridService()
+
+# Cache de respuestas completas de /auto-params: (balance_bucket, symbol) → (ts, result)
+_auto_params_cache: dict = {}
 
 
 @asynccontextmanager
@@ -212,7 +235,7 @@ async def analyze_market(symbol: str, atr_period: int = 14, atr_multiplier: floa
 # ==========================================
 
 @app.post("/api/v1/grids", response_model=GridDetailResponse, tags=["Grids"])
-async def create_grid(request: GridRequest):
+async def create_grid(request: GridRequestWithLeverage):
     """
     Calculate grid levels, place orders on Binance and persist the grid.
 
@@ -220,6 +243,7 @@ async def create_grid(request: GridRequest):
     automatically from ATR (atr_period / atr_multiplier / klines_interval).
     """
     grid = await grid_service.create_grid(
+        leverage=request.leverage,
         symbol=request.symbol,
         levels=request.levels,
         grid_type=request.grid_type,
@@ -326,28 +350,86 @@ async def check_close_grid(grid_id: str):
 # AUTO PARAMETER DERIVATION
 # ==========================================
 
-@app.get("/auto-params", response_model=AutoParamsResponse, tags=["Auto Derivation"])
-async def get_auto_params(symbol: str, balance: float):
+@app.get("/auto-params", response_model=AutoParamsResponseV2, tags=["Auto Derivation"])
+async def get_auto_params(balance: float, symbol: Optional[str] = None):
     """
-    Auto-derive grid parameters from symbol and balance only.
+    Auto-derive grid parameters from balance (symbol optional).
+
+    If symbol is omitted, the best pair is selected automatically by scoring
+    the USDT-M perpetual universe (ER, volume, ATR%, funding) — see
+    app/pair_selector.py. Pass symbol to override manually.
 
     Derivation process:
-    1. Fetch market data (klines, min_notional)
-    2. Calculate ATR(14)
-    3. Select flattest interval (lowest Efficiency Ratio)
-    4. Derive multiplier from real price range
-    5. Derive levels based on fee coverage
-    6. Derive risk_pct, reducing levels if needed to fit within MAX_RISK_PCT
-
-    Returns:
-    - grid_viable=True with params if derivation succeeds
-    - grid_viable=False with reasoning if market is too trendy or balance too low
+    1. Select pair (auto scoring or manual override)
+    2. Fetch market data (klines, min_notional)
+    3. Calculate ATR(14) and derive leverage from ATR%
+    4. Select flattest interval (lowest Efficiency Ratio)
+    5. Derive multiplier from real price range
+    6. Derive levels based on fee coverage
+    7. Derive risk_pct, reducing levels if needed to fit within MAX_RISK_PCT
 
     Example:
-        GET /auto-params?symbol=BTCUSDT&balance=5200
+        GET /auto-params?balance=5200            (auto selection)
+        GET /auto-params?balance=5200&symbol=BTCUSDT  (manual override)
     """
+    if balance <= 0:
+        raise HTTPException(status_code=422, detail="balance debe ser mayor a 0")
+    if balance < 10:
+        raise HTTPException(status_code=422, detail=f"balance mínimo es 10 USDT (recibido: {balance})")
+    if balance > 1_000_000:
+        raise HTTPException(status_code=422, detail=f"balance máximo es 1,000,000 USDT (recibido: {balance})")
+
+    warnings = []
+    if balance < 500:
+        warnings.append("Balance < 500 USDT: pares viables pueden ser limitados")
+
+    # Full-response cache (same TTL/bucket as the pair selector) so repeated
+    # calls with the same balance skip re-deriving ATR/ER against Binance
+    cache_key = (_balance_bucket(balance), symbol or "")
+    cached = _auto_params_cache.get(cache_key)
+    if cached and time.time() - cached[0] < SYMBOL_CACHE_TTL_SECONDS:
+        return cached[1]
+
     try:
-        result = await auto_derive_params(symbol, Decimal(str(balance)), client=grid_service.binance)
+        if symbol:
+            chosen_symbol = symbol
+            selection = None
+            selection_meta = {"method": "manual", "selection_skipped": True}
+        else:
+            selection = await select_best_pair_cached(
+                balance=balance,
+                max_risk_pct=float(MAX_RISK_PCT),
+                leverage_max=LEVERAGE_BOUNDS[1],
+                min_levels=LEVELS_BOUNDS[0],
+                client=grid_service.binance
+            )
+            chosen_symbol = selection["selected"]["symbol"]
+            selection_meta = {
+                "method": "auto",
+                "candidates_evaluated": selection["candidates_evaluated"],
+                "candidates_passed_filters": selection["candidates_passed_filters"],
+                "top_3": selection["top_3"],
+                "selected_reason": (
+                    f"Score {selection['selected']['score']:.2f}: "
+                    f"ER={selection['selected']['er']:.2f}, "
+                    f"vol={selection['selected']['volume_24h_usdt']/1e6:.0f}M USDT"
+                )
+            }
+
+        result = await auto_derive_params(chosen_symbol, Decimal(str(balance)), client=grid_service.binance)
+        result["symbol_selection"] = selection_meta
+        result["warnings"] = warnings
+        if selection and len(selection["top_3"]) > 1:
+            runner_up = selection["top_3"][1]
+            result["reasoning"]["symbol"] = (
+                f"{chosen_symbol} elegido: score {selection['selected']['score']:.2f} "
+                f"vs {runner_up['symbol']} {runner_up['score']:.2f}"
+            )
+        elif selection:
+            result["reasoning"]["symbol"] = (
+                f"{chosen_symbol} elegido: score {selection['selected']['score']:.2f} (único candidato puntuado)"
+            )
+        _auto_params_cache[cache_key] = (time.time(), result)
         return result
     except ValueError as e:
         # Symbol not found or invalid input
@@ -355,6 +437,8 @@ async def get_auto_params(symbol: str, balance: float):
             raise HTTPException(status_code=404, detail=str(e))
         else:
             raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"auto_derive_params failed: {e}")
         raise HTTPException(status_code=502, detail=f"Binance API error: {str(e)}")

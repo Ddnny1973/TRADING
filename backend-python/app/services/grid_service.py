@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from decimal import ROUND_DOWN, Decimal
 from typing import Any, Dict, List, Optional
 
+from app.config_auto_params import GRID_LEVERAGE_DEFAULT
 from app.core.config import settings
 from app.database.connection import get_sqlite_connection, SessionLocal
 from app.database.models import HistoricalGridLog
@@ -99,7 +100,8 @@ class GridService:
                            klines_interval: str = "4h",
                            stop_loss: Optional[float] = None,
                            take_profit: Optional[float] = None,
-                           max_duration_hours: Optional[float] = None) -> Dict[str, Any]:
+                           max_duration_hours: Optional[float] = None,
+                           leverage: Optional[int] = None) -> Dict[str, Any]:
         """
         Calculate grid levels, place LIMIT orders on Binance and persist the grid.
 
@@ -196,9 +198,16 @@ class GridService:
                 "Account is in hedge (dual) mode — switch to one-way mode before running grids"
             )
 
+        # Set leverage explicitly BEFORE placing any order (dynamic per grid)
+        effective_leverage = leverage if leverage is not None else GRID_LEVERAGE_DEFAULT
+        lev_result = await self.binance.set_leverage(symbol, effective_leverage)
+        if lev_result is None:
+            raise ValueError(f"Could not set leverage {effective_leverage}x for {symbol}")
+        print(f"set_leverage({symbol}, {effective_leverage}) OK before placing orders: {lev_result}")
+
         if not await self.binance.ensure_symbol_settings(
             symbol,
-            leverage=settings.DEFAULT_LEVERAGE,
+            leverage=effective_leverage,
             margin_type=settings.DEFAULT_MARGIN_TYPE
         ):
             raise ValueError(f"Could not set leverage/margin type for {symbol}")
@@ -248,13 +257,18 @@ class GridService:
         conn = get_sqlite_connection()
         try:
             cursor = conn.cursor()
+            try:
+                cursor.execute("ALTER TABLE grids ADD COLUMN leverage INTEGER DEFAULT 3")
+            except Exception:
+                pass  # column already exists
             cursor.execute(
-                """INSERT INTO grids (id, symbol, lower_price, upper_price, levels, grid_type, status, stop_loss, take_profit, max_duration_hours)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO grids (id, symbol, lower_price, upper_price, levels, grid_type, status, stop_loss, take_profit, max_duration_hours, leverage)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (grid_id, symbol, str(engine.lower_price), str(engine.upper_price), levels, grid_type, "RUNNING",
                  str(stop_loss) if stop_loss is not None else None,
                  str(take_profit) if take_profit is not None else None,
-                 str(max_duration_hours) if max_duration_hours is not None else None)
+                 str(max_duration_hours) if max_duration_hours is not None else None,
+                 effective_leverage)
             )
             orders_placed = 0
             for spec, order in order_results:

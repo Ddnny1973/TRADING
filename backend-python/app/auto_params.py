@@ -11,7 +11,7 @@ from app.config_auto_params import (
     FEE_ROUNDTRIP, FEE_MARGIN_FACTOR, MAX_RISK_PCT, CAPITAL_BUFFER,
     MULTIPLIER_BOUNDS, LEVELS_BOUNDS, ATR_PERIOD,
     CANDIDATE_INTERVALS, ER_LOOKBACK, ER_MAX_TRADEABLE, RANGE_LOOKBACK,
-    MIN_NOTIONAL_FALLBACK
+    MIN_NOTIONAL_FALLBACK, LEVERAGE_BY_VOLATILITY, LEVERAGE_BOUNDS
 )
 from app.services.binance_client import BinanceClient
 from app.services.indicators import calculate_atr
@@ -202,16 +202,35 @@ async def derive_levels(
     return levels, reason
 
 
+def derive_leverage(atr_pct: float) -> int:
+    """
+    Derive leverage from the pair's volatility (ATR as fraction of price).
+
+    Walks LEVERAGE_BY_VOLATILITY tiers (ordered by max_atr_pct ascending)
+    and clamps the result to LEVERAGE_BOUNDS.
+    """
+    for tier in LEVERAGE_BY_VOLATILITY:
+        if atr_pct <= tier["max_atr_pct"]:
+            lev = tier["leverage"]
+            return max(LEVERAGE_BOUNDS[0], min(lev, LEVERAGE_BOUNDS[1]))
+    return LEVERAGE_BOUNDS[0]
+
+
 def derive_risk_pct_and_levels(
     levels: int,
     min_notional: Decimal,
-    balance: Decimal
+    balance: Decimal,
+    leverage: int = 1
 ) -> Tuple[Decimal, int, bool, str]:
     """
-    Calculate risk_pct. If it exceeds MAX_RISK_PCT, reduce levels until it fits.
+    Calculate risk_pct (margin committed as fraction of balance). If it
+    exceeds MAX_RISK_PCT, reduce levels until it fits.
 
-    capital_min = levels * min_notional * CAPITAL_BUFFER
-    risk_pct = capital_min / balance
+    With leverage, each order's min_notional only requires
+    min_notional / leverage of margin:
+
+    margin_min = levels * min_notional * CAPITAL_BUFFER / leverage
+    risk_pct = margin_min / balance
 
     If risk_pct > MAX_RISK_PCT: reduce levels by 1, recalculate, repeat.
     If no valid levels: return viable=False.
@@ -221,22 +240,25 @@ def derive_risk_pct_and_levels(
     """
     min_lvl, max_lvl = LEVELS_BOUNDS
     current_levels = levels
+    lev = Decimal(max(leverage, 1))
 
     while current_levels >= min_lvl:
-        capital_min = Decimal(current_levels) * min_notional * CAPITAL_BUFFER
-        risk_pct = capital_min / balance
+        margin_min = Decimal(current_levels) * min_notional * CAPITAL_BUFFER / lev
+        risk_pct = margin_min / balance
 
         if risk_pct <= MAX_RISK_PCT:
             # Fits
             risk_pct_rounded = risk_pct.quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
-            reason = f"{current_levels} levels * {min_notional} USDT * {CAPITAL_BUFFER} buffer / {balance} balance = {risk_pct_rounded}"
+            reason = (f"{current_levels} levels * {min_notional} USDT * {CAPITAL_BUFFER} buffer "
+                      f"/ {lev}x leverage / {balance} balance = {risk_pct_rounded}")
             return risk_pct_rounded, current_levels, True, reason
 
         # Doesn't fit, reduce
         current_levels -= 1
 
     # Even min levels doesn't fit
-    reason = f"Balance {balance} too low: even {min_lvl} levels * {min_notional} USDT * {CAPITAL_BUFFER} buffer exceeds {MAX_RISK_PCT} risk limit"
+    reason = (f"Balance {balance} too low: even {min_lvl} levels * {min_notional} USDT * "
+              f"{CAPITAL_BUFFER} buffer / {lev}x leverage exceeds {MAX_RISK_PCT} risk limit")
     return Decimal("0"), 0, False, reason
 
 
@@ -282,6 +304,15 @@ async def auto_derive_params(
         logger.error(f"calculate_atr failed: {e}")
         raise ValueError(f"Could not calculate ATR for {symbol}")
 
+    # Step 2b: Derive leverage from volatility (ATR as % of price)
+    atr_pct = float(atr / current_price) if current_price > 0 else 0.0
+    leverage = derive_leverage(atr_pct)
+    reasoning["leverage"] = (
+        f"ATR%={atr_pct * 100:.2f}% -> tier "
+        f"{next((t['max_atr_pct'] for t in LEVERAGE_BY_VOLATILITY if atr_pct <= t['max_atr_pct']), 'min')} "
+        f"-> leverage {leverage}x, dentro de bounds [{LEVERAGE_BOUNDS[0]},{LEVERAGE_BOUNDS[1]}]"
+    )
+
     # Step 3: Derive interval (flattest timeframe)
     interval, ers_dict, interval_viable, interval_reason = await derive_interval(client, symbol)
     reasoning["klines_interval"] = interval_reason
@@ -315,7 +346,7 @@ async def auto_derive_params(
 
     # Step 6: Derive risk_pct, reducing levels if necessary
     risk_pct, levels_final, risk_viable, risk_reason = derive_risk_pct_and_levels(
-        levels_initial, min_notional, balance
+        levels_initial, min_notional, balance, leverage
     )
     reasoning["risk_pct"] = risk_reason
 
@@ -348,7 +379,8 @@ async def auto_derive_params(
             "risk_pct": float(risk_pct),
             "atr_multiplier": float(multiplier),
             "klines_interval": interval,
-            "atr_period": ATR_PERIOD
+            "atr_period": ATR_PERIOD,
+            "leverage": leverage
         },
         "reasoning": reasoning,
         "policy": {

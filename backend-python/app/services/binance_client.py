@@ -107,6 +107,24 @@ class BinanceClient:
 
         return None
 
+    async def set_leverage(self, symbol: str, leverage: int) -> Optional[Dict[str, Any]]:
+        """
+        POST /fapi/v1/leverage — set initial leverage for a symbol.
+        Must be called BEFORE placing orders so they open with the right leverage.
+
+        Args:
+            symbol: Trading pair (e.g., BTCUSDT)
+            leverage: Target initial leverage (1-125 depending on symbol tier)
+
+        Returns:
+            {"leverage": 5, "maxNotionalValue": "...", "symbol": "BTCUSDT"}
+            or None if the request failed
+        """
+        return await self._signed_request(
+            "POST", "/fapi/v1/leverage",
+            {"symbol": symbol, "leverage": leverage}
+        )
+
     async def get_exchange_info(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
         Get exchange info for a symbol
