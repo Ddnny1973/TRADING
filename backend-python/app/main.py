@@ -38,6 +38,7 @@ class AutoParamsResponseV2(AutoParamsResponse):
     params: Optional[AutoParamsParamsV2] = None
     symbol_selection: dict = {}
     warnings: List[str] = []
+    code_version: str = ""
 
 # Configure logging (Paso 13)
 logging.basicConfig(
@@ -47,6 +48,10 @@ logging.basicConfig(
 logger = logging.getLogger("grid_trading")
 
 grid_service = GridService()
+
+# Marcador de versión del código: visible en /health y /auto-params para
+# verificar remotamente qué build está corriendo (sin acceso a logs)
+CODE_VERSION = "v1.2.0-notional-lower-level"
 
 # Cache de respuestas completas de /auto-params: (balance_bucket, symbol) → (ts, result)
 _auto_params_cache: dict = {}
@@ -98,6 +103,7 @@ async def health_check():
         "status": "healthy",
         "service": "grid-trading-backend",
         "version": "0.1.0",
+        "code_version": CODE_VERSION,
         "binance_synced": binance_ok,
         "time_offset_ms": grid_service.binance.time_sync.time_offset or "unknown"
     }
@@ -419,6 +425,7 @@ async def get_auto_params(balance: float, symbol: Optional[str] = None):
         result = await auto_derive_params(chosen_symbol, Decimal(str(balance)), client=grid_service.binance)
         result["symbol_selection"] = selection_meta
         result["warnings"] = warnings
+        result["code_version"] = CODE_VERSION
         if selection and len(selection["top_3"]) > 1:
             runner_up = selection["top_3"][1]
             result["reasoning"]["symbol"] = (

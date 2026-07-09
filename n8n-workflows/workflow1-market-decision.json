@@ -235,7 +235,7 @@
     {
       "parameters": {
         "chatId": "={{ $('WF-Trigger-Externo').item.json.chatId }}",
-        "text": "={{ '❌ ERROR al crear grid\\n━━━━━━━━━━━━━━━━━━━━\\n' + ($('Interpret Grid Result').item.json.statusCode ? ('HTTP ' + $('Interpret Grid Result').item.json.statusCode + '\\n') : '') + 'Detalle: ' + $('Interpret Grid Result').item.json.detail + '\\n\\n🧠 Diagnóstico IA:\\n' + ($json.text || 'no disponible') + '\\n\\nSe reintentará en próximo ciclo.' }}",
+        "text": "={{ '❌ ERROR al crear grid\\n━━━━━━━━━━━━━━━━━━━━\\n' + ($('Interpret Grid Result').item.json.statusCode ? ('HTTP ' + $('Interpret Grid Result').item.json.statusCode + '\\n') : '') + 'Detalle: ' + $('Interpret Grid Result').item.json.detail + '\\n\\n🧠 Diagnóstico IA:\\n' + ($json.text || 'no disponible') + '\\n\\n🔖 Backend: ' + ($('Get Auto Params (FIX 4)').item.json.code_version || 'ANTIGUA - rebuild no aplicado') + '\\nSe reintentará en próximo ciclo.' }}",
         "additionalFields": {}
       },
       "id": "7f2c3d4e-5a6b-7c8d-9e0f-a1b2c3d4e5f6",
@@ -279,7 +279,7 @@
     {
       "parameters": {
         "chatId": "={{ $('WF-Trigger-Externo').item.json.chatId }}",
-        "text": "={{ '⚠️ GRID NO VIABLE\\n━━━━━━━━━━━━━━━━━━━━\\n🚫 ' + ($json.reasoning?.no_viable || 'Parámetros insuficientes para este balance') + '\\n\\n💰 Balance: ' + $('Config').item.json.balance + ' USDT\\n📊 Symbol: ' + ($json.symbol || 'selección automática') }}",
+        "text": "={{ '⚠️ GRID NO VIABLE\\n━━━━━━━━━━━━━━━━━━━━\\n🚫 ' + ($json.reasoning?.no_viable || 'Parámetros insuficientes para este balance') + '\\n\\n💰 Balance: ' + $('Config').item.json.balance + ' USDT\\n📊 Symbol: ' + ($json.symbol || 'selección automática') + '\\n🔖 Backend: ' + ($json.code_version || 'ANTIGUA - rebuild no aplicado') }}",
         "additionalFields": {}
       },
       "id": "9f4a5b6c-7d8e-9f0a-1b2c-3d4e5f6a7b8c",
