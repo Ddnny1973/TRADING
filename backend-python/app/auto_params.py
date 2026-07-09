@@ -340,6 +340,35 @@ async def auto_derive_params(
     multiplier, multiplier_reason = await derive_multiplier(client, symbol, interval, atr)
     reasoning["atr_multiplier"] = multiplier_reason
 
+    # Guard: lower bound (price - multiplier * atr) must stay > 0.
+    # With extreme ATR (noisy testnet klines / hypervolatile pairs) the grid
+    # would be created with a negative lower_price and rejected downstream.
+    if atr > 0 and multiplier * atr >= current_price:
+        max_mult_for_price = (current_price / atr) * Decimal("0.95")
+        min_mult, _ = MULTIPLIER_BOUNDS
+        if max_mult_for_price < min_mult:
+            no_viable_reason = (
+                f"ATR {atr:.6f} demasiado alto vs precio {current_price:.6f}: "
+                f"lower_price <= 0 incluso con multiplier mínimo {min_mult}"
+            )
+            return {
+                "symbol": symbol,
+                "current_price": float(current_price),
+                "grid_viable": False,
+                "params": None,
+                "reasoning": {"no_viable": no_viable_reason, **reasoning},
+                "policy": {
+                    "fee_roundtrip": float(FEE_ROUNDTRIP),
+                    "fee_margin_factor": float(FEE_MARGIN_FACTOR),
+                    "max_risk_pct": float(MAX_RISK_PCT),
+                    "multiplier_bounds": [float(MULTIPLIER_BOUNDS[0]), float(MULTIPLIER_BOUNDS[1])]
+                }
+            }
+        multiplier = max_mult_for_price.quantize(Decimal("0.1"), rounding=ROUND_DOWN)
+        reasoning["atr_multiplier"] += (
+            f" | ajustado a {multiplier} para mantener lower_price > 0 (ATR alto vs precio)"
+        )
+
     # Step 5: Derive levels (initial)
     levels_initial, levels_reason = await derive_levels(current_price, atr, multiplier)
     reasoning["levels"] = levels_reason

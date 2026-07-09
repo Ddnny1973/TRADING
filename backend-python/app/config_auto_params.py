@@ -34,6 +34,7 @@ MAX_SPREAD_PCT      = 0.0005
 SYMBOL_CACHE_TTL_SECONDS = 900
 SYMBOL_BLACKLIST    = []
 MAX_CANDIDATES_TO_SCORE = 20            # cap de candidatos a puntuar (limita llamadas a klines)
+MAX_ATR_PCT_TRADEABLE = 0.10            # descartar pares con ATR > 10% del precio (no aptos para grid)
 
 # Parameter bounds (will be applied after derivation)
 MULTIPLIER_BOUNDS = (Decimal("1.5"), Decimal("3.5"))

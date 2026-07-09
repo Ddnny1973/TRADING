@@ -15,7 +15,7 @@ import logging
 import aiohttp
 
 from app.config_auto_params import (
-    ATR_PERIOD, ER_MAX_TRADEABLE, CAPITAL_BUFFER,
+    ATR_PERIOD, ER_MAX_TRADEABLE, CAPITAL_BUFFER, MAX_ATR_PCT_TRADEABLE,
     SYMBOL_SELECTION_WEIGHTS, MIN_VOLUME_24H_USDT, MAX_SPREAD_PCT,
     SYMBOL_CACHE_TTL_SECONDS, SYMBOL_BLACKLIST, MAX_CANDIDATES_TO_SCORE,
     MIN_NOTIONAL_FALLBACK
@@ -200,6 +200,12 @@ async def _evaluate_candidate(
         atr = calculate_atr(klines, ATR_PERIOD)
         last_close = klines[-1]["close"]
         atr_pct = float(atr / last_close) if last_close > 0 else 0.0
+
+        if atr_pct > MAX_ATR_PCT_TRADEABLE:
+            # ATR desproporcionado vs precio (datos de testnet ruidosos o par
+            # hipervolátil): el grid tendría bounds inválidos — descartar
+            logger.info(f"pair_selector: {symbol} descartado, ATR%={atr_pct:.2%} > {MAX_ATR_PCT_TRADEABLE:.0%}")
+            return None
 
         return {
             "symbol": symbol,
