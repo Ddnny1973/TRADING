@@ -395,15 +395,17 @@ async def auto_derive_params(
     levels_initial, levels_reason = await derive_levels(current_price, atr, multiplier)
     reasoning["levels"] = levels_reason
 
-    # Step 6: Derive the authoritative quantity_per_order.
-    # min_notional must hold at the LOWEST grid level (price - mult*atr), and
-    # the qty must be rounded UP to the symbol's step_size (coarse steps like
-    # UNIUSDT step=1 would otherwise truncate the notional below the minimum).
-    lower_price_est = current_price - multiplier * atr
+    # Step 6: Freeze the grid bounds NOW and derive the authoritative
+    # quantity_per_order against them. grid_service.create_grid() must reuse
+    # these exact bounds (passed explicitly) instead of recomputing its own
+    # ATR from fresh klines - live data drift between this call and grid
+    # creation was silently invalidating the notional-safety margin.
+    lower_price = current_price - multiplier * atr
+    upper_price = current_price + multiplier * atr
     filters = await client.get_symbol_filters(symbol)
     step_size = filters["step_size"] if filters else Decimal("0.001")
     quantity_per_order, qty_reason = derive_quantity_per_order(
-        min_notional, lower_price_est, step_size
+        min_notional, lower_price, step_size
     )
     reasoning["quantity_per_order"] = qty_reason
 
@@ -441,6 +443,8 @@ async def auto_derive_params(
             "levels": levels_final,
             "risk_pct": float(risk_pct),
             "quantity_per_order": float(quantity_per_order),
+            "lower_price": float(lower_price),
+            "upper_price": float(upper_price),
             "atr_multiplier": float(multiplier),
             "klines_interval": interval,
             "atr_period": ATR_PERIOD,

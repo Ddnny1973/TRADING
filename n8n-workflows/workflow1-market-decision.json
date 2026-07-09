@@ -144,7 +144,7 @@
         "url": "={{ $env.BACKEND_URL }}/api/v1/grids",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ symbol: $('Get Auto Params (FIX 4)').item.json.symbol, levels: $('Get Auto Params (FIX 4)').item.json.params.levels, grid_type: 'GEOMETRIC', quantity_per_order: $('Get Auto Params (FIX 4)').item.json.params.quantity_per_order, atr_period: $('Get Auto Params (FIX 4)').item.json.params.atr_period, atr_multiplier: $('Get Auto Params (FIX 4)').item.json.params.atr_multiplier, klines_interval: $('Get Auto Params (FIX 4)').item.json.params.klines_interval, leverage: $('Get Auto Params (FIX 4)').item.json.params.leverage, stop_loss: null, take_profit: null, max_duration_hours: null }) }}",
+        "jsonBody": "={{ JSON.stringify({ symbol: $('Get Auto Params (FIX 4)').item.json.symbol, levels: $('Get Auto Params (FIX 4)').item.json.params.levels, grid_type: 'GEOMETRIC', lower_price: $('Get Auto Params (FIX 4)').item.json.params.lower_price, upper_price: $('Get Auto Params (FIX 4)').item.json.params.upper_price, quantity_per_order: $('Get Auto Params (FIX 4)').item.json.params.quantity_per_order, atr_period: $('Get Auto Params (FIX 4)').item.json.params.atr_period, atr_multiplier: $('Get Auto Params (FIX 4)').item.json.params.atr_multiplier, klines_interval: $('Get Auto Params (FIX 4)').item.json.params.klines_interval, leverage: $('Get Auto Params (FIX 4)').item.json.params.leverage, stop_loss: null, take_profit: null, max_duration_hours: null }) }}",
         "options": {
           "response": {
             "response": {

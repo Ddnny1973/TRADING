@@ -29,9 +29,11 @@ class GridRequestWithLeverage(GridRequest):
 
 
 class AutoParamsParamsV2(AutoParamsParams):
-    """AutoParamsParams + volatility-derived leverage + authoritative qty"""
+    """AutoParamsParams + volatility-derived leverage + authoritative qty/bounds"""
     leverage: int
     quantity_per_order: float = 0.0
+    lower_price: float = 0.0
+    upper_price: float = 0.0
 
 
 class AutoParamsResponseV2(AutoParamsResponse):
@@ -52,7 +54,7 @@ grid_service = GridService()
 
 # Marcador de versión del código: visible en /health y /auto-params para
 # verificar remotamente qué build está corriendo (sin acceso a logs)
-CODE_VERSION = "v1.2.0-notional-lower-level"
+CODE_VERSION = "v1.3.0-frozen-grid-bounds"
 
 # Cache de respuestas completas de /auto-params: (balance_bucket, symbol) → (ts, result)
 _auto_params_cache: dict = {}
