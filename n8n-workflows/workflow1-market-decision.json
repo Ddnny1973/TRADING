@@ -235,7 +235,7 @@
     {
       "parameters": {
         "chatId": "={{ $('WF-Trigger-Externo').item.json.chatId }}",
-        "text": "={{ '❌ ERROR al crear grid\\n━━━━━━━━━━━━━━━━━━━━\\n' + ($json.statusCode ? ('HTTP ' + $json.statusCode + '\\n') : '') + 'Detalle: ' + $json.detail + '\\n\\nSe reintentará en próximo ciclo.' }}",
+        "text": "={{ '❌ ERROR al crear grid\\n━━━━━━━━━━━━━━━━━━━━\\n' + ($('Interpret Grid Result').item.json.statusCode ? ('HTTP ' + $('Interpret Grid Result').item.json.statusCode + '\\n') : '') + 'Detalle: ' + $('Interpret Grid Result').item.json.detail + '\\n\\n🧠 Diagnóstico IA:\\n' + ($json.text || 'no disponible') + '\\n\\nSe reintentará en próximo ciclo.' }}",
         "additionalFields": {}
       },
       "id": "7f2c3d4e-5a6b-7c8d-9e0f-a1b2c3d4e5f6",
@@ -405,6 +405,28 @@
       ],
       "id": "79db1cbf-8cec-4fea-9f7b-dc13ca3bdce0",
       "name": "Gemini: AI Decision"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify({ statusCode: $json.statusCode, detail: $json.detail, balance: $('Config').item.json.balance, autoParams: $json.autoParams }) }}",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "Eres el asistente de diagnostico de un bot de grid trading en Binance Futures USDT-M.\nRecibes un JSON con el error devuelto por el backend al intentar crear un grid\n(statusCode, detail) y los parametros auto-derivados que se usaron (autoParams).\n\nTu tarea: explicar en espanol, en 2-4 lineas de texto plano (sin markdown, sin JSON),\n(1) la causa probable del error en lenguaje simple y\n(2) una accion concreta sugerida para el usuario, por ejemplo: subir el balance del\ncomando /lanzar, elegir otro par, o esperar a que baje la volatilidad.\n\nReglas:\n- No inventes datos que no esten en el JSON.\n- No sugieras cambiar parametros internos del sistema (el usuario solo controla balance y par).\n- Se breve y directo: el texto va en una notificacion de Telegram."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "id": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
+      "name": "Diagnose Grid Error",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        296,
+        -256
+      ]
     }
   ],
   "pinData": {
@@ -595,7 +617,7 @@
       "main": [
         [
           {
-            "node": "Notify: Grid Error",
+            "node": "Diagnose Grid Error",
             "type": "main",
             "index": 0
           }
@@ -638,6 +660,11 @@
             "node": "Gemini: AI Decision",
             "type": "ai_languageModel",
             "index": 0
+          },
+          {
+            "node": "Diagnose Grid Error",
+            "type": "ai_languageModel",
+            "index": 0
           }
         ]
       ]
@@ -647,6 +674,17 @@
         [
           {
             "node": "Parse AI Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Diagnose Grid Error": {
+      "main": [
+        [
+          {
+            "node": "Notify: Grid Error",
             "type": "main",
             "index": 0
           }
