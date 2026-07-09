@@ -29,8 +29,9 @@ class GridRequestWithLeverage(GridRequest):
 
 
 class AutoParamsParamsV2(AutoParamsParams):
-    """AutoParamsParams + volatility-derived leverage"""
+    """AutoParamsParams + volatility-derived leverage + authoritative qty"""
     leverage: int
+    quantity_per_order: float = 0.0
 
 
 class AutoParamsResponseV2(AutoParamsResponse):

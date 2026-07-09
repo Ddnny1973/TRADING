@@ -3,7 +3,7 @@ Auto-derivation of grid parameters from symbol and balance only.
 Pure trading logic with exact formulas from specification.
 """
 
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal, ROUND_DOWN, ROUND_UP
 from typing import Dict, List, Optional, Tuple, Any
 import logging
 
@@ -216,21 +216,43 @@ def derive_leverage(atr_pct: float) -> int:
     return LEVERAGE_BOUNDS[0]
 
 
+def derive_quantity_per_order(
+    min_notional: Decimal,
+    lower_price: Decimal,
+    step_size: Decimal
+) -> Tuple[Decimal, str]:
+    """
+    Derive the exact order quantity so that its notional clears min_notional
+    at the LOWEST grid level, rounded UP to the symbol's step_size.
+
+    This is computed here (not in the orchestrator/workflow) because rounding
+    to step_size can silently halve the notional on symbols with coarse steps
+    (e.g. UNIUSDT step=1) — the quantity must be authoritative.
+    """
+    qty_raw = (min_notional * CAPITAL_BUFFER) / lower_price
+    if step_size > 0:
+        qty = (qty_raw / step_size).to_integral_value(rounding=ROUND_UP) * step_size
+    else:
+        qty = qty_raw
+    reason = (f"min_notional {min_notional} * {CAPITAL_BUFFER} buffer / lower {lower_price:.6f} "
+              f"= {qty_raw:.6f}, redondeado ARRIBA a step {step_size} -> {qty}")
+    return qty, reason
+
+
 def derive_risk_pct_and_levels(
     levels: int,
-    min_notional: Decimal,
+    quantity_per_order: Decimal,
+    current_price: Decimal,
     balance: Decimal,
     leverage: int = 1
 ) -> Tuple[Decimal, int, bool, str]:
     """
-    Calculate risk_pct (margin committed as fraction of balance). If it
-    exceeds MAX_RISK_PCT, reduce levels until it fits.
+    Calculate risk_pct (margin committed as fraction of balance) from the
+    ACTUAL quantity per order. If it exceeds MAX_RISK_PCT, reduce levels
+    until it fits.
 
-    With leverage, each order's min_notional only requires
-    min_notional / leverage of margin:
-
-    margin_min = levels * min_notional * CAPITAL_BUFFER / leverage
-    risk_pct = margin_min / balance
+    margin_per_level = quantity * current_price / leverage
+    risk_pct = levels * margin_per_level / balance
 
     If risk_pct > MAX_RISK_PCT: reduce levels by 1, recalculate, repeat.
     If no valid levels: return viable=False.
@@ -241,24 +263,24 @@ def derive_risk_pct_and_levels(
     min_lvl, max_lvl = LEVELS_BOUNDS
     current_levels = levels
     lev = Decimal(max(leverage, 1))
+    margin_per_level = quantity_per_order * current_price / lev
 
     while current_levels >= min_lvl:
-        margin_min = Decimal(current_levels) * min_notional * CAPITAL_BUFFER / lev
-        risk_pct = margin_min / balance
+        risk_pct = Decimal(current_levels) * margin_per_level / balance
 
         if risk_pct <= MAX_RISK_PCT:
             # Fits
             risk_pct_rounded = risk_pct.quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
-            reason = (f"{current_levels} levels * {min_notional} USDT * {CAPITAL_BUFFER} buffer "
-                      f"/ {lev}x leverage / {balance} balance = {risk_pct_rounded}")
+            reason = (f"{current_levels} levels * (qty {quantity_per_order} * price {current_price:.6f} "
+                      f"/ {lev}x leverage) / {balance} balance = {risk_pct_rounded}")
             return risk_pct_rounded, current_levels, True, reason
 
         # Doesn't fit, reduce
         current_levels -= 1
 
     # Even min levels doesn't fit
-    reason = (f"Balance {balance} too low: even {min_lvl} levels * {min_notional} USDT * "
-              f"{CAPITAL_BUFFER} buffer / {lev}x leverage exceeds {MAX_RISK_PCT} risk limit")
+    reason = (f"Balance {balance} too low: even {min_lvl} levels * (qty {quantity_per_order} * "
+              f"price {current_price:.6f} / {lev}x leverage) exceeds {MAX_RISK_PCT} risk limit")
     return Decimal("0"), 0, False, reason
 
 
@@ -373,21 +395,22 @@ async def auto_derive_params(
     levels_initial, levels_reason = await derive_levels(current_price, atr, multiplier)
     reasoning["levels"] = levels_reason
 
-    # Step 6: Derive risk_pct, reducing levels if necessary.
-    # min_notional must hold at the LOWEST grid level (price - mult*atr):
-    # the same qty has its smallest notional there, so the backend rejects
-    # orders sized against current_price. Inflate by current/lower ratio.
+    # Step 6: Derive the authoritative quantity_per_order.
+    # min_notional must hold at the LOWEST grid level (price - mult*atr), and
+    # the qty must be rounded UP to the symbol's step_size (coarse steps like
+    # UNIUSDT step=1 would otherwise truncate the notional below the minimum).
     lower_price_est = current_price - multiplier * atr
-    price_ratio = current_price / lower_price_est if lower_price_est > 0 else Decimal("1")
-    min_notional_effective = min_notional * price_ratio
-    risk_pct, levels_final, risk_viable, risk_reason = derive_risk_pct_and_levels(
-        levels_initial, min_notional_effective, balance, leverage
+    filters = await client.get_symbol_filters(symbol)
+    step_size = filters["step_size"] if filters else Decimal("0.001")
+    quantity_per_order, qty_reason = derive_quantity_per_order(
+        min_notional, lower_price_est, step_size
     )
-    if price_ratio > Decimal("1.01"):
-        risk_reason += (
-            f" (min_notional {min_notional} inflado x{price_ratio:.2f} para cubrir "
-            f"el nivel inferior del grid ~{lower_price_est:.6f})"
-        )
+    reasoning["quantity_per_order"] = qty_reason
+
+    # Step 7: Derive risk_pct from the actual qty, reducing levels if necessary
+    risk_pct, levels_final, risk_viable, risk_reason = derive_risk_pct_and_levels(
+        levels_initial, quantity_per_order, current_price, balance, leverage
+    )
     reasoning["risk_pct"] = risk_reason
 
     if not risk_viable:
@@ -417,6 +440,7 @@ async def auto_derive_params(
         "params": {
             "levels": levels_final,
             "risk_pct": float(risk_pct),
+            "quantity_per_order": float(quantity_per_order),
             "atr_multiplier": float(multiplier),
             "klines_interval": interval,
             "atr_period": ATR_PERIOD,
