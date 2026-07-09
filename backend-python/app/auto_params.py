@@ -373,10 +373,21 @@ async def auto_derive_params(
     levels_initial, levels_reason = await derive_levels(current_price, atr, multiplier)
     reasoning["levels"] = levels_reason
 
-    # Step 6: Derive risk_pct, reducing levels if necessary
+    # Step 6: Derive risk_pct, reducing levels if necessary.
+    # min_notional must hold at the LOWEST grid level (price - mult*atr):
+    # the same qty has its smallest notional there, so the backend rejects
+    # orders sized against current_price. Inflate by current/lower ratio.
+    lower_price_est = current_price - multiplier * atr
+    price_ratio = current_price / lower_price_est if lower_price_est > 0 else Decimal("1")
+    min_notional_effective = min_notional * price_ratio
     risk_pct, levels_final, risk_viable, risk_reason = derive_risk_pct_and_levels(
-        levels_initial, min_notional, balance, leverage
+        levels_initial, min_notional_effective, balance, leverage
     )
+    if price_ratio > Decimal("1.01"):
+        risk_reason += (
+            f" (min_notional {min_notional} inflado x{price_ratio:.2f} para cubrir "
+            f"el nivel inferior del grid ~{lower_price_est:.6f})"
+        )
     reasoning["risk_pct"] = risk_reason
 
     if not risk_viable:
