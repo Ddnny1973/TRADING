@@ -17,7 +17,7 @@ from app.database.connection import init_db
 from app.schemas.grid_schema import GridRequest, GridResponse, GridDetailResponse, GridPnlResponse, GridCloseCheckResponse, MarketAnalysisResponse, AutoParamsResponse, AutoParamsParams
 from app.auto_params import auto_derive_params
 from app.config_auto_params import MAX_RISK_PCT, LEVELS_BOUNDS, LEVERAGE_BOUNDS, SYMBOL_CACHE_TTL_SECONDS
-from app.pair_selector import select_best_pair_cached, _balance_bucket
+from app.pair_selector import pick_best_pair, _balance_bucket
 from app.services.grid_service import GridService
 from app.services.indicators import calculate_atr, calculate_grid_bounds, calculate_position_size
 from decimal import Decimal, ROUND_UP
@@ -54,7 +54,7 @@ grid_service = GridService()
 
 # Marcador de versión del código: visible en /health y /auto-params para
 # verificar remotamente qué build está corriendo (sin acceso a logs)
-CODE_VERSION = "v1.3.0-frozen-grid-bounds"
+CODE_VERSION = "v1.4.0-multisymbol-exclude-running"
 
 # Cache de respuestas completas de /auto-params: (balance_bucket, symbol) → (ts, result)
 _auto_params_cache: dict = {}
@@ -393,11 +393,15 @@ async def get_auto_params(balance: float, symbol: Optional[str] = None):
         warnings.append("Balance < 500 USDT: pares viables pueden ser limitados")
 
     # Full-response cache (same TTL/bucket as the pair selector) so repeated
-    # calls with the same balance skip re-deriving ATR/ER against Binance
+    # Full-response cache only applies to manual symbol requests. Auto mode
+    # must stay live: it needs to see which symbols currently have a RUNNING
+    # grid so /lanzar diversifies instead of re-selecting the same pair
+    # every time within the TTL window.
     cache_key = (_balance_bucket(balance), symbol or "")
-    cached = _auto_params_cache.get(cache_key)
-    if cached and time.time() - cached[0] < SYMBOL_CACHE_TTL_SECONDS:
-        return cached[1]
+    if symbol:
+        cached = _auto_params_cache.get(cache_key)
+        if cached and time.time() - cached[0] < SYMBOL_CACHE_TTL_SECONDS:
+            return cached[1]
 
     try:
         if symbol:
@@ -405,11 +409,13 @@ async def get_auto_params(balance: float, symbol: Optional[str] = None):
             selection = None
             selection_meta = {"method": "manual", "selection_skipped": True}
         else:
-            selection = await select_best_pair_cached(
+            running_symbols = {g["symbol"] for g in grid_service.list_grids(status="RUNNING")}
+            selection = await pick_best_pair(
                 balance=balance,
                 max_risk_pct=float(MAX_RISK_PCT),
                 leverage_max=LEVERAGE_BOUNDS[1],
                 min_levels=LEVELS_BOUNDS[0],
+                exclude_symbols=running_symbols,
                 client=grid_service.binance
             )
             chosen_symbol = selection["selected"]["symbol"]
@@ -418,6 +424,7 @@ async def get_auto_params(balance: float, symbol: Optional[str] = None):
                 "candidates_evaluated": selection["candidates_evaluated"],
                 "candidates_passed_filters": selection["candidates_passed_filters"],
                 "top_3": selection["top_3"],
+                "excluded_running_symbols": selection.get("excluded_running_symbols", []),
                 "selected_reason": (
                     f"Score {selection['selected']['score']:.2f}: "
                     f"ER={selection['selected']['er']:.2f}, "
@@ -427,6 +434,9 @@ async def get_auto_params(balance: float, symbol: Optional[str] = None):
 
         result = await auto_derive_params(chosen_symbol, Decimal(str(balance)), client=grid_service.binance)
         result["symbol_selection"] = selection_meta
+        excluded = selection_meta.get("excluded_running_symbols") if selection else None
+        if excluded:
+            warnings.append(f"Excluidos por tener grid RUNNING abierto: {', '.join(excluded)}")
         result["warnings"] = warnings
         result["code_version"] = CODE_VERSION
         if selection and len(selection["top_3"]) > 1:
@@ -439,7 +449,8 @@ async def get_auto_params(balance: float, symbol: Optional[str] = None):
             result["reasoning"]["symbol"] = (
                 f"{chosen_symbol} elegido: score {selection['selected']['score']:.2f} (único candidato puntuado)"
             )
-        _auto_params_cache[cache_key] = (time.time(), result)
+        if symbol:
+            _auto_params_cache[cache_key] = (time.time(), result)
         return result
     except ValueError as e:
         # Symbol not found or invalid input

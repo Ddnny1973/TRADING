@@ -296,27 +296,33 @@ async def select_best_pair(
             f"pair_selector: ningún candidato viable para balance={balance} "
             f"con su leverage derivado — se devuelve el mejor score igualmente"
         )
-    best = evaluated[0]
+    # Full ranked list (not just the top pick) so callers can pick the best
+    # candidate NOT already trading (RUNNING grid) without re-querying Binance.
+    ranked = [
+        {
+            "symbol": e["symbol"],
+            "score": round(e["score"], 4),
+            "er": round(e["er"], 4),
+            "best_interval": e["best_interval"],
+            "atr": e["atr"],
+            "atr_pct": round(e["atr_pct"], 6),
+            "volume_24h_usdt": e["volume_24h_usdt"],
+            "funding_rate": e["funding_rate"],
+        }
+        for e in evaluated
+    ]
 
     return {
-        "selected": {
-            "symbol": best["symbol"],
-            "score": round(best["score"], 4),
-            "er": round(best["er"], 4),
-            "best_interval": best["best_interval"],
-            "atr": best["atr"],
-            "atr_pct": round(best["atr_pct"], 6),
-            "volume_24h_usdt": best["volume_24h_usdt"],
-            "funding_rate": best["funding_rate"],
-        },
+        "ranked": ranked,
+        "selected": ranked[0],
         "top_3": [
             {
-                "symbol": e["symbol"],
-                "score": round(e["score"], 4),
-                "er": round(e["er"], 4),
-                "volume_24h_m": round(e["volume_24h_usdt"] / 1e6),
+                "symbol": r["symbol"],
+                "score": r["score"],
+                "er": r["er"],
+                "volume_24h_m": round(r["volume_24h_usdt"] / 1e6),
             }
-            for e in evaluated[:3]
+            for r in ranked[:3]
         ],
         "candidates_evaluated": len(universe),
         "candidates_passed_filters": len(candidates),
@@ -350,3 +356,48 @@ async def select_best_pair_cached(
     result = await select_best_pair(balance, max_risk_pct, leverage_max, min_levels, client=client)
     _pair_cache[key] = (time.time(), result)
     return result
+
+
+async def pick_best_pair(
+    balance: float,
+    max_risk_pct: float,
+    leverage_max: int,
+    min_levels: int,
+    exclude_symbols: Optional[set] = None,
+    client: Optional[BinanceClient] = None,
+) -> Dict[str, Any]:
+    """
+    Like select_best_pair_cached, but skips symbols in exclude_symbols
+    (e.g. pairs that already have a RUNNING grid) using the cached ranked
+    list — no extra Binance calls, so this stays fast even when called on
+    every /lanzar to keep the bot multi-symbol instead of stacking grids
+    on the same top-scoring pair.
+
+    Raises:
+        ValueError: if every ranked candidate is excluded.
+    """
+    raw = await select_best_pair_cached(balance, max_risk_pct, leverage_max, min_levels, client=client)
+    exclude_symbols = exclude_symbols or set()
+
+    ranked = [r for r in raw["ranked"] if r["symbol"] not in exclude_symbols]
+    if not ranked:
+        raise ValueError(
+            f"Todos los {len(raw['ranked'])} candidatos evaluados ya tienen un grid "
+            "RUNNING abierto — espera a que uno se cierre o cambia el balance"
+        )
+
+    return {
+        "selected": ranked[0],
+        "top_3": [
+            {
+                "symbol": r["symbol"],
+                "score": r["score"],
+                "er": r["er"],
+                "volume_24h_m": round(r["volume_24h_usdt"] / 1e6),
+            }
+            for r in ranked[:3]
+        ],
+        "candidates_evaluated": raw["candidates_evaluated"],
+        "candidates_passed_filters": raw["candidates_passed_filters"],
+        "excluded_running_symbols": sorted(exclude_symbols & {r["symbol"] for r in raw["ranked"]}),
+    }
