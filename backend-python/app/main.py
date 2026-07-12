@@ -54,7 +54,7 @@ grid_service = GridService()
 
 # Marcador de versión del código: visible en /health y /auto-params para
 # verificar remotamente qué build está corriendo (sin acceso a logs)
-CODE_VERSION = "v1.5.0-dead-order-detection"
+CODE_VERSION = "v1.6.0-out-of-range-grid-mode"
 
 # Cache de respuestas completas de /auto-params: (balance_bucket, symbol) → (ts, result)
 _auto_params_cache: dict = {}
@@ -265,6 +265,7 @@ async def create_grid(request: GridRequestWithLeverage):
         stop_loss=request.stop_loss,
         take_profit=request.take_profit,
         max_duration_hours=request.max_duration_hours,
+        grid_mode=request.grid_mode,
     )
     return grid
 

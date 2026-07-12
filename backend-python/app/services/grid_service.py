@@ -104,6 +104,8 @@ class GridService:
         max_duration_hours = atr_window_hours * 4
         return max_duration_hours
 
+    _VALID_GRID_MODES = {"NEUTRAL", "LONG", "SHORT"}
+
     async def create_grid(self, symbol: str, levels: int, grid_type: str, quantity_per_order: float,
                            lower_price: Optional[float] = None, upper_price: Optional[float] = None,
                            atr_period: int = 14, atr_multiplier: float = 2.0,
@@ -111,7 +113,8 @@ class GridService:
                            stop_loss: Optional[float] = None,
                            take_profit: Optional[float] = None,
                            max_duration_hours: Optional[float] = None,
-                           leverage: Optional[int] = None) -> Dict[str, Any]:
+                           leverage: Optional[int] = None,
+                           grid_mode: str = "NEUTRAL") -> Dict[str, Any]:
         """
         Calculate grid levels, place LIMIT orders on Binance and persist the grid.
 
@@ -126,10 +129,21 @@ class GridService:
                            Represents the maximum hours the grid should run before
                            reevaluation is recommended.
 
+        grid_mode: NEUTRAL (default) requires the account to have no open
+                   position on `symbol` before creating the grid, and blocks
+                   replenishment while a position drifts away from zero —
+                   guards against a grid unintentionally stacking on top of
+                   directional exposure. LONG/SHORT skip that guard.
+
         Raises:
-            ValueError: if prices/bounds are invalid, or current price/klines
-                        cannot be fetched
+            ValueError: if prices/bounds are invalid, grid_mode is unknown,
+                        a NEUTRAL grid is requested with an existing position,
+                        or current price/klines cannot be fetched
         """
+        grid_mode = grid_mode.upper()
+        if grid_mode not in self._VALID_GRID_MODES:
+            raise ValueError(f"grid_mode must be one of {sorted(self._VALID_GRID_MODES)}, got {grid_mode!r}")
+
         manual_bounds_given = lower_price is not None or upper_price is not None
         manual_bounds_complete = lower_price is not None and upper_price is not None
         if manual_bounds_given and not manual_bounds_complete:
@@ -137,6 +151,17 @@ class GridService:
                 "Provide lower_price and upper_price together, or omit both so "
                 "they are calculated automatically from ATR"
             )
+
+        # Fail fast (before any pricing/klines calls) if NEUTRAL mode would
+        # stack on top of an existing position from outside this bot.
+        if grid_mode == "NEUTRAL":
+            position = await self.binance.get_position(symbol)
+            position_amt = Decimal(position["positionAmt"]) if position else Decimal("0")
+            if position_amt != 0:
+                raise ValueError(
+                    f"Cannot create NEUTRAL grid for {symbol}: existing position {position_amt} != 0. "
+                    "Close the position first, or use grid_mode=LONG/SHORT."
+                )
 
         price_data = await self.binance.get_mark_price(symbol)
         if not price_data or "price" not in price_data:
@@ -267,18 +292,23 @@ class GridService:
         conn = get_sqlite_connection()
         try:
             cursor = conn.cursor()
-            try:
-                cursor.execute("ALTER TABLE grids ADD COLUMN leverage INTEGER DEFAULT 3")
-            except Exception:
-                pass  # column already exists
+            for column_def in (
+                "leverage INTEGER DEFAULT 3",
+                "quantity_per_order NUMERIC",
+                "grid_mode TEXT DEFAULT 'NEUTRAL'",
+            ):
+                try:
+                    cursor.execute(f"ALTER TABLE grids ADD COLUMN {column_def}")
+                except Exception:
+                    pass  # column already exists
             cursor.execute(
-                """INSERT INTO grids (id, symbol, lower_price, upper_price, levels, grid_type, status, stop_loss, take_profit, max_duration_hours, leverage)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO grids (id, symbol, lower_price, upper_price, levels, grid_type, status, stop_loss, take_profit, max_duration_hours, leverage, quantity_per_order, grid_mode)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (grid_id, symbol, str(engine.lower_price), str(engine.upper_price), levels, grid_type, "RUNNING",
                  str(stop_loss) if stop_loss is not None else None,
                  str(take_profit) if take_profit is not None else None,
                  str(max_duration_hours) if max_duration_hours is not None else None,
-                 effective_leverage)
+                 effective_leverage, str(quantized_qty), grid_mode)
             )
             orders_placed = 0
             for spec, order in order_results:
@@ -472,6 +502,22 @@ class GridService:
         if not grid or grid["status"] != "RUNNING":
             return 0
 
+        # NEUTRAL mode: pause replenishment while the account carries a
+        # position on this symbol beyond a small dust tolerance. Replenishing
+        # while unbalanced would keep adding to the same directional
+        # exposure a NEUTRAL grid is meant to avoid.
+        if (grid.get("grid_mode") or "NEUTRAL").upper() == "NEUTRAL":
+            position = await self.binance.get_position(grid["symbol"])
+            position_amt = Decimal(position["positionAmt"]) if position else Decimal("0")
+            qty_per_order = Decimal(grid.get("quantity_per_order") or 0)
+            tolerance = qty_per_order * Decimal("0.05") if qty_per_order > 0 else Decimal("0")
+            if abs(position_amt) > tolerance:
+                logger.warning(
+                    f"Grid {grid_id} ({grid['symbol']}) NEUTRAL mode: position {position_amt} "
+                    f"outside tolerance {tolerance} — blocking replenish this cycle"
+                )
+                return 0
+
         # Recalculate grid levels using stored params
         engine = GridEngine(
             grid["symbol"],
@@ -587,11 +633,16 @@ class GridService:
 
         return placed
 
-    async def get_grid_pnl(self, grid_id: str) -> Optional[Dict[str, Any]]:
+    async def get_grid_pnl(self, grid_id: str, current_price: Optional[Decimal] = None) -> Optional[Dict[str, Any]]:
         """
         Fetch a grid's current orders + mark price and compute PnL via the
         pure calculate_grid_pnl(). Does not call refresh_order_status() -
         call that first if you need PnL based on up to date fill status.
+
+        Args:
+            current_price: Reuse an already-fetched mark price (e.g. from
+                close_grid_if_triggered's OUT_OF_RANGE check) instead of
+                hitting Binance again in the same evaluation cycle.
 
         Raises:
             ValueError: if current price cannot be fetched
@@ -600,10 +651,11 @@ class GridService:
         if not grid:
             return None
 
-        price_data = await self.binance.get_mark_price(grid["symbol"])
-        if not price_data or "price" not in price_data:
-            raise ValueError(f"Could not fetch current price for {grid['symbol']}")
-        current_price = Decimal(str(price_data["price"]))
+        if current_price is None:
+            price_data = await self.binance.get_mark_price(grid["symbol"])
+            if not price_data or "price" not in price_data:
+                raise ValueError(f"Could not fetch current price for {grid['symbol']}")
+            current_price = Decimal(str(price_data["price"]))
 
         pnl = calculate_grid_pnl(grid["orders"], current_price)
         return {
@@ -788,17 +840,19 @@ class GridService:
 
     async def close_grid_if_triggered(self, grid_id: str) -> Optional[Dict[str, Any]]:
         """
-        Evaluate whether a grid should be closed based on four conditions:
+        Evaluate whether a grid should be closed based on five conditions:
         1. EXPIRED: grid age >= max_duration_hours
-        2. MAX_POSITION: net position exceeds MAX_NET_POSITION_LEVELS * quantity_per_order (FIX 2)
-        3. STOP_LOSS: total PnL <= stop_loss threshold
-        4. TAKE_PROFIT: total PnL >= take_profit threshold
+        2. OUT_OF_RANGE: mark price outside [lower_price, upper_price]
+        3. MAX_POSITION: net position exceeds MAX_NET_POSITION_LEVELS * quantity_per_order (FIX 2)
+        4. STOP_LOSS: total PnL <= stop_loss threshold
+        5. TAKE_PROFIT: total PnL >= take_profit threshold
 
         Does not call refresh_order_status() first - call that beforehand
         if the decision needs up to date fills.
 
         Returns:
-            {"grid": <grid dict>, "triggered": "EXPIRED" | "MAX_POSITION" | "STOP_LOSS" | "TAKE_PROFIT" | None}
+            {"grid": <grid dict>, "triggered": "EXPIRED" | "OUT_OF_RANGE" | "MAX_POSITION" |
+             "STOP_LOSS" | "TAKE_PROFIT" | None}
             or None if grid_id does not exist.
         """
         grid = self.get_grid(grid_id)
@@ -816,7 +870,29 @@ class GridService:
                 closed_grid = await self.cancel_grid(grid_id, trigger_condition="EXPIRED")
                 return {"grid": closed_grid, "triggered": "EXPIRED"}
 
-        # Check 2: Max net position accumulated (FIX 2)
+        # Fetch mark price once and reuse it for OUT_OF_RANGE + SL/TP below,
+        # instead of hitting Binance twice in the same evaluation cycle.
+        current_price: Optional[Decimal] = None
+        price_data = await self.binance.get_mark_price(grid["symbol"])
+        if price_data and "price" in price_data:
+            current_price = Decimal(str(price_data["price"]))
+
+        # Check 2: Price left the grid's range entirely. A strong trend that
+        # blows through the range stops earning from oscillation and just
+        # accumulates one-sided exposure — MAX_POSITION (below) is the
+        # position-based backstop for that, this is the price-based one.
+        if current_price is not None:
+            lower_price = Decimal(str(grid["lower_price"]))
+            upper_price = Decimal(str(grid["upper_price"]))
+            if current_price < lower_price or current_price > upper_price:
+                closed_grid = await self.cancel_grid(grid_id, trigger_condition="OUT_OF_RANGE")
+                logger.warning(
+                    f"Grid {grid_id} ({grid['symbol']}) closed: "
+                    f"price {current_price} outside range [{lower_price}, {upper_price}]"
+                )
+                return {"grid": closed_grid, "triggered": "OUT_OF_RANGE"}
+
+        # Check 3: Max net position accumulated (FIX 2)
         qty_per_order = Decimal(grid.get("quantity_per_order") or 0)
         if qty_per_order > 0:
             position = await self.binance.get_position(grid["symbol"])
@@ -826,8 +902,8 @@ class GridService:
                 closed_grid = await self.cancel_grid(grid_id, trigger_condition="MAX_POSITION")
                 return {"grid": closed_grid, "triggered": "MAX_POSITION"}
 
-        # Check 3 & 4: SL/TP
-        pnl = await self.get_grid_pnl(grid_id)
+        # Check 4 & 5: SL/TP
+        pnl = await self.get_grid_pnl(grid_id, current_price=current_price)
 
         stop_loss = Decimal(str(grid["stop_loss"])) if grid.get("stop_loss") is not None else None
         take_profit = Decimal(str(grid["take_profit"])) if grid.get("take_profit") is not None else None

@@ -51,6 +51,12 @@ class GridRequest(BaseModel):
         description="Maximum duration for the grid in hours. If omitted, calculated automatically "
                      "as 4x (klines_interval * atr_period). E.g., 4h interval + ATR(14) → ~56h history → 224h max_duration."
     )
+    grid_mode: str = Field(
+        default="NEUTRAL",
+        description="NEUTRAL (default): requires no existing position on `symbol` before creating "
+                     "the grid, and pauses replenishment while the position drifts from zero. "
+                     "LONG/SHORT: skip that guard for directional grids. One of NEUTRAL, LONG, SHORT."
+    )
 
     class Config:
         json_schema_extra = {
@@ -77,6 +83,9 @@ class GridResponse(BaseModel):
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
     max_duration_hours: Optional[float] = None
+    leverage: Optional[int] = None
+    quantity_per_order: Optional[float] = None
+    grid_mode: Optional[str] = None
     created_at: datetime
 
     class Config:

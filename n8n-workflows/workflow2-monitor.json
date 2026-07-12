@@ -42,7 +42,7 @@
     {
       "parameters": {
         "chatId": "={{ $json.chatId }}",
-        "text": "={{ '🔒 GRID CERRADO - ' + $json.grid.symbol + '\n\n📌 Motivo: ' + ($json.triggered === 'STOP_LOSS' ? '❌ Stop Loss' : $json.triggered === 'TAKE_PROFIT' ? '✅ Take Profit' : $json.triggered === 'EXPIRED' ? '⏰ Expiración' : '🤷 Manual') + '\n📊 PnL Total: ' + ($json.grid.total_pnl || 'N/A') + ' USDT\n🆔 Grid ID: ' + $json.grid.id + '\n✨ Ciclos: ' + ($json.grid.cycles_completed || '0') }}",
+        "text": "={{ '🔒 GRID CERRADO - ' + $json.grid.symbol + '\n\n📌 Motivo: ' + ($json.triggered === 'STOP_LOSS' ? '❌ Stop Loss' : $json.triggered === 'TAKE_PROFIT' ? '✅ Take Profit' : $json.triggered === 'EXPIRED' ? '⏰ Expiración' : $json.triggered === 'OUT_OF_RANGE' ? '📉 Precio fuera de rango' : $json.triggered === 'MAX_POSITION' ? '⚖️ Posición neta excedida' : $json.triggered === 'RECONCILIATION_FAILED' ? '👻 Órdenes sin confirmar en Binance' : '🤷 Manual') + '\n📊 PnL Total: ' + ($json.grid.total_pnl || 'N/A') + ' USDT\n🆔 Grid ID: ' + $json.grid.id + '\n✨ Ciclos: ' + ($json.grid.cycles_completed || '0') }}",
         "additionalFields": {}
       },
       "id": "558ca711-6c09-4e04-8302-5bd2a3263ec0",
