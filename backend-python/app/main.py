@@ -54,7 +54,7 @@ grid_service = GridService()
 
 # Marcador de versión del código: visible en /health y /auto-params para
 # verificar remotamente qué build está corriendo (sin acceso a logs)
-CODE_VERSION = "v1.4.0-multisymbol-exclude-running"
+CODE_VERSION = "v1.5.0-dead-order-detection"
 
 # Cache de respuestas completas de /auto-params: (balance_bucket, symbol) → (ts, result)
 _auto_params_cache: dict = {}
@@ -322,7 +322,16 @@ async def refresh_grid_orders(grid_id: str):
     # Replenish filled orders to create continuous grid cycles
     replenished = await grid_service.replenish_filled_orders(grid_id)
     if replenished > 0:
+        # get_grid() returns a fresh dict without the transient reconciliation
+        # fields refresh_order_status() attached above — carry them over so
+        # n8n still sees refresh_status/unconfirmed_order_ids on this call.
+        reconciliation_fields = {
+            k: grid.get(k) for k in
+            ("refresh_status", "refresh_failure_count", "unconfirmed_order_ids", "extra_order_ids")
+            if k in grid
+        }
         grid = grid_service.get_grid(grid_id)
+        grid.update(reconciliation_fields)
 
     return grid
 

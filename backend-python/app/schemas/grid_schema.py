@@ -103,6 +103,12 @@ class GridDetailResponse(GridResponse):
     """Schema for grid response including its orders"""
 
     orders: list[OrderResponse] = []
+    # Transient reconciliation fields set by refresh_order_status() — not
+    # persisted columns, only present on POST /grids/{id}/refresh responses.
+    refresh_status: Optional[str] = None  # "ok" | "unreconciled" | "auto_canceled" | "auto_cancel_failed"
+    refresh_failure_count: Optional[int] = None
+    unconfirmed_order_ids: Optional[list[str]] = None
+    extra_order_ids: Optional[list[str]] = None
 
 
 class GridPnlResponse(BaseModel):

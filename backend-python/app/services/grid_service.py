@@ -4,6 +4,7 @@ Orchestrates grid calculation, order execution on Binance, and local persistence
 """
 
 import asyncio
+import logging
 import uuid
 from datetime import datetime, timezone
 from decimal import ROUND_DOWN, Decimal
@@ -17,9 +18,12 @@ from app.services.binance_client import BinanceClient
 from app.services.grid_engine import GridEngine, GridType
 from app.services.indicators import calculate_atr, calculate_grid_bounds, calculate_grid_pnl, check_sl_tp, validate_grid_step
 
+logger = logging.getLogger(__name__)
+
 _BATCH_SIZE = 5
 _INTER_BATCH_DELAY_SECONDS = 0.5
 _TERMINAL_ORDER_STATUSES = {"FILLED", "CANCELED", "REJECTED", "EXPIRED"}
+_MAX_REFRESH_FAILURES = 3  # consecutive unreconciled refresh cycles before auto-cancel
 
 
 class GridService:
@@ -27,6 +31,12 @@ class GridService:
 
     def __init__(self):
         self.binance = BinanceClient()
+        # Consecutive refresh cycles (n8n polls every 5 min) where Binance
+        # state could not be fully reconciled for a grid — either the whole
+        # openOrders call failed, or an individual order could be confirmed
+        # neither open nor closed. Resets to 0 on any clean refresh.
+        # _MAX_REFRESH_FAILURES=3 -> auto-cancel window is ~15 minutes.
+        self._refresh_fail_counters: Dict[str, int] = {}
 
     @staticmethod
     def _snap_down(value: Decimal, step: Decimal) -> Decimal:
@@ -310,8 +320,15 @@ class GridService:
         all open orders, then only queries individual orders that have closed
         (not in the open set). Reduces N calls to 1 + (closed orders).
 
-        Pure pass-through of Binance's reported state: it does not interpret
-        or act on the result (no PnL, no SL/TP check, no cancellation).
+        Dead-order / reconciliation safety net: if this grid's state cannot
+        be fully confirmed against Binance (the openOrders call itself fails,
+        or an individual order comes back neither open nor resolvable) for
+        _MAX_REFRESH_FAILURES consecutive cycles, the grid is auto-canceled
+        rather than left silently drifting between local and remote state.
+        The result carries `refresh_status` / `unconfirmed_order_ids` /
+        `extra_order_ids` (not persisted columns — added to the in-memory
+        dict) so the caller can alert on partial mismatches even when the
+        grid isn't bad enough to auto-cancel yet.
 
         Returns:
             Updated grid (with orders) or None if grid_id does not exist.
@@ -322,16 +339,20 @@ class GridService:
 
         open_orders = [o for o in grid["orders"] if o["status"] not in _TERMINAL_ORDER_STATUSES]
         if not open_orders:
+            self._refresh_fail_counters.pop(grid_id, None)
+            grid["refresh_status"] = "ok"
             return grid
 
         # Fetch all open orders on Binance for this symbol (1 call)
         binance_open = await self.binance.get_open_orders(grid["symbol"])
         if binance_open is None:
-            # Network error - leave local state untouched
-            return grid
+            return await self._handle_refresh_failure(
+                grid_id, grid, reason="openOrders call failed (network/API error)"
+            )
 
         # Build set of orderIds that are still open on Binance
         open_order_ids = set(str(o["orderId"]) for o in binance_open)
+        unconfirmed_ids: List[str] = []
 
         conn = get_sqlite_connection()
         try:
@@ -356,7 +377,12 @@ class GridService:
                     # Order is not in open list - must have closed, query individually to know status
                     remote = await self.binance.get_order_status(grid["symbol"], int(order["id"]))
                     if not remote or "status" not in remote:
-                        continue  # Unreachable - leave local status untouched
+                        # Dead/orphaned order: neither open on Binance nor
+                        # resolvable via direct lookup. Leave local status
+                        # untouched but flag it — this is exactly the
+                        # "phantom order" drift scenario.
+                        unconfirmed_ids.append(order_id_str)
+                        continue
                     new_status = remote["status"]
                     executed_qty = remote.get("executedQty", "0")
                     avg_price = remote.get("avgPrice", "0")
@@ -369,7 +395,61 @@ class GridService:
         finally:
             conn.close()
 
-        return self.get_grid(grid_id)
+        if unconfirmed_ids:
+            return await self._handle_refresh_failure(
+                grid_id, self.get_grid(grid_id),
+                reason=f"{len(unconfirmed_ids)} order(s) unconfirmed on Binance",
+                unconfirmed_ids=unconfirmed_ids,
+            )
+
+        # Clean reconciliation this cycle
+        self._refresh_fail_counters.pop(grid_id, None)
+        result = self.get_grid(grid_id)
+        result["refresh_status"] = "ok"
+        # Extra visibility: orders open on Binance but not tracked locally
+        # (e.g. manual intervention on the exchange UI, or a replenish race).
+        local_open_ids = {str(o["id"]) for o in result["orders"] if o["status"] not in _TERMINAL_ORDER_STATUSES}
+        extra_ids = sorted(open_order_ids - local_open_ids)
+        if extra_ids:
+            result["extra_order_ids"] = extra_ids
+            logger.warning(f"Grid {grid_id}: {len(extra_ids)} order(s) open on Binance but untracked locally: {extra_ids}")
+        return result
+
+    async def _handle_refresh_failure(
+        self, grid_id: str, grid: Dict[str, Any], reason: str,
+        unconfirmed_ids: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Bump the per-grid failure counter; auto-cancel once it reaches
+        _MAX_REFRESH_FAILURES instead of letting local/remote state drift
+        indefinitely. Never raises — cancellation failures are logged and
+        the grid is still reported back with its (unreconciled) local state.
+        """
+        count = self._refresh_fail_counters.get(grid_id, 0) + 1
+        self._refresh_fail_counters[grid_id] = count
+        logger.warning(f"Grid {grid_id}: refresh failure {count}/{_MAX_REFRESH_FAILURES} ({reason})")
+
+        if count < _MAX_REFRESH_FAILURES:
+            grid["refresh_status"] = "unreconciled"
+            grid["refresh_failure_count"] = count
+            if unconfirmed_ids:
+                grid["unconfirmed_order_ids"] = unconfirmed_ids
+            return grid
+
+        logger.critical(
+            f"Grid {grid_id}: {count} consecutive unreconciled refresh cycles — auto-canceling"
+        )
+        self._refresh_fail_counters.pop(grid_id, None)
+        try:
+            closed = await self.cancel_grid(grid_id, trigger_condition="RECONCILIATION_FAILED")
+            if closed:
+                closed["refresh_status"] = "auto_canceled"
+                return closed
+        except Exception as e:
+            logger.critical(f"Grid {grid_id}: auto-cancel after reconciliation failure ALSO failed: {e}")
+
+        grid["refresh_status"] = "auto_cancel_failed"
+        return grid
 
     async def replenish_filled_orders(self, grid_id: str) -> int:
         """
