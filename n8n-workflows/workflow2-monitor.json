@@ -270,7 +270,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const resp = $json;\nconst grid = $('Split in Batches (Sequential)').item.json;\nconst body = resp.body || {};\nconst httpError = resp.statusCode !== 200;\n\n// Dead-order / reconciliation safety net: refresh_order_status() returns\n// HTTP 200 even when it couldn't fully confirm Binance state — surface\n// those cases as alertable errors too instead of only checking statusCode.\nconst refreshStatus = body.refresh_status;\nconst reconciliationIssue = refreshStatus && refreshStatus !== 'ok';\nconst isError = httpError || reconciliationIssue;\n\nlet errorMessage = null;\nif (httpError) {\n  errorMessage = body.detail || JSON.stringify(body);\n} else if (refreshStatus === 'unreconciled') {\n  errorMessage = `No se pudo confirmar el estado en Binance (intento ${body.refresh_failure_count}/3)` +\n    (body.unconfirmed_order_ids ? `. Ordenes sin confirmar: ${body.unconfirmed_order_ids.join(', ')}` : '');\n} else if (refreshStatus === 'auto_canceled') {\n  errorMessage = 'Grid CANCELADO automaticamente: 3 ciclos seguidos sin poder confirmar ordenes en Binance (posible desfase local/remoto).';\n} else if (refreshStatus === 'auto_cancel_failed') {\n  errorMessage = 'CRITICO: no se pudo confirmar el grid en Binance NI cancelarlo automaticamente. Revisar manualmente.';\n}\n\nreturn {\n  json: {\n    gridId: grid.id,\n    symbol: grid.symbol,\n    isError,\n    statusCode: resp.statusCode,\n    errorMessage,\n    grid: isError ? grid : body\n  }\n};"
+        "jsCode": "const resp = $json;\nconst grid = $('Split in Batches (Sequential)').item.json;\nconst body = resp.body || {};\nconst httpError = resp.statusCode !== 200;\n\n// Dead-order / reconciliation safety net: refresh_order_status() returns\n// HTTP 200 even when it couldn't fully confirm Binance state - surface\n// those cases as alertable errors too instead of only checking statusCode.\nconst refreshStatus = body.refresh_status;\nconst reconciliationIssue = refreshStatus && refreshStatus !== 'ok';\nconst isError = httpError || reconciliationIssue;\n\nlet errorMessage = null;\nif (httpError) {\n  errorMessage = body.detail || JSON.stringify(body);\n} else if (refreshStatus === 'unreconciled') {\n  errorMessage = `No se pudo confirmar el estado en Binance (intento ${body.refresh_failure_count}/3)` +\n    (body.unconfirmed_order_ids ? `. Ordenes sin confirmar: ${body.unconfirmed_order_ids.join(', ')}` : '');\n} else if (refreshStatus === 'auto_canceled') {\n  errorMessage = 'Grid CANCELADO automaticamente: 3 ciclos seguidos sin poder confirmar ordenes en Binance (posible desfase local/remoto).';\n} else if (refreshStatus === 'auto_cancel_failed') {\n  errorMessage = 'CRITICO: no se pudo confirmar el grid en Binance NI cancelarlo automaticamente. Revisar manualmente.';\n}\n\n// Reconciliation can succeed AND still be newsworthy: an order canceled\n// outside the bot (manual intervention, Binance-side auto-cancel, etc.)\n// doesn't leave state inconsistent, but the operator should know.\nconst externalCancels = body.external_cancellations || [];\nconst hasExternalCancels = externalCancels.length > 0;\n\nreturn {\n  json: {\n    gridId: grid.id,\n    symbol: grid.symbol,\n    isError,\n    statusCode: resp.statusCode,\n    errorMessage,\n    hasExternalCancels,\n    externalCancels,\n    grid: isError ? grid : body\n  }\n};"
       },
       "id": "900ae644-bedc-420a-9e39-9c56589ff1bb",
       "name": "Interpret Refresh Result",
@@ -443,6 +443,75 @@
       ],
       "id": "c41c1235-7e67-44e9-94c9-fa6a556c6456",
       "name": "WF-Monitoreo-Trading"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond_external_cancels",
+              "leftValue": "={{ $json.hasExternalCancels }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d4e5f6a7-1234-4bcd-9ef0-external000001",
+      "name": "IF: External Cancels?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1024,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatIds = $env.TELEGRAM_CHAT_ID.split(',');\nreturn chatIds.map(id => ({\n  json: {\n    chatId: id.trim(),\n    symbol: $json.symbol,\n    externalCancels: $json.externalCancels\n  }\n}));"
+      },
+      "id": "d4e5f6a7-1234-4bcd-9ef0-external000002",
+      "name": "Split Chat IDs (External Cancel)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -800,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ '⚠️ ALERTA DE SINCRONIZACIÓN\\n\\nGrid: ' + $json.symbol + '\\nCambio detectado: ORDEN CANCELADA EXTERNAMENTE\\n\\n📋 Detalles:\\n' + ($json.externalCancels.map(c => '  • Order ID: ' + c.order_id + '\\n    Precio: ' + c.price + '\\n    Cantidad: ' + c.quantity + '\\n    Ejecutada: ' + c.executed_qty + '\\n').join('\\n')) }}",
+        "additionalFields": {}
+      },
+      "id": "d4e5f6a7-1234-4bcd-9ef0-external000003",
+      "name": "Notify: Order Canceled Externally",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -576,
+        420
+      ],
+      "webhookId": "external-cancel-webhook-0001",
+      "credentials": {
+        "telegramApi": {
+          "id": "zurDfqIC4Qy17sUA",
+          "name": "TRADING"
+        }
+      }
     }
   ],
   "pinData": {
@@ -625,7 +694,7 @@
       "main": [
         [
           {
-            "node": "IF: Refresh failed?",
+            "node": "IF: External Cancels?",
             "type": "main",
             "index": 0
           }
@@ -739,6 +808,46 @@
         [
           {
             "node": "List Running Grids",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: External Cancels?": {
+      "main": [
+        [
+          {
+            "node": "Split Chat IDs (External Cancel)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF: Refresh failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Chat IDs (External Cancel)": {
+      "main": [
+        [
+          {
+            "node": "Notify: Order Canceled Externally",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify: Order Canceled Externally": {
+      "main": [
+        [
+          {
+            "node": "IF: Refresh failed?",
             "type": "main",
             "index": 0
           }

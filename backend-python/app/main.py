@@ -54,7 +54,7 @@ grid_service = GridService()
 
 # Marcador de versión del código: visible en /health y /auto-params para
 # verificar remotamente qué build está corriendo (sin acceso a logs)
-CODE_VERSION = "v1.6.0-out-of-range-grid-mode"
+CODE_VERSION = "v1.7.0-external-cancel-detection"
 
 # Cache de respuestas completas de /auto-params: (balance_bucket, symbol) → (ts, result)
 _auto_params_cache: dict = {}
@@ -328,7 +328,8 @@ async def refresh_grid_orders(grid_id: str):
         # n8n still sees refresh_status/unconfirmed_order_ids on this call.
         reconciliation_fields = {
             k: grid.get(k) for k in
-            ("refresh_status", "refresh_failure_count", "unconfirmed_order_ids", "extra_order_ids")
+            ("refresh_status", "refresh_failure_count", "unconfirmed_order_ids",
+             "extra_order_ids", "external_cancellations")
             if k in grid
         }
         grid = grid_service.get_grid(grid_id)

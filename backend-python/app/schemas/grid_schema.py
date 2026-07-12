@@ -118,6 +118,7 @@ class GridDetailResponse(GridResponse):
     refresh_failure_count: Optional[int] = None
     unconfirmed_order_ids: Optional[list[str]] = None
     extra_order_ids: Optional[list[str]] = None
+    external_cancellations: Optional[list[dict]] = None
 
 
 class GridPnlResponse(BaseModel):

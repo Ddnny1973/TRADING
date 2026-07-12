@@ -383,6 +383,7 @@ class GridService:
         # Build set of orderIds that are still open on Binance
         open_order_ids = set(str(o["orderId"]) for o in binance_open)
         unconfirmed_ids: List[str] = []
+        external_cancellations: List[Dict[str, Any]] = []
 
         conn = get_sqlite_connection()
         try:
@@ -416,6 +417,26 @@ class GridService:
                     new_status = remote["status"]
                     executed_qty = remote.get("executedQty", "0")
                     avg_price = remote.get("avgPrice", "0")
+
+                    # Reconciliation succeeded (we got a confirmed answer) but
+                    # the answer is "someone/something canceled this outside
+                    # the bot" — worth telling the operator even though local
+                    # state is about to become consistent again.
+                    if new_status == "CANCELED" and order["status"] != "CANCELED":
+                        logger.warning(
+                            f"Grid {grid_id}: external cancellation detected for order "
+                            f"{order['id']} (was {order['status']}, price={order.get('price')}, "
+                            f"qty={order.get('quantity')}, executed={executed_qty})"
+                        )
+                        external_cancellations.append({
+                            "order_id": order_id_str,
+                            "price": str(order.get("price", "0")),
+                            "quantity": str(order.get("quantity", "0")),
+                            "executed_qty": str(executed_qty),
+                            "status_was": order["status"],
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        })
+
                     cursor.execute(
                         "UPDATE grid_orders SET status = ?, executed_qty = ?, avg_fill_price = ? WHERE id = ?",
                         (new_status, executed_qty, avg_price, order["id"])
@@ -426,16 +447,21 @@ class GridService:
             conn.close()
 
         if unconfirmed_ids:
-            return await self._handle_refresh_failure(
+            failure_result = await self._handle_refresh_failure(
                 grid_id, self.get_grid(grid_id),
                 reason=f"{len(unconfirmed_ids)} order(s) unconfirmed on Binance",
                 unconfirmed_ids=unconfirmed_ids,
             )
+            if external_cancellations:
+                failure_result["external_cancellations"] = external_cancellations
+            return failure_result
 
         # Clean reconciliation this cycle
         self._refresh_fail_counters.pop(grid_id, None)
         result = self.get_grid(grid_id)
         result["refresh_status"] = "ok"
+        if external_cancellations:
+            result["external_cancellations"] = external_cancellations
         # Extra visibility: orders open on Binance but not tracked locally
         # (e.g. manual intervention on the exchange UI, or a replenish race).
         local_open_ids = {str(o["id"]) for o in result["orders"] if o["status"] not in _TERMINAL_ORDER_STATUSES}
