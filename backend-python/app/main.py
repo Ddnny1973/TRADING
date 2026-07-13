@@ -120,6 +120,7 @@ async def root():
         "service": "Grid Trading Hybrid - Backend",
         "status": "ready",
         "api_version": "v1",
+        "code_version": CODE_VERSION,
         "docs": "/api/docs",
         "running_grids": len(running_grids),
         "max_concurrent_grids": settings.MAX_CONCURRENT_GRIDS,
