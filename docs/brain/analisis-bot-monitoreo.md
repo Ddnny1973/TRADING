@@ -80,9 +80,22 @@ Hay **tres bases Postgres/SQLite distintas**, fácil de confundir:
   reconciliación, auto-cancelaciones). Ver sección 4 de
   `docs/analisis-bot/01-estado-actual-vs-futuro.md`.
 
+## Visión a futuro: orquestador multi-estrategia con IA (2026-07-30)
+
+El usuario planteó el "sueño" de un agente que revise indicadores y decida
+QUÉ estrategia usar (no solo lanzar/no lanzar Grid) — ver
+`docs/analisis-bot/02-vision-orquestador-multiestrategia.md` para el
+detalle completo (patrón propuesto extendiendo Workflow 1 + Gemini, qué NO
+debe hacer el LLM — calcular indicadores o colocar órdenes directamente —,
+y las 3 opciones para tener indicadores NRT: acortar cron, triggers por
+horario de sesión, o websocket+Redis). Es un borrador/brainstorm, **no una
+decisión tomada** — depende de si se implementan más estrategias (pendiente
+con la compañera del usuario).
+
 ## Siguiente sesión: retomar aquí, no repetir la exploración
 
 Si se retoma este tema en otra sesión, leer primero
-`docs/analisis-bot/01-estado-actual-vs-futuro.md` completo (tiene todas las
-tablas y el razonamiento) y esta nota, antes de volver a analizar el
-documento raíz o el código del backend desde cero.
+`docs/analisis-bot/01-estado-actual-vs-futuro.md` y
+`docs/analisis-bot/02-vision-orquestador-multiestrategia.md` completos
+(tienen todas las tablas y el razonamiento) y esta nota, antes de volver a
+analizar el documento raíz o el código del backend desde cero.
