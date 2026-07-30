@@ -1,0 +1,82 @@
+---
+title: "Análisis y monitoreo del bot — línea de trabajo en curso"
+type: nota
+app: trading-grid-bot
+repo: TRADING
+tags: [monitoreo, analitica, postgres, grid-trading]
+related:
+  - "[[_index]]"
+  - "[[decisiones-tecnicas]]"
+updated: 2026-07-30
+owner: dueño del repo
+---
+
+# Análisis y monitoreo del bot
+
+## Contexto
+
+El usuario pidió (2026-07-30) revisar el documento raíz `Estrategias de
+Trading Automatizado con n8n y Binance.md` y comparar sus 5 estrategias
+propuestas contra lo realmente implementado. Conclusión: **solo Grid
+Trading está implementado**; las otras 4 (Breakout NY, Rango Asiático, HMM,
+EMA Cross) quedaron pendientes de decisión con la compañera del usuario —
+no asumir que hay que implementarlas, es una decisión de producto abierta.
+
+De ahí se derivó una segunda necesidad, más urgente para el usuario: **poder
+medir si el bot es rentable** (sigue en testnet, dinero ficticio) para
+decidir con datos cuándo pasar a dinero real, no por intuición.
+
+## Dónde vive el análisis detallado
+
+`docs/analisis-bot/01-estado-actual-vs-futuro.md` — documento vivo con:
+- Tabla estrategias documento vs. código real.
+- Tabla directrices Grid Trading (Decimal, kill-switch, sync horaria, etc.)
+  vs. lo implementado.
+- Diseño de las tablas de monitoreo en Postgres.
+- Métricas objetivo y criterio borrador para pasar a dinero real.
+- Checklist de próximos pasos.
+
+`docs/analisis-bot/` es una carpeta nueva para este tipo de análisis
+evolutivo (iterativo, con estado "en progreso"). Distinta de `docs/brain/`
+(conocimiento tácito ya estable/verificado) y de `Analisis Propios/` (notas
+personales del usuario, no atadas a sesiones con IA).
+
+## Hallazgo clave de infraestructura de datos
+
+Hay **tres bases Postgres/SQLite distintas**, fácil de confundir:
+1. SQLite local del contenedor backend (`grid_trading.db`) — estado
+   operativo en tiempo real de grids/órdenes (`grids`, `grid_orders`,
+   `grid_closures`).
+2. Postgres del backend (`postgres-trading`, puerto 9043) — pensado para
+   histórico/analítica. Antes de este análisis solo tenía
+   `historical_grid_logs` (PnL final por grid, sin fees ni ciclos).
+3. Postgres **de n8n** (puerto 9032, otra instancia física) — tiene
+   `public.metricas_personalizadas`, que solo mide tokens de Gemini
+   gastados por ejecución. NO tiene nada de performance del bot. Fácil de
+   confundir con la #2 porque ambas son "Postgres del proyecto".
+
+## Estado de implementación del monitoreo (actualizar aquí a medida que avance)
+
+- ✅ 2026-07-30: Modelos SQLAlchemy `GridCycle` y `PnlSnapshot` añadidos a
+  `backend-python/app/database/models.py`.
+- ✅ 2026-07-30: Script manual
+  `backend-python/app/database/migration_002_monitoring_tables.sql` creado
+  (CREATE TABLE IF NOT EXISTS para ambas tablas + índices). El usuario lo
+  corre él mismo contra `postgres-trading` — Copilot no tiene acceso a la
+  base de datos ni a ninguna herramienta de conexión SQL en este entorno.
+- ❌ PENDIENTE: `grid_service.py` todavía NO escribe filas reales en
+  `grid_cycles` (al detectar un ciclo completo en
+  `replenish_filled_orders()`) ni en `pnl_snapshots` (al hacer
+  `refresh_order_status()` / endpoint `/refresh`). Los modelos y tablas son
+  solo el esqueleto todavía.
+- ❌ PENDIENTE (fase 2, no diseñado en detalle aún): tablas `bot_executions`
+  (uptime/errores de Workflow 1 y 2) y `bot_health_events` (incidentes de
+  reconciliación, auto-cancelaciones). Ver sección 4 de
+  `docs/analisis-bot/01-estado-actual-vs-futuro.md`.
+
+## Siguiente sesión: retomar aquí, no repetir la exploración
+
+Si se retoma este tema en otra sesión, leer primero
+`docs/analisis-bot/01-estado-actual-vs-futuro.md` completo (tiene todas las
+tablas y el razonamiento) y esta nota, antes de volver a analizar el
+documento raíz o el código del backend desde cero.

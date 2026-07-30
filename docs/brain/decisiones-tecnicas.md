@@ -57,3 +57,14 @@ workflows n8n**, sin optimizar todavía la estrategia de trading/rentabilidad
   Binance (código -1007/-1021 dentro de un HTTP 200), confirmando vía
   `_get_order_by_client_id` antes de reencolar — evita duplicar órdenes ya
   colocadas exitosamente.
+
+## Línea de trabajo abierta (2026-07-30): monitoreo/analítica antes de pasar a dinero real
+
+El usuario sigue en testnet (`BINANCE_TESTNET_URL` en `config.py`) a
+propósito — la prioridad inmediata NO es explorar las otras 4 estrategias
+del documento raíz `Estrategias de Trading Automatizado con n8n y
+Binance.md` (eso queda pendiente de decidir con su compañera), sino poder
+**medir objetivamente si Grid Trading es rentable** para decidir con datos
+cuándo pasar a dinero real. Ver [[analisis-bot-monitoreo]] para el detalle
+completo y el estado de avance (evita repetir esta exploración en sesiones
+futuras).

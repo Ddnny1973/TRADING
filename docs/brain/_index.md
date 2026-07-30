@@ -46,6 +46,11 @@ memoria de sesiones de IA y no estaba escrito en ningún archivo del repo.
   Community Edition sin `$vars`).
 - [[decisiones-tecnicas]] — decisiones de producto/arquitectura tomadas y su
   razón (proveedor de IA, límites de seguridad, alcance de la fase actual).
+- [[analisis-bot-monitoreo]] — línea de trabajo en curso: diseño de tablas
+  de monitoreo en Postgres (`grid_cycles`, `pnl_snapshots`) para poder medir
+  rentabilidad real del bot antes de decidir el paso a dinero real. Ver
+  también `docs/analisis-bot/` (carpeta de análisis evolutivos, distinta de
+  `docs/brain/` y de `Analisis Propios/`).
 
 ## Puntos de entrada existentes (no duplicar, solo enlazar)
 
