@@ -98,7 +98,8 @@ def init_sqlite_tables():
 
     # Add columns for executed quantity, average fill price, and replenish flag (Fase 2 & 3)
     for column_def in ("executed_qty NUMERIC DEFAULT 0", "avg_fill_price NUMERIC",
-                       "replenished INTEGER DEFAULT 0", "level_index INTEGER", "cycle INTEGER DEFAULT 0"):
+                       "replenished INTEGER DEFAULT 0", "level_index INTEGER", "cycle INTEGER DEFAULT 0",
+                       "source_order_id TEXT", "cycle_logged INTEGER DEFAULT 0"):
         try:
             cursor.execute(f"ALTER TABLE grid_orders ADD COLUMN {column_def}")
         except sqlite3.OperationalError:

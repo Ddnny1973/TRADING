@@ -61,14 +61,20 @@ Hay **tres bases Postgres/SQLite distintas**, fácil de confundir:
   `backend-python/app/database/models.py`.
 - ✅ 2026-07-30: Script manual
   `backend-python/app/database/migration_002_monitoring_tables.sql` creado
-  (CREATE TABLE IF NOT EXISTS para ambas tablas + índices). El usuario lo
-  corre él mismo contra `postgres-trading` — Copilot no tiene acceso a la
-  base de datos ni a ninguna herramienta de conexión SQL en este entorno.
-- ❌ PENDIENTE: `grid_service.py` todavía NO escribe filas reales en
-  `grid_cycles` (al detectar un ciclo completo en
-  `replenish_filled_orders()`) ni en `pnl_snapshots` (al hacer
-  `refresh_order_status()` / endpoint `/refresh`). Los modelos y tablas son
-  solo el esqueleto todavía.
+  y YA EJECUTADO por el usuario contra `postgres-trading` (confirmado:
+  tablas `grid_cycles` y `pnl_snapshots` existen con todas sus columnas).
+  Copilot no tiene acceso a la base de datos ni a ninguna herramienta de
+  conexión SQL en este entorno — el usuario corre los scripts.
+- ✅ 2026-07-30: `grid_service.py` ya escribe en ambas tablas — nuevos
+  métodos `_record_completed_cycles()` y `_write_pnl_snapshot()`, enganchados
+  al final de `refresh_order_status()` (ruta de reconciliación limpia).
+  Nuevas columnas en SQLite `grid_orders`: `source_order_id` (enlaza una
+  orden de reposición con la que la originó) y `cycle_logged` (evita
+  duplicar el registro del ciclo en Postgres).
+- ⚠️ PENDIENTE: validar en vivo (Binance testnet) que un ciclo completo
+  BUY→replenish SELL→FILLED genera la fila esperada en `grid_cycles`.
+  `pytest` local no se pudo correr (falta `sqlalchemy` en el venv local) —
+  validar en Docker/CI antes de desplegar a los servidores reales.
 - ❌ PENDIENTE (fase 2, no diseñado en detalle aún): tablas `bot_executions`
   (uptime/errores de Workflow 1 y 2) y `bot_health_events` (incidentes de
   reconciliación, auto-cancelaciones). Ver sección 4 de

@@ -85,19 +85,29 @@ open_orders_count`.
 - ✅ Modelos SQLAlchemy añadidos en
   [`backend-python/app/database/models.py`](../../backend-python/app/database/models.py)
   (`GridCycle`, `PnlSnapshot`).
-- ✅ Script SQL manual para crear las tablas ya, sin esperar redeploy:
-  [`backend-python/app/database/migration_002_monitoring_tables.sql`](../../backend-python/app/database/migration_002_monitoring_tables.sql)
-  (el usuario lo corre directamente contra `postgres-trading`; Copilot no
-  tiene acceso a la base de datos).
-- ❌ PENDIENTE: el código de `grid_service.py` todavía NO escribe en estas
-  tablas — los modelos/tablas son solo el esqueleto. Falta:
-  1. En `replenish_filled_orders()` (o donde se detecta el fill opuesto que
-     cierra un ciclo): insertar una fila en `grid_cycles`.
-  2. En `refresh_order_status()` / el endpoint `/refresh`: insertar una fila
-     en `pnl_snapshots` con el resultado de `get_grid_pnl`.
-  - También sigue pendiente correr el `Base.metadata.create_all()` (o el
-    `.sql`) contra la base real, y decidir si `init_postgres_tables()`
-    (automático al boot) es suficiente o si se prefiere solo el script manual.
+- ✅ Tablas creadas en `postgres-trading` (usuario corrió
+  `migration_002_monitoring_tables.sql` manualmente — confirmado por
+  captura: `grid_cycles` con 14 columnas, `pnl_snapshots` con 9 columnas).
+- ✅ `grid_service.py` ya escribe en ambas tablas (best-effort, nunca rompe
+  el `/refresh` si Postgres o una llamada a Binance para fees/balance
+  falla):
+  1. `replenish_filled_orders()` ahora guarda `source_order_id` en cada
+     orden de reposición (enlaza la nueva orden con la que la originó —
+     columnas `grid_orders.source_order_id` / `grid_orders.cycle_logged`
+     nuevas en SQLite).
+  2. `_record_completed_cycles()` (llamado al final de
+     `refresh_order_status()`): detecta cuándo una orden de reposición
+     también quedó FILLED (ciclo BUY+SELL completo), calcula fee real vía
+     `get_commission_rate` y escribe la fila en `grid_cycles`.
+  3. `_write_pnl_snapshot()` (llamado también al final de
+     `refresh_order_status()`): toma el resultado de `get_grid_pnl()` +
+     balance de cuenta y escribe una fila en `pnl_snapshots` — una por
+     cada ciclo de refresh de Workflow 2 (~15 min).
+- ⚠️ PENDIENTE DE VALIDAR: correr esto contra Binance/Postgres reales al
+  menos un ciclo completo (BUY llenado → replenish SELL → SELL llenado)
+  para confirmar que `grid_cycles` recibe una fila con `net_pnl` coherente.
+  `pytest` local no se pudo correr (falta `sqlalchemy` en el venv local,
+  limitación ya conocida — validar en Docker/CI antes de desplegar).
 
 ## 5. Métricas objetivo para responder "¿es rentable el bot?"
 

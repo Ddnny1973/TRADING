@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 from app.config_auto_params import GRID_LEVERAGE_DEFAULT
 from app.core.config import settings
 from app.database.connection import get_sqlite_connection, SessionLocal
-from app.database.models import HistoricalGridLog
+from app.database.models import HistoricalGridLog, GridCycle, PnlSnapshot
 from app.services.binance_client import BinanceClient
 from app.services.grid_engine import GridEngine, GridType
 from app.services.indicators import calculate_atr, calculate_grid_bounds, calculate_grid_pnl, check_sl_tp, validate_grid_step
@@ -469,7 +469,142 @@ class GridService:
         if extra_ids:
             result["extra_order_ids"] = extra_ids
             logger.warning(f"Grid {grid_id}: {len(extra_ids)} order(s) open on Binance but untracked locally: {extra_ids}")
+
+        # Monitoring (docs/analisis-bot/): best-effort, never break the refresh
+        # response if Postgres or a Binance call for fees/balance is unavailable.
+        try:
+            await self._record_completed_cycles(grid_id, result["symbol"])
+        except Exception as e:
+            logger.warning(f"Grid {grid_id}: could not record completed cycles: {e}")
+        try:
+            pnl = await self.get_grid_pnl(grid_id)
+            await self._write_pnl_snapshot(grid_id, pnl, len(local_open_ids))
+        except Exception as e:
+            logger.warning(f"Grid {grid_id}: could not write pnl_snapshot: {e}")
+
         return result
+
+    async def _record_completed_cycles(self, grid_id: str, symbol: str) -> int:
+        """
+        Detect BUY+SELL round-trips completed since the last refresh and log
+        them to Postgres `grid_cycles` (best-effort, never raises).
+
+        A cycle closes when a replenish order (created in
+        replenish_filled_orders(), linked via source_order_id to the order
+        that triggered it) itself reaches FILLED. At that point both legs of
+        the round-trip are filled and the real net PnL (after fees) of that
+        cycle is known.
+
+        Returns:
+            Number of cycles recorded (0 if none, Postgres unavailable, or
+            SQLite has no candidates yet).
+        """
+        if SessionLocal is None:
+            return 0
+
+        conn = get_sqlite_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM grid_orders WHERE grid_id = ? AND status = 'FILLED' "
+                "AND source_order_id IS NOT NULL AND (cycle_logged IS NULL OR cycle_logged = 0)",
+                (grid_id,)
+            )
+            closing_orders = [dict(row) for row in cursor.fetchall()]
+            if not closing_orders:
+                return 0
+
+            fees = await self.binance.get_commission_rate(symbol)
+            fee_rate = fees["maker"] if fees else Decimal("0.0002")  # fallback: 0.02%
+
+            recorded = 0
+            for closing in closing_orders:
+                cursor.execute("SELECT * FROM grid_orders WHERE id = ?", (closing["source_order_id"],))
+                source_row = cursor.fetchone()
+                if not source_row:
+                    continue
+                source = dict(source_row)
+                if source["status"] != "FILLED":
+                    continue  # source not actually filled yet (shouldn't happen, guard anyway)
+
+                buy_order, sell_order = (source, closing) if source["side"] == "BUY" else (closing, source)
+                buy_price = Decimal(str(buy_order.get("avg_fill_price") or buy_order["price"]))
+                sell_price = Decimal(str(sell_order.get("avg_fill_price") or sell_order["price"]))
+                quantity = min(
+                    Decimal(str(buy_order["executed_qty"] or 0)),
+                    Decimal(str(sell_order["executed_qty"] or 0)),
+                )
+                if quantity <= 0:
+                    continue
+
+                gross_pnl = quantity * (sell_price - buy_price)
+                fee_paid = quantity * (buy_price + sell_price) * fee_rate
+                net_pnl = gross_pnl - fee_paid
+
+                session = SessionLocal()
+                try:
+                    session.add(GridCycle(
+                        grid_id=grid_id,
+                        symbol=symbol,
+                        cycle_number=int(closing.get("cycle") or 0),
+                        buy_order_id=str(buy_order["id"]),
+                        sell_order_id=str(sell_order["id"]),
+                        buy_price=buy_price,
+                        sell_price=sell_price,
+                        quantity=quantity,
+                        fee_paid=fee_paid,
+                        gross_pnl=gross_pnl,
+                        net_pnl=net_pnl,
+                    ))
+                    session.commit()
+                finally:
+                    session.close()
+
+                cursor.execute("UPDATE grid_orders SET cycle_logged = 1 WHERE id = ?", (closing["id"],))
+                conn.commit()
+                recorded += 1
+
+            return recorded
+        finally:
+            conn.close()
+
+    async def _write_pnl_snapshot(self, grid_id: str, pnl: Optional[Dict[str, Any]],
+                                   open_orders_count: int = 0) -> None:
+        """
+        Best-effort write of a PnL/equity point-in-time reading to Postgres
+        `pnl_snapshots`. Meant to be called once per refresh cycle (~every
+        15 min, driven by Workflow 2) so the equity curve can be
+        reconstructed later instead of only knowing the grid's final PnL at
+        close (historical_grid_logs). Never raises.
+        """
+        if SessionLocal is None or not pnl:
+            return
+
+        account_balance = None
+        try:
+            balance_data = await self.binance.get_account_balance()
+            if balance_data and "balances" in balance_data:
+                for item in balance_data["balances"]:
+                    if item.get("asset") == "USDT":
+                        account_balance = Decimal(str(item.get("availableBalance", 0)))
+                        break
+        except Exception as e:
+            logger.warning(f"Grid {grid_id}: could not fetch account balance for pnl_snapshot: {e}")
+
+        session = SessionLocal()
+        try:
+            session.add(PnlSnapshot(
+                grid_id=grid_id,
+                symbol=pnl["symbol"],
+                realized_pnl=pnl["realized_pnl"],
+                unrealized_pnl=pnl["unrealized_pnl"],
+                total_pnl=pnl["total_pnl"],
+                account_balance=account_balance,
+                open_orders_count=open_orders_count,
+            ))
+            session.commit()
+        finally:
+            session.close()
 
     async def _handle_refresh_failure(
         self, grid_id: str, grid: Dict[str, Any], reason: str,
@@ -617,14 +752,18 @@ class GridService:
 
                     if order_result and order_result[0] and "orderId" in order_result[0]:
                         # Éxito: insertar nueva orden en DB
+                        # source_order_id enlaza esta orden de reposición con la
+                        # orden que la originó (o) — se usa después en
+                        # _record_completed_cycles() para saber cuándo un ciclo
+                        # BUY+SELL se cerró completamente (ver docs/analisis-bot/).
                         order = order_result[0]
                         cursor.execute(
                             """INSERT INTO grid_orders
-                               (id, grid_id, price, quantity, side, type, status, level_index, cycle)
-                               VALUES (?, ?, ?, ?, ?, ?, 'NEW', ?, ?)""",
+                               (id, grid_id, price, quantity, side, type, status, level_index, cycle, source_order_id)
+                               VALUES (?, ?, ?, ?, ?, ?, 'NEW', ?, ?, ?)""",
                             (str(order["orderId"]), grid_id, str(new_price),
                              str(o["quantity"]), new_side, "LIMIT",
-                             new_idx, int(o.get("cycle") or 0) + 1)
+                             new_idx, int(o.get("cycle") or 0) + 1, str(o["id"]))
                         )
                         conn.commit()
                         placed += 1
