@@ -68,5 +68,10 @@ Thumbs.db
 # Sensitive files
 *.ppk
 *.pem
+
+# Dashboard generated artifact (contains account balance)
+scripts/dashboard/dashboard.html
+# Dashboard local DB config (contains credentials)
+scripts/dashboard/db.conf
 rouvy_session.json
 rouvy_workouts.json
