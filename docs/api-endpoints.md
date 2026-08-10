@@ -197,6 +197,26 @@ Compara el PnL actual contra `stop_loss`/`take_profit` del grid; si se dispara, 
 
 ---
 
+## Dashboard (rendimiento del bot)
+
+### Página web
+```
+GET /dashboard
+```
+HTML con la evolución del bot (KPIs, curva de equity, ciclos por día, rentabilidad por grid/símbolo). Los datos se leen **en vivo** de `postgres-trading` (`grid_cycles`, `pnl_snapshots`, `historical_grid_logs`). En despliegue: `https://trading.gestorconsultoria.com.co/dashboard`. Mismo dataset que `scripts/dashboard/export_data.py` (generación offline).
+
+**Respuesta:** `200` HTML. `503` si Postgres no está disponible.
+
+### JSON del dataset
+```
+GET /api/v1/dashboard/data
+```
+Dataset completo en JSON (mismo esquema que el template espera). Útil para consumir los datos programáticamente.
+
+**Respuesta:** `200` JSON. `503` si Postgres no está disponible.
+
+---
+
 ## Documentación
 
 - **Swagger UI:** `/api/docs`

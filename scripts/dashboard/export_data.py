@@ -33,6 +33,9 @@ ENV_FILE = os.path.join(ROOT, ".env")
 DB_CONF = os.path.join(DASH_DIR, "db.conf")
 OUT_FILE = os.path.join(DASH_DIR, "dashboard.html")
 
+# Template compartido con el backend (GET /dashboard): fuente única.
+TEMPLATE_FILE = os.path.join(ROOT, "backend-python", "app", "templates", "dashboard.html")
+
 PLACEHOLDER_USER = "trading_user"
 PLACEHOLDER_PASS = "secure_password_change_this"
 
@@ -350,7 +353,7 @@ def main():
 
 
 def render(data):
-    with open(os.path.join(DASH_DIR, "template.html"), "r", encoding="utf-8") as fh:
+    with open(TEMPLATE_FILE, "r", encoding="utf-8") as fh:
         template = fh.read()
     html = template.replace("__DATA__", json.dumps(data, ensure_ascii=False))
     with open(OUT_FILE, "w", encoding="utf-8") as fh:

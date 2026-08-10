@@ -8,12 +8,13 @@ import logging
 import time
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from contextlib import asynccontextmanager
 
 # Import configuration and services
 from app.core.config import settings
-from app.database.connection import init_db
+from app.database.connection import init_db, postgres_engine
+from app.services.dashboard_data import build_dashboard_data, render_dashboard_html
 from app.schemas.grid_schema import GridRequest, GridResponse, GridDetailResponse, GridPnlResponse, GridCloseCheckResponse, MarketAnalysisResponse, AutoParamsResponse, AutoParamsParams
 from app.auto_params import auto_derive_params
 from app.config_auto_params import MAX_RISK_PCT, LEVELS_BOUNDS, LEVERAGE_BOUNDS, SYMBOL_CACHE_TTL_SECONDS
@@ -127,6 +128,26 @@ async def root():
         "default_risk_pct": settings.DEFAULT_RISK_PCT,
         "default_leverage": settings.DEFAULT_LEVERAGE,
     }
+
+
+# ==========================================
+# DASHBOARD (rendimiento del bot, lee postgres-trading)
+# ==========================================
+
+@app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False, tags=["Dashboard"])
+async def dashboard_page():
+    """Dashboard HTML con la evolución del bot (datos en vivo de postgres-trading)."""
+    if postgres_engine is None:
+        raise HTTPException(status_code=503, detail="PostgreSQL no disponible")
+    return render_dashboard_html(build_dashboard_data(postgres_engine))
+
+
+@app.get("/api/v1/dashboard/data", tags=["Dashboard"])
+async def dashboard_data():
+    """JSON con el dataset del dashboard (equivalente a scripts/dashboard/export_data.py)."""
+    if postgres_engine is None:
+        raise HTTPException(status_code=503, detail="PostgreSQL no disponible")
+    return build_dashboard_data(postgres_engine)
 
 
 # ==========================================
