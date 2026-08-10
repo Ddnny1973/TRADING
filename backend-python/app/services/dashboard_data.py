@@ -29,13 +29,21 @@ _cache = {"ts": 0.0, "data": None}
 
 
 def num(v):
-    """Decimal/None -> float/None (SQLAlchemy devuelve Decimal para NUMERIC)."""
-    return float(v) if v is not None else None
+    """Decimal/float/int/None -> float/None. Idempotente (double-cast seguro)."""
+    if v is None:
+        return None
+    if isinstance(v, str):
+        return float(v)
+    return float(v)
 
 
 def iso(dt):
-    """datetime/date -> str ISO (None -> None)."""
-    return dt.isoformat() if dt is not None else None
+    """datetime/str/None -> str ISO (None -> None). Idempotente (double-cast seguro)."""
+    if dt is None:
+        return None
+    if isinstance(dt, str):
+        return dt
+    return dt.isoformat()
 
 
 def cast_row(row, fields):
