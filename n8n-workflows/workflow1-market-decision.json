@@ -358,9 +358,9 @@
       "parameters": {
         "model": {
           "__rl": true,
-          "value": "deepseek-ai/deepseek-v4-pro",
+          "value": "deepseek-ai/deepseek-v4-flash-0731",
           "mode": "list",
-          "cachedResultName": "deepseek-ai/deepseek-v4-pro"
+          "cachedResultName": "deepseek-ai/deepseek-v4-flash-0731"
         },
         "responsesApiEnabled": false,
         "options": {
