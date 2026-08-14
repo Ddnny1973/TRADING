@@ -8,13 +8,13 @@
             {
               "id": "1",
               "name": "balance",
-              "value": "={{ $('WF-Trigger-Externo').item?.json?.args?.[0] ? Number($('WF-Trigger-Externo').item.json.args[0]) : 5000 }}",
+              "value": "={{ $if($('WF-Trigger-Externo').isExecuted, ($('WF-Trigger-Externo').item?.json?.args?.[0] ? Number($('WF-Trigger-Externo').item.json.args[0]) : 5000), 5000) }}",
               "type": "string"
             },
             {
               "id": "2",
               "name": "symbol",
-              "value": "={{ $('WF-Trigger-Externo').item?.json?.args?.[1] || '' }}",
+              "value": "={{ $if($('WF-Trigger-Externo').isExecuted, ($('WF-Trigger-Externo').item?.json?.args?.[1] || ''), '') }}",
               "type": "string"
             }
           ]
@@ -212,7 +212,7 @@
     },
     {
       "parameters": {
-        "chatId": "={{ $('WF-Trigger-Externo').item.json.chatId }}",
+        "chatId": "={{ $if($('WF-Trigger-Externo').isExecuted, $('WF-Trigger-Externo').item.json.chatId, '1060878323') }}",
         "text": "={{ $json.alreadyExists ? ('ℹ️ Grid ya existia para ' + $json.autoParams.symbol + '\\n\\n💭 ' + $json.reasoning) : ('✅ Grid LANZADO\\n━━━━━━━━━━━━━━━━━━━━\\n📊 Symbol: ' + $json.grid.symbol + '\\n🆔 ID: ' + $json.grid.id.substring(0, 16) + '...\\n📈 Niveles: ' + $json.grid.levels + '\\n💰 Rango: ' + $json.grid.lower_price + ' - ' + $json.grid.upper_price + '\\n🎯 Órdenes: ' + $json.grid.orders.length + '\\n⚡ Leverage: ' + $json.autoParams.params.leverage + 'x\\n\\n💡 Parámetros (auto-derivados):\\n   • risk_pct: ' + $json.autoParams.params.risk_pct + '\\n   • atr_mult: ' + $json.autoParams.params.atr_multiplier + '\\n   • interval: ' + $json.autoParams.params.klines_interval + '\\n   • par elegido: ' + ($json.autoParams.symbol_selection?.method === 'auto' ? 'automático' : 'manual') + '\\n\\n💭 ' + $json.reasoning) }}",
         "additionalFields": {}
       },
@@ -234,7 +234,7 @@
     },
     {
       "parameters": {
-        "chatId": "={{ $('WF-Trigger-Externo').item.json.chatId }}",
+        "chatId": "={{ $if($('WF-Trigger-Externo').isExecuted, $('WF-Trigger-Externo').item.json.chatId, '1060878323') }}",
         "text": "={{ '❌ ERROR al crear grid\\n━━━━━━━━━━━━━━━━━━━━\\n' + ($('Interpret Grid Result').item.json.statusCode ? ('HTTP ' + $('Interpret Grid Result').item.json.statusCode + '\\n') : '') + 'Detalle: ' + $('Interpret Grid Result').item.json.detail + '\\n\\n🧠 Diagnóstico IA:\\n' + ($json.text || 'no disponible') + '\\n\\n🔖 Backend: ' + ($('Get Auto Params (FIX 4)').item.json.code_version || 'ANTIGUA - rebuild no aplicado') + '\\nSe reintentará en próximo ciclo.' }}",
         "additionalFields": {}
       },
@@ -256,7 +256,7 @@
     },
     {
       "parameters": {
-        "chatId": "={{ $('WF-Trigger-Externo').item.json.chatId }}",
+        "chatId": "={{ $if($('WF-Trigger-Externo').isExecuted, $('WF-Trigger-Externo').item.json.chatId, '1060878323') }}",
         "text": "={{ '⚠️ Grid NO LANZADO\\n━━━━━━━━━━━━━━━━━━━━\\n📍 Razón (IA): ' + $json.reasoning }}",
         "additionalFields": {}
       },
@@ -278,7 +278,7 @@
     },
     {
       "parameters": {
-        "chatId": "={{ $('WF-Trigger-Externo').item.json.chatId }}",
+        "chatId": "={{ $if($('WF-Trigger-Externo').isExecuted, $('WF-Trigger-Externo').item.json.chatId, '1060878323') }}",
         "text": "={{ '⚠️ GRID NO VIABLE\\n━━━━━━━━━━━━━━━━━━━━\\n🚫 ' + ($json.reasoning?.no_viable || 'Parámetros insuficientes para este balance') + '\\n\\n💰 Balance: ' + $('Config').item.json.balance + ' USDT\\n📊 Symbol: ' + ($json.symbol || 'selección automática') + '\\n🔖 Backend: ' + ($json.code_version || 'ANTIGUA - rebuild no aplicado') }}",
         "additionalFields": {}
       },
