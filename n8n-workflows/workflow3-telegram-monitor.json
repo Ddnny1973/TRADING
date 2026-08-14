@@ -254,6 +254,30 @@
               },
               "renameOutput": true,
               "outputKey": "salud"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cmd-estado",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "/estado",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "estado"
             }
           ]
         },
@@ -593,7 +617,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const chatId = $('Parse Command').first().json.chatId;\nconst lines = [\n  '[BOT] COMANDOS DISPONIBLES',\n  '',\n  '[CONSULTA]',\n  '/grids — Grids activos',\n  '/grid-detail SYMBOL — Detalle + PnL de una grid',\n  '',\n  '[EJECUCION]',\n  '/lanzar — Lanzar Market Decision (WF1)',\n  '/monitorear — Ejecutar ciclo de monitoreo (WF2)',\n  '/trigger-wf1 confirm — Lanzar WF1 (con confirmacion)',\n  '/trigger-wf2 — Igual que /monitorear',\n  '',\n  '[PRONTO]: /history, /stats, /config'\n];\nconst text = lines.join('\\n');\nreturn [{ json: { chatId, text } }];"
+        "jsCode": "const chatId = $('Parse Command').first().json.chatId;\nconst lines = [\n  '[BOT] COMANDOS DISPONIBLES',\n  '',\n  '[CONSULTA]',\n  '/estado — Estado general del bot',\n  '/grids — Grids activos',\n  '/grid-detail SYMBOL — Detalle + PnL de una grid',\n  '/salud — Verificar backend',\n  '',\n  '[EJECUCION]',\n  '/lanzar — Lanzar Market Decision (WF1)',\n  '/monitorear — Ejecutar ciclo de monitoreo (WF2)',\n  '/trigger-wf1 confirm — Lanzar WF1 (con confirmacion)',\n  '/trigger-wf2 — Igual que /monitorear',\n  '',\n  '[PRONTO]: /history, /stats, /config'\n];\nconst text = lines.join('\\n');\nreturn [{ json: { chatId, text } }];"
       },
       "id": "f5a6b7c8-9d0e-4f1a-8b2c-3d4e5f6a7b8c",
       "name": "Format: Help",
@@ -637,6 +661,41 @@
       "position": [
         -340,
         800
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.BACKEND_URL }}/api/v1/dashboard/data",
+        "method": "GET",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "i0a1b2c3-4d5e-4f6a-9b7c-8d9e0f1a2b3c",
+      "name": "Get Dashboard Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -340,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = $('Parse Command').first().json.chatId;\nconst dash = $input.first().json;\nif (!dash || dash.statusCode !== 200 || !dash.body) {\n  return [{ json: { chatId, text: '⚠️ Error consultando el estado (HTTP ' + (dash ? dash.statusCode : 'N/A') + ').\\n\\n📞 Ver salud del backend: /salud' } }];\n}\nconst data = dash.body;\nconst overview = data.overview || {};\nconst current = data.current || [];\nconst winRate = overview.cycles ? (overview.wins / overview.cycles * 100).toFixed(1) : 'N/A';\nconst lines = [\n  '🤖 ESTADO DEL BOT',\n  '═══════════════════',\n  '⏳ Reporte: ' + (data.generated_at || 'N/A'),\n  ''\n];\nif (current.length === 0) {\n  lines.push('ℹ️ No hay grids RUNNING en este momento.', '');\n}\nconst totalOrders = current.reduce((acc, c) => acc + (c.open_orders_count || 0), 0);\nconst totalBalance = current.reduce((acc, c) => acc + (c.account_balance || 0), 0);\nconst totalRealized = current.reduce((acc, c) => acc + (c.realized_pnl || 0), 0);\nconst totalUnrealized = current.reduce((acc, c) => acc + (c.unrealized_pnl || 0), 0);\nlines.push('🟢 Grids RUNNING: ' + current.length);\nlines.push('📋 Órdenes abiertas: ' + totalOrders);\nif (current.length) {\n  lines.push('💰 Balance cuenta: ' + (current[0].account_balance ?? 'N/A') + ' USDT');\n}\nlines.push('📈 PnL realizado (vivo): ' + totalRealized.toFixed(4) + ' USDT');\nlines.push('📉 PnL no realizado: ' + totalUnrealized.toFixed(4) + ' USDT');\nlines.push('🧮 PnL total (vivo): ' + (totalRealized + totalUnrealized).toFixed(4) + ' USDT');\nlines.push('');\nlines.push('🔁 Ciclos totales: ' + (overview.cycles ?? 0));\nlines.push('✅ Wins: ' + (overview.wins ?? 0) + ' | ❌ Losses: ' + (overview.losses ?? 0) + ' | 🎯 Win rate: ' + winRate + '%');\nlines.push('💵 PnL neto ciclos: ' + (overview.net_pnl ?? 0).toFixed(4) + ' USDT');\nlines.push('🏁 Grids cerrados: ' + (overview.closed_grids ?? 0) + ' (' + (overview.closed_pnl ?? 0).toFixed(4) + ' USDT)');\nconst lastCycles = data.last_cycles || [];\nif (lastCycles.length) {\n  const lc = lastCycles[0];\n  lines.push('');\n  lines.push('⏱️ Último ciclo: ' + lc.symbol + ' #' + lc.cycle_number + ' (' + (lc.net_pnl ?? 0).toFixed(4) + ' USDT) — ' + (lc.completed_at || ''));\n}\nif (current.length) {\n  lines.push('');\n  lines.push('📊 POR GRID:');\n  for (const c of current) {\n    lines.push('🟢 ' + c.symbol + ' — PnL ' + Number(c.total_pnl ?? 0).toFixed(4) + ' USDT | ' + (c.open_orders_count ?? 0) + ' órdenes');\n  }\n}\nreturn [{ json: { chatId, text: lines.join('\\n') } }];"
+      },
+      "id": "j1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Format: Estado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -120,
+        960
       ]
     },
     {
@@ -749,14 +808,21 @@
         ],
         [
           {
-            "node": "Format: Help",
+            "node": "Backend Health Check",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Backend Health Check",
+            "node": "Get Dashboard Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format: Help",
             "type": "main",
             "index": 0
           }
@@ -994,6 +1060,28 @@
       ]
     },
     "Format: Health": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Dashboard Data": {
+      "main": [
+        [
+          {
+            "node": "Format: Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format: Estado": {
       "main": [
         [
           {
