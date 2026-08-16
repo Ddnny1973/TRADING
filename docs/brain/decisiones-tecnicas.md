@@ -73,6 +73,20 @@ workflows n8n**, sin optimizar todavía la estrategia de trading/rentabilidad
   `_get_order_by_client_id` antes de reencolar — evita duplicar órdenes ya
   colocadas exitosamente.
 
+## WF1: 400 "Max concurrent grids" tratado como informativo (2026-08-16)
+
+Con el tope `MAX_CONCURRENT_GRIDS=2` alcanzado, casi toda corrida de WF1
+choca con el 400 "Max concurrent grids (2) reached" del `POST /api/v1/grids`
+— flujo esperado, igual que el 400 "already exists" (guardas reales de BD).
+El workflow lo trataba como error real y disparaba `Diagnose Grid Error`
+(otra llamada LLM); ahí era donde explotaban los **504 Gateway Timeout de
+NVIDIA NIM** (mensaje "Gateway timed out - perhaps try again later?",
+~302s de respuesta). Fix en `Interpret Grid Result`: ese 400 ahora devuelve
+`maxConcurrent:true` (rama informativa) y `Notify: Grid Launched` muestra un
+mensaje distinto, saltando el Diagnose. No es "mejorar la estrategia": es
+sanear el ruido de errores para poder medir la rentabilidad real (ver
+[[analisis-bot-monitoreo]]).
+
 ## Dashboard web del bot (2026-08-02 → 2026-08-10)
 
 Se agregó un dashboard de performance leyendo `postgres-trading` en vivo:

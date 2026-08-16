@@ -88,6 +88,20 @@ Hay **tres bases Postgres/SQLite distintas**, fácil de confundir:
   a mano. Ver [[decisiones-tecnicas]] para el detalle de commits.
 - ✅ 2026-08-14: WF3 ganó el comando Telegram `/estado` (resumen de grids,
   PnL y actividad) como atajo al dashboard desde el celular.
+- ✅ 2026-08-16: Diagnóstico con datos reales (Postgres + log de ejecuciones
+  de n8n + órdenes de Binance testnet). Hallazgos:
+  - 2 grids RUNNING (BTC `b13d5f9a`, ETH `7da515ef`) con **0 ciclos en ~7
+    días** — `grid_cycles` solo tiene el grid histórico `9c3f822b`: 8 ciclos,
+    +3.64 neto, pero cerró en +0.18 por MAX_POSITION (la posición neta
+    devolvió ~3.46).
+  - Unrealized negativo casi permanente en `pnl_snapshots` (BTC 87%, ETH
+    96%) pero **en centavos** (−0.04/−0.06) → estructural, no sangrado de
+    cuenta; `total_pnl == unrealized_pnl` (realized=0, confirma 0 ciclos).
+  - `launch:true` en el 100% de las decisiones de WF1 (la IA nunca vetó).
+  - Errores post-migración del modelo = **504 Gateway Timeout de NVIDIA
+    NIM** (no "model not found"): explotaban al diagnosticar el 400 esperado
+    "Max concurrent grids". Fix aplicado en WF1 (el 400 se trata como
+    informativo y se salta el Diagnose) — ver [[decisiones-tecnicas]].
 
 ## Visión a futuro: orquestador multi-estrategia con IA (2026-07-30)
 
