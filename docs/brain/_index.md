@@ -8,7 +8,7 @@ related:
   - "[[infra-multi-servidor]]"
   - "[[n8n-sync-y-gotchas]]"
   - "[[decisiones-tecnicas]]"
-updated: 2026-07-29
+updated: 2026-08-16
 owner: dueño del repo
 ---
 
@@ -23,10 +23,14 @@ Sistema de **grid trading autónomo para Binance Futures**, compuesto por:
   cerrar por SL/TP/expiración, calcular PnL) y calcula parámetros de mercado
   (ATR, tamaño de posición) vía `app/auto_params.py` y `app/services/`.
 - **Workflows n8n** ([n8n-workflows/](../../n8n-workflows/)) — orquestación externa:
-  Workflow 1 (decisión de mercado con Gemini), Workflow 2 (monitor cada 15 min),
-  Workflow 3 (Telegram). Son la fuente de verdad de los `.json`; el backend NO
-  tiene scheduler interno ni envía webhooks salientes — todo el polling lo
-  dispara n8n.
+  Workflow 1 (decisión de mercado con IA, hoy NVIDIA NIM/DeepSeek — ver
+  [[decisiones-tecnicas]]), Workflow 2 (monitor cada 15 min), Workflow 3
+  (comandos Telegram: `/lanzar`, `/monitorear`, `/estado`). Son la fuente de
+  verdad de los `.json`; el backend NO tiene scheduler interno ni envía
+  webhooks salientes — todo el polling lo dispara n8n.
+- **Dashboard web** (`GET /dashboard` + `/api/v1/dashboard/data`, servido por
+  el mismo backend FastAPI) — visualiza performance leyendo `postgres-trading`
+  en vivo. Ver [[analisis-bot-monitoreo]] y [[decisiones-tecnicas]].
 - **Docs de producto/operación** ya extensamente cubiertos en [docs/00-START/](../00-START/)
   hasta [docs/90-APPENDICES/](../90-APPENDICES/) (estructura numerada, ver
   [docs/00-START/02-tabla-contenidos.md](../00-START/02-tabla-contenidos.md)).

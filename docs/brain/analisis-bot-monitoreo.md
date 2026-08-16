@@ -7,7 +7,7 @@ tags: [monitoreo, analitica, postgres, grid-trading]
 related:
   - "[[_index]]"
   - "[[decisiones-tecnicas]]"
-updated: 2026-07-30
+updated: 2026-08-16
 owner: dueño del repo
 ---
 
@@ -79,6 +79,15 @@ Hay **tres bases Postgres/SQLite distintas**, fácil de confundir:
   (uptime/errores de Workflow 1 y 2) y `bot_health_events` (incidentes de
   reconciliación, auto-cancelaciones). Ver sección 4 de
   `docs/analisis-bot/01-estado-actual-vs-futuro.md`.
+- ✅ 2026-08-02 → 2026-08-10: dashboard de performance construido sobre estas
+  tablas (`grid_cycles`/`pnl_snapshots`). Primero como script offline
+  (`scripts/dashboard/export_data.py`), luego servido en vivo por el propio
+  backend (`GET /dashboard`, `GET /api/v1/dashboard/data`,
+  `backend-python/app/services/dashboard_data.py`). Esta es la primera
+  herramienta real para visualizar si el bot es rentable sin consultar SQL
+  a mano. Ver [[decisiones-tecnicas]] para el detalle de commits.
+- ✅ 2026-08-14: WF3 ganó el comando Telegram `/estado` (resumen de grids,
+  PnL y actividad) como atajo al dashboard desde el celular.
 
 ## Visión a futuro: orquestador multi-estrategia con IA (2026-07-30)
 
