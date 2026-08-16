@@ -90,10 +90,16 @@ Hay **tres bases Postgres/SQLite distintas**, fácil de confundir:
   PnL y actividad) como atajo al dashboard desde el celular.
 - ✅ 2026-08-16: Diagnóstico con datos reales (Postgres + log de ejecuciones
   de n8n + órdenes de Binance testnet). Hallazgos:
-  - 2 grids RUNNING (BTC `b13d5f9a`, ETH `7da515ef`) con **0 ciclos en ~7
-    días** — `grid_cycles` solo tiene el grid histórico `9c3f822b`: 8 ciclos,
-    +3.64 neto, pero cerró en +0.18 por MAX_POSITION (la posición neta
-    devolvió ~3.46).
+  - 2 grids RUNNING (BTC `b13d5f9a-…`, ETH `7da515ef-…`), **creados el
+    14-08 (14:41/17:01 UTC) → ~1.7 días de vida, NO 7 días**, y casi todo
+    ese tiempo corrió con el bug del 504/400 activo (el fix entró el 16-08).
+    Datos reales de SQLite: levels BTC 8 / ETH 5; step real 0.65%/0.66%
+    (≈3.3× el mínimo 0.2% del validador); precios de hoy DENTRO del rango
+    (BTC 63,036 en 61,347.25..64,146.15; ETH 1,881 en 1,860.19..1,909.59)
+    → **refutadas** las hipótesis de rango angosto y de precio fuera del
+    rango. Aun así **0 ciclos** — `grid_cycles` solo tiene el grid histórico
+    `9c3f822b`: 8 ciclos, +3.64 neto, pero cerró en +0.18 por MAX_POSITION
+    (la posición neta devolvió ~3.46).
   - Unrealized negativo casi permanente en `pnl_snapshots` (BTC 87%, ETH
     96%) pero **en centavos** (−0.04/−0.06) → estructural, no sangrado de
     cuenta; `total_pnl == unrealized_pnl` (realized=0, confirma 0 ciclos).
