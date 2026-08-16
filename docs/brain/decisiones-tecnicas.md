@@ -104,6 +104,13 @@ Se agregó un dashboard de performance leyendo `postgres-trading` en vivo:
   evitar doble-cast de columnas datetime (podía romper si se llamaba dos
   veces sobre el mismo objeto/fila).
 - Endpoints documentados en [docs/api-endpoints.md](../api-endpoints.md).
+- Fix 2026-08-16: `current` del dashboard (y `/estado` de WF3) contaba grids
+  cerrados como RUNNING — `latest_snapshot` (`pnl_snapshots`, último snapshot
+  por `grid_id`) incluía grids ya cerrados (p. ej. `9c3f822b` dejó un
+  snapshot residual de 9 órdenes / +0.2077 USDT), inflando "Grids RUNNING",
+  "Órdenes abiertas" y el PnL "vivo" con datos fantasma. Fix: `latest_snapshot`
+  excluye grid_ids presentes en `historical_grid_logs` (`NOT EXISTS`) en
+  `dashboard_data.py` y `scripts/dashboard/export_data.py`.
 
 ## Comando Telegram `/estado` en WF3 (2026-08-14, commit `56398f3`)
 

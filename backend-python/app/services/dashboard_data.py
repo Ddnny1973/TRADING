@@ -82,6 +82,8 @@ def _compute(engine):
             SELECT DISTINCT ON (grid_id) grid_id, symbol, taken_at,
                    realized_pnl, unrealized_pnl, total_pnl, account_balance, open_orders_count
             FROM pnl_snapshots
+            WHERE NOT EXISTS (SELECT 1 FROM historical_grid_logs h
+                              WHERE h.grid_id = pnl_snapshots.grid_id)
             ORDER BY grid_id, taken_at DESC
         """, [
             ("grid_id", str), ("symbol", str), ("taken_at", iso),
