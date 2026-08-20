@@ -32,9 +32,9 @@ TELEGRAM_CHAT_ID=<tu-chat-id>
 - ✅ n8n y backend en servidores diferentes en la misma red
 - ✅ Producción
 
-**Nota:** Si n8n y backend están en IPs privadas diferentes (ej. 10.0.0.5 y 10.0.0.4), usa:
+**Nota:** Si n8n y backend están en IPs privadas diferentes (ej. 10.0.0.2 y 10.0.0.6), usa:
 ```env
-BACKEND_URL=http://10.0.0.4:8000
+BACKEND_URL=http://10.0.0.6:8043
 ```
 
 ---

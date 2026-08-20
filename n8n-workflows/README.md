@@ -44,7 +44,7 @@ Durante las pruebas de Workflow 1 se detectó que **todas** las órdenes de un g
   | `workflow2-monitor` | `96qAStQwfrHAVXRd` |
   | `workflow3-telegram-monitor` | *(pendiente — se asigna al importarlo por primera vez; anotarlo aquí)* |
 
-- **Infra multi-servidor:** n8n corre en un servidor (IP privada `10.0.0.5`), el backend en otro (`10.0.0.4`) — ver la nota de `BACKEND_URL` más abajo, es la causa de varios problemas de conectividad ya resueltos en esta sesión.
+- **Infra multi-servidor:** n8n corre en un servidor (IP privada `10.0.0.2`), el backend en otro (`10.0.0.6`) — ver la nota de `BACKEND_URL` más abajo, es la causa de varios problemas de conectividad ya resueltos en esta sesión.
 - **Credenciales ya creadas en esa instancia** (no se pueden reutilizar en otra instancia, hay que recrearlas): Telegram API `"TRADING"` (id `zurDfqIC4Qy17sUA`), Header Auth `"Header Auth GeminiAI"` (id `NQnuuYpP2Pax6Nvr`), Postgres `"Postgres n8n"` (id `6l9jrmQ4BmCnUgXq`, usada para loguear tokens de Gemini en la tabla `public.metricas_personalizadas`).
 - **Comandos de Telegram** (bot "TRADING"): TODOS viven ahora en **Workflow 3**
   (`workflow3-telegram-monitor`), el ÚNICO workflow con Telegram Trigger — regla
@@ -158,7 +158,7 @@ Durante la primera prueba, el `PUT` con el body completo daba **500 Internal Ser
 
 | Dónde | Qué |
 |---|---|
-| Variable de entorno `BACKEND_URL` | URL del backend. **En despliegues multi-servidor, usa IP privada + puerto publicado** (ej. `http://10.0.0.4:8043`), NO el nombre del contenedor — una red Docker bridge con el mismo nombre en dos hosts distintos NO es la misma red y el DNS por nombre de contenedor no va a resolver entre servidores. |
+| Variable de entorno `BACKEND_URL` | URL del backend. **En despliegues multi-servidor, usa IP privada + puerto publicado** (ej. `http://10.0.0.6:8043`), NO el nombre del contenedor — una red Docker bridge con el mismo nombre en dos hosts distintos NO es la misma red y el DNS por nombre de contenedor no va a resolver entre servidores. |
 | Variable de entorno `TELEGRAM_CHAT_ID` | Chat ID de destino para notificaciones (obtenlo con `GET https://api.telegram.org/bot<TOKEN>/getUpdates` tras enviarle un mensaje al bot) |
 | Variable de entorno `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` | n8n bloquea el acceso a `$env` en expresiones/Code nodes por defecto ("access to env vars denied"). Sin esto, `{{ $env.BACKEND_URL }}` y `{{ $env.TELEGRAM_CHAT_ID }}` fallan. Nota: las **Variables nativas de n8n** (`$vars`) están bloqueadas en instancias Community ("Upgrade to unlock variables") — por eso se usa `$env` en todos lados. |
 | Credencial **Telegram API** | Seleccionar en cada nodo `n8n-nodes-base.telegram` |

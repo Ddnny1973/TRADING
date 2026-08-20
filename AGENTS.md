@@ -30,7 +30,7 @@ Grid trading bot para Binance Futures (testnet). Un único backend FastAPI de ap
 
 ## Infra multi-servidor (detalle en `docs/brain/infra-multi-servidor.md`)
 
-- Backend en New-01 (`10.0.0.4`, puerto `8043`), n8n en New-02 (`10.0.0.5`, `8032`), nginx en un bastión. Nombres de red Docker iguales entre hosts ≠ red compartida: `BACKEND_URL` entre servidores SIEMPRE por IP privada + puerto publicado (`http://10.0.0.4:8043`), nunca por nombre de contenedor.
+- Backend en `Docker-alma-16gb-hel1-1` (`10.0.0.6`, puerto `8043`), n8n en `ubuntu-8gb-hel1-1` (`10.0.0.2`, `8032`), nginx en un bastión (`10.0.0.3`). Nombres de red Docker iguales entre hosts ≠ red compartida: `BACKEND_URL` entre servidores SIEMPRE por IP privada + puerto publicado (`http://10.0.0.6:8043`), nunca por nombre de contenedor.
 - n8n es Community Edition: no hay `$vars` → los workflows usan `$env.*`; requiere `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` (aplica con `docker compose up -d --force-recreate`). Los JSON del repo contienen emojis/tildes en mensajes de Telegram — preservarlos.
 
 ## Convenciones
