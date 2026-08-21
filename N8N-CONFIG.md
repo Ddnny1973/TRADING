@@ -96,10 +96,48 @@ $env:TELEGRAM_CHAT_ID = "<tu-chat-id>"
 
 ## ✅ Verificar Configuración
 
-Después de configurar, valida:
+**IMPORTANTE:** Según la versión de n8n que uses, las variables se configuran de forma diferente.
 
+### Opción A: Mediante docker-compose.yml (Recomendado para tu caso)
+
+En el servidor Alma (`/data/odoo/32/docker-compose.yml`), agrega al servicio `n8n`:
+
+```yaml
+services:
+  n8n:
+    image: n8nio/n8n
+    environment:
+      - BACKEND_URL=http://10.0.0.6:8043
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      # ... resto de variables
+```
+
+Luego reinicia:
 ```bash
-# 1. Verifica que el backend responde
+docker compose up -d --force-recreate n8n
+```
+
+### Opción B: Mediante .env file en el servidor
+
+Si existe `.env` en `/data/odoo/32/`, agrega:
+```env
+BACKEND_URL=http://10.0.0.6:8043
+N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+```
+
+### Opción C: Verificar en los workflows JSON
+
+Si BACKEND_URL está hardcodeado directamente en los workflows (`n8n-workflows/*.json`), busca:
+```json
+"BACKEND_URL=http://10.0.0.2:8043"
+```
+
+Y cámbialo a:
+```json
+"BACKEND_URL=http://10.0.0.6:8043"
+```
+
+Luego pushea a main (GitHub Actions sincronizará automáticamente a n8n).
 curl http://localhost:8000/health
 # Debe devolver: {"status": "healthy", ...}
 

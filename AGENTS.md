@@ -31,8 +31,8 @@ Grid trading bot para Binance Futures (testnet). Un único backend FastAPI de ap
 ## Infra multi-servidor (detalle en `docs/brain/infra-multi-servidor.md`)
 
 - **Actualización 2026-08-20:** Backend y n8n ahora consolidados en `Docker-alma-16gb-hel1-1` (`10.0.0.6`). Backend en puerto `8043`, n8n en `8032`, nginx en bastión (`10.0.0.3`).
-- Antes de la consolidación: Backend estaba en `10.0.0.6`, n8n en `10.0.0.2` (Docker-New-03) — **workflows n8n pueden tener references hardcodeadas a la IP vieja, revisar y actualizar**.
-- ⚠️ **Tarea pendiente:** Verificar que los workflows en n8n (`n8n.gestorconsultoria.com.co`) tengan `BACKEND_URL=http://10.0.0.6:8043` en Environment Variables (Settings ⚙️).
+- **Verificar conexión n8n ↔ backend:** En `/data/odoo/32/docker-compose.yml` (servidor Alma), asegurar que n8n tiene `BACKEND_URL=http://10.0.0.6:8043` en las variables de entorno. Si falta, agregar y hacer `docker compose up -d --force-recreate n8n`.
+- ⚠️ **Nota:** n8n Community Edition no tiene UI de "Environment Variables" en Settings — las vars se pasan por `docker-compose.yml` o `.env` en el servidor, no por la interfaz.
 - Nombres de red Docker iguales entre hosts ≠ red compartida: `BACKEND_URL` entre servidores SIEMPRE por IP privada + puerto publicado (`http://10.0.0.6:8043`), nunca por nombre de contenedor.
 - n8n es Community Edition: no hay `$vars` → los workflows usan `$env.*`; requiere `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`. Los JSON del repo contienen emojis/tildes en mensajes de Telegram — preservarlos.
 
