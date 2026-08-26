@@ -172,6 +172,7 @@ def _compute(engine):
 
     # --- Active operations from SQLite (real-time) ---
     active_ops = {"count": 0, "grids": []}
+    current_map = {r["grid_id"]: r for r in latest_snapshot}
     try:
         sqlite_conn = get_sqlite_connection()
         try:
@@ -238,7 +239,6 @@ def _compute(engine):
 
     cycles_map = {r["grid_id"]: r for r in cycles_by_grid}
     closed_map = {r["grid_id"]: r for r in closed_grids}
-    current_map = {r["grid_id"]: r for r in latest_snapshot}
     per_grid = []
     for gid in set(cycles_map) | set(closed_map) | set(current_map):
         c = cycles_map.get(gid, {})
