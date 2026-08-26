@@ -14,6 +14,8 @@ from datetime import datetime
 
 from sqlalchemy import text
 
+from app.database.connection import get_sqlite_connection
+
 logger = logging.getLogger("grid_trading")
 
 TEMPLATE_PATH = os.path.join(
@@ -168,6 +170,55 @@ def _compute(engine):
             FROM grid_cycles
         """, [("avg_net", num), ("avg_notional", num)])[0]
 
+    # --- Active operations from SQLite (real-time) ---
+    active_ops = {"count": 0, "grids": []}
+    try:
+        sqlite_conn = get_sqlite_connection()
+        try:
+            running_grids = sqlite_conn.execute(
+                "SELECT id, symbol, lower_price, upper_price, levels, grid_type, "
+                "leverage, quantity_per_order, grid_mode, created_at "
+                "FROM grids WHERE status = 'RUNNING'"
+            ).fetchall()
+            for g in running_grids:
+                gid = g["id"]
+                orders = sqlite_conn.execute(
+                    "SELECT status, COUNT(*) AS cnt FROM grid_orders "
+                    "WHERE grid_id = ? GROUP BY status", (gid,)
+                ).fetchall()
+                order_counts = {r["status"]: r["cnt"] for r in orders}
+                total_orders = sum(order_counts.values())
+                open_orders = order_counts.get("NEW", 0) + order_counts.get("PARTIALLY_FILLED", 0)
+                filled_orders = order_counts.get("FILLED", 0)
+                canceled_orders = order_counts.get("CANCELED", 0) + order_counts.get("REJECTED", 0) + order_counts.get("EXPIRED", 0)
+                # Latest snapshot for this grid (from postgres)
+                snap = current_map.get(gid, {})
+                active_ops["grids"].append({
+                    "grid_id": gid,
+                    "symbol": g["symbol"],
+                    "lower_price": num(g["lower_price"]),
+                    "upper_price": num(g["upper_price"]),
+                    "levels": g["levels"],
+                    "grid_type": g["grid_type"],
+                    "leverage": g["leverage"],
+                    "quantity_per_order": num(g["quantity_per_order"]),
+                    "grid_mode": g["grid_mode"],
+                    "created_at": iso(g["created_at"]),
+                    "total_orders": total_orders,
+                    "open_orders": open_orders,
+                    "filled_orders": filled_orders,
+                    "canceled_orders": canceled_orders,
+                    "realized_pnl": num(snap.get("realized_pnl")),
+                    "unrealized_pnl": num(snap.get("unrealized_pnl")),
+                    "total_pnl": num(snap.get("total_pnl")),
+                    "last_snapshot_at": iso(snap.get("taken_at")),
+                })
+            active_ops["count"] = len(active_ops["grids"])
+        finally:
+            sqlite_conn.close()
+    except Exception as e:
+        logger.warning(f"dashboard: no se pudo leer SQLite para active_operations: {e}")
+
     total_cycles = overview["total"]
     wins = overview["wins"]
     win_rate = (wins / total_cycles) if total_cycles else None
@@ -303,6 +354,7 @@ def _compute(engine):
             "strategy_roi_pct": num(((cycles_pnl_f + closed_pnl_f) / num(first_balance) * 100) if first_balance else None),
         },
         "per_grid": per_grid,
+        "active_operations": active_ops,
     }
 
 

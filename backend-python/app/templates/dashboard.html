@@ -48,6 +48,12 @@
   <div class="card"><div class="label">PnL en cierres</div><div class="value" id="cClosedPnl">—</div><div class="hint"><span id="cClosedCount">—</span> grids cerrados</div></div>
 </div>
 
+<section id="activeOpsSection">
+  <h2>Operaciones Activas</h2>
+  <div id="activeOpsKpi" class="cards" style="margin-bottom:12px"></div>
+  <div id="activeOpsTable"></div>
+</section>
+
 <section>
   <h2>Curva de equity (pnl_snapshots por refresh)</h2>
   <div id="equityChart"></div>
@@ -204,6 +210,50 @@ svgBar('dayChart', DATA.per_day.map(d => ({ label: iso2day(d.day), value: d.net_
 
 // ---- Tablas ----
 function tableRow(cells) { return '<tr>' + cells.map(c => `<td>${c}</td>`).join('') + '</tr>'; }
+
+// ---- Active Operations ----
+const ao = DATA.active_operations || { count: 0, grids: [] };
+const aoSection = document.getElementById('activeOpsSection');
+if (ao.count === 0) {
+  aoSection.querySelector('h2').textContent = 'Operaciones Activas — Ningún grid activo';
+  document.getElementById('activeOpsKpi').innerHTML = '';
+  document.getElementById('activeOpsTable').innerHTML = '<div class="empty">No hay grids en ejecución. Envía /lanzar para crear uno.</div>';
+} else {
+  aoSection.querySelector('h2').textContent = 'Operaciones Activas (' + ao.count + ' grid' + (ao.count > 1 ? 's' : '') + ')';
+  let kpiHtml = '';
+  ao.grids.forEach(g => {
+    const unrealized = g.unrealized_pnl;
+    const realized = g.realized_pnl;
+    const total = g.total_pnl;
+    kpiHtml += '<div class="card">' +
+      '<div class="label">' + g.symbol + ' · ' + (g.leverage || '?') + 'x · ' + (g.grid_mode || 'NEUTRAL') + '</div>' +
+      '<div class="value ' + pnlClass(total) + '">' + money(total) + '</div>' +
+      '<div class="hint">Realizado: ' + money(realized) + ' · No realizado: ' + money(unrealized) + '</div>' +
+      '<div class="hint">Rango: ' + money(g.lower_price) + ' – ' + money(g.upper_price) + ' · ' + g.levels + ' niveles</div>' +
+      '<div class="hint">Órdenes: ' + g.open_orders + ' abiertas / ' + g.filled_orders + ' fills / ' + g.canceled_orders + ' canceladas</div>' +
+      '<div class="hint">Creado: ' + iso2str(g.created_at) + (g.last_snapshot_at ? ' · Último refresh: ' + iso2str(g.last_snapshot_at) : '') + '</div>' +
+      '</div>';
+  });
+  document.getElementById('activeOpsKpi').innerHTML = kpiHtml;
+
+  const ot = document.getElementById('activeOpsTable');
+  ot.innerHTML = '<table id="activeGridTable"></table>';
+  const tgt = document.getElementById('activeGridTable');
+  tgt.innerHTML = '<tr><th>Grid</th><th>Símbolo</th><th>Modo</th><th>Leverage</th><th>Rango</th><th>Niveles</th><th>Tipo</th><th>Órdenes (abiertas/fills/canceladas)</th><th>PnL total</th><th>Creado</th><th>Último refresh</th></tr>' +
+    ao.grids.map(g => tableRow([
+      '<span class="mono">' + (g.grid_id||'').slice(0,10) + '</span>',
+      g.symbol,
+      g.grid_mode || 'NEUTRAL',
+      (g.leverage || '?') + 'x',
+      money(g.lower_price) + ' – ' + money(g.upper_price),
+      g.levels,
+      g.grid_type || '—',
+      g.open_orders + ' / ' + g.filled_orders + ' / ' + g.canceled_orders,
+      pnlSpan(g.total_pnl),
+      iso2str(g.created_at),
+      g.last_snapshot_at ? iso2str(g.last_snapshot_at) : '<span class="zero">sin refresh</span>'
+    ])).join('');
+}
 
 const pg = document.getElementById('perGridTable');
 pg.innerHTML = DATA.per_grid.length
