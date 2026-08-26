@@ -154,14 +154,26 @@ class GridService:
 
         # Fail fast (before any pricing/klines calls) if NEUTRAL mode would
         # stack on top of an existing position from outside this bot.
+        # If a small residual position exists (from a previous grid), close it
+        # automatically instead of failing — this is common after cancel_grid
+        # leaves a tiny dust position due to rounding.
         if grid_mode == "NEUTRAL":
             position = await self.binance.get_position(symbol)
             position_amt = Decimal(position["positionAmt"]) if position else Decimal("0")
             if position_amt != 0:
-                raise ValueError(
-                    f"Cannot create NEUTRAL grid for {symbol}: existing position {position_amt} != 0. "
-                    "Close the position first, or use grid_mode=LONG/SHORT."
-                )
+                close_result = await self.binance.place_market_close(symbol, position_amt)
+                if close_result:
+                    logger.info(
+                        f"Closed residual position {position_amt} {symbol} before creating NEUTRAL grid"
+                    )
+                    # Re-check after close
+                    position = await self.binance.get_position(symbol)
+                    position_amt = Decimal(position["positionAmt"]) if position else Decimal("0")
+                if position_amt != 0:
+                    raise ValueError(
+                        f"Cannot create NEUTRAL grid for {symbol}: existing position {position_amt} != 0 "
+                        "after automatic close attempt. Close manually or use grid_mode=LONG/SHORT."
+                    )
 
         price_data = await self.binance.get_mark_price(symbol)
         if not price_data or "price" not in price_data:
