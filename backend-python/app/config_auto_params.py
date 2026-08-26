@@ -53,3 +53,8 @@ RANGE_LOOKBACK = 50                     # candles for real range
 
 # Fallback if exchangeInfo doesn't provide minNotional
 MIN_NOTIONAL_FALLBACK = Decimal("5.0")  # USDT
+
+# Check-close grace period: OUT_OF_RANGE is not evaluated until the grid
+# has been alive for at least this many minutes, giving orders time to fill
+# and cycles to complete before the first price-bound check.
+CHECK_CLOSE_GRACE_MINUTES = 30

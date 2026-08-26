@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from decimal import ROUND_DOWN, Decimal
 from typing import Any, Dict, List, Optional
 
-from app.config_auto_params import GRID_LEVERAGE_DEFAULT
+from app.config_auto_params import GRID_LEVERAGE_DEFAULT, CHECK_CLOSE_GRACE_MINUTES
 from app.core.config import settings
 from app.database.connection import get_sqlite_connection, SessionLocal
 from app.database.models import HistoricalGridLog, GridCycle, PnlSnapshot
@@ -1046,16 +1046,21 @@ class GridService:
         # blows through the range stops earning from oscillation and just
         # accumulates one-sided exposure — MAX_POSITION (below) is the
         # position-based backstop for that, this is the price-based one.
+        # Grace period: skip OUT_OF_RANGE until grid has had time to establish
+        # orders and complete at least one cycle.
         if current_price is not None:
-            lower_price = Decimal(str(grid["lower_price"]))
-            upper_price = Decimal(str(grid["upper_price"]))
-            if current_price < lower_price or current_price > upper_price:
-                closed_grid = await self.cancel_grid(grid_id, trigger_condition="OUT_OF_RANGE")
-                logger.warning(
-                    f"Grid {grid_id} ({grid['symbol']}) closed: "
-                    f"price {current_price} outside range [{lower_price}, {upper_price}]"
-                )
-                return {"grid": closed_grid, "triggered": "OUT_OF_RANGE"}
+            age_hours = self._grid_age_hours(grid)
+            if age_hours is not None and age_hours * 60 >= CHECK_CLOSE_GRACE_MINUTES:
+                lower_price = Decimal(str(grid["lower_price"]))
+                upper_price = Decimal(str(grid["upper_price"]))
+                if current_price < lower_price or current_price > upper_price:
+                    closed_grid = await self.cancel_grid(grid_id, trigger_condition="OUT_OF_RANGE")
+                    logger.warning(
+                        f"Grid {grid_id} ({grid['symbol']}) closed: "
+                        f"price {current_price} outside range [{lower_price}, {upper_price}] "
+                        f"(age {age_hours:.1f}h > {CHECK_CLOSE_GRACE_MINUTES}m grace)"
+                    )
+                    return {"grid": closed_grid, "triggered": "OUT_OF_RANGE"}
 
         # Check 3: Max net position accumulated (FIX 2)
         qty_per_order = Decimal(grid.get("quantity_per_order") or 0)
