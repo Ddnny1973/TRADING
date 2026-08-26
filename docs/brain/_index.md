@@ -8,7 +8,7 @@ related:
   - "[[infra-multi-servidor]]"
   - "[[n8n-sync-y-gotchas]]"
   - "[[decisiones-tecnicas]]"
-updated: 2026-08-16
+updated: 2026-08-26
 owner: dueño del repo
 ---
 
@@ -30,7 +30,9 @@ Sistema de **grid trading autónomo para Binance Futures**, compuesto por:
   webhooks salientes — todo el polling lo dispara n8n.
 - **Dashboard web** (`GET /dashboard` + `/api/v1/dashboard/data`, servido por
   el mismo backend FastAPI) — visualiza performance leyendo `postgres-trading`
-  en vivo. Ver [[analisis-bot-monitoreo]] y [[decisiones-tecnicas]].
+  en vivo. Incluye sección **Operaciones Activas** que consulta SQLite en
+  tiempo real (grids RUNNING, órdenes abiertas, PnL vivo). Ver
+  [[analisis-bot-monitoreo]] y [[decisiones-tecnicas]].
 - **Docs de producto/operación** ya extensamente cubiertos en [docs/00-START/](../00-START/)
   hasta [docs/90-APPENDICES/](../90-APPENDICES/) (estructura numerada, ver
   [docs/00-START/02-tabla-contenidos.md](../00-START/02-tabla-contenidos.md)).

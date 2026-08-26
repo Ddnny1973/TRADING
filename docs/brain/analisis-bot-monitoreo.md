@@ -7,7 +7,7 @@ tags: [monitoreo, analitica, postgres, grid-trading]
 related:
   - "[[_index]]"
   - "[[decisiones-tecnicas]]"
-updated: 2026-08-16
+updated: 2026-08-26
 owner: dueño del repo
 ---
 
@@ -128,3 +128,29 @@ Si se retoma este tema en otra sesión, leer primero
 `docs/analisis-bot/02-vision-orquestador-multiestrategia.md` completos
 (tienen todas las tablas y el razonamiento) y esta nota, antes de volver a
 analizar el documento raíz o el código del backend desde cero.
+
+## Fix OUT_OF_RANGE y gracia de 30 min (2026-08-26)
+
+**Problema descubierto**: los grids se cancelaban por `OUT_OF_RANGE` en el
+primer ciclo de monitoreo (5 min después de creación). Con bounds ATR-based
+(multiplier 1.5-3.5x), un movimiento mínimo de precio provocaba cierre
+inmediato sin que el grid tuviera oportunidad de llenar órdenes.
+
+**Causa raíz**: `check_close` no tenía período de gracia — evaluaba
+`OUT_OF_RANGE` inmediatamente al primer ciclo. Ver `decisiones-tecnicas.md`
+para el fix (`CHECK_CLOSE_GRACE_MINUTES = 30`).
+
+## Dashboard: sección Operaciones Activas (2026-08-26)
+
+Se agregó una sección al dashboard que consulta SQLite en tiempo real para
+mostrar grids RUNNING con: símbolo, leverage, modo, rango, niveles, órdenes
+(abiertas/fills/canceladas), PnL realizado/no realizado, timestamps.
+
+**Bug corregido**: `current_map` se definía después del bloque que la usaba
+(variable unbound), causando fallo silencioso. Fix en commit `8d47a3b`.
+
+## Auto-close de posiciones residuales (2026-08-26)
+
+`create_grid` ahora cierra automáticamente cualquier posición residual antes
+de crear un NEUTRAL grid (común después de cancelar un grid con redondeo).
+Ver `decisiones-tecnicas.md`.

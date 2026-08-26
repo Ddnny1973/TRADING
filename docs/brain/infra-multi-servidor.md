@@ -7,7 +7,7 @@ tags: [infra, deploy, nginx, docker, red]
 related:
   - "[[_index]]"
   - "[[n8n-sync-y-gotchas]]"
-updated: 2026-08-20
+updated: 2026-08-26
 owner: dueño del repo
 ---
 
@@ -95,6 +95,10 @@ es más permisivo de lo ideal. La alternativa nativa de n8n (`$vars`, Settings
 → Variables) requiere licencia paga — la instancia actual es **Community
 Edition** y no la tiene disponible. Mientras siga en Community, todos los
 workflows deben seguir usando `$env.*` (`BACKEND_URL`, `TELEGRAM_CHAT_ID`).
+
+**2026-08-26**: `TELEGRAM_CHAT_ID=1561962049` agregado al docker-compose de n8n
+(archivo `32/docker-compose.yml` del repo Docker). Sin esta variable, WF3
+rechazaba silenciosamente todos los comandos (authorized=false).
 
 ## Proxy inverso (bastión)
 
