@@ -143,3 +143,15 @@ minutos de vida. Los demás triggers (`EXPIRED`, `MAX_POSITION`, `STOP_LOSS`,
 
 **Archivo**: `app/services/grid_service.py`, check_close method (~línea 1049).
 **Constante**: `app/config_auto_params.py` línea 58.
+
+## Auto-close de posiciones residuales (2026-08-26)
+
+**Problema**: después de cancelar un grid, a veces queda una posición residual
+tiny (ej. 0.0009 BTC) por redondeo en el market close. El siguiente intento
+de crear un NEUTRAL grid falla con "existing position != 0".
+
+**Solución**: `create_grid` ahora intenta cerrar automáticamente cualquier
+posición residual antes de crear el grid. Solo falla si el cierre no logra
+limpiar la posición completamente.
+
+**Archivo**: `app/services/grid_service.py`, create_grid method (~línea 155).
