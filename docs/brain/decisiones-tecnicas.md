@@ -7,7 +7,7 @@ tags: [decisiones, ia, alcance]
 related:
   - "[[_index]]"
   - "[[n8n-sync-y-gotchas]]"
-updated: 2026-08-16
+updated: 2026-08-26
 owner: dueño del repo
 ---
 
@@ -128,3 +128,18 @@ Binance.md` (eso queda pendiente de decidir con su compañera), sino poder
 cuándo pasar a dinero real. Ver [[analisis-bot-monitoreo]] para el detalle
 completo y el estado de avance (evita repetir esta exploración en sesiones
 futuras).
+
+## Período de gracia en check-close (2026-08-26)
+
+**Problema**: los grids se cancelaban por `OUT_OF_RANGE` en el primer ciclo
+de monitoreo (5 min después de creación). Con bounds ATR-based (multiplier
+1.5-3.5x), un movimiento de precio mínimo en crypto provocaba cierre inmediato
+sin que el grid tuviera oportunidad de llenar órdenes o completar ciclos.
+
+**Solución**: `CHECK_CLOSE_GRACE_MINUTES = 30` en `config_auto_params.py`.
+El check-close no evalúa `OUT_OF_RANGE` hasta que el grid tenga al menos 30
+minutos de vida. Los demás triggers (`EXPIRED`, `MAX_POSITION`, `STOP_LOSS`,
+`TAKE_PROFIT`) NO se ven afectados por la gracia — solo `OUT_OF_RANGE`.
+
+**Archivo**: `app/services/grid_service.py`, check_close method (~línea 1049).
+**Constante**: `app/config_auto_params.py` línea 58.
