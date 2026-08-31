@@ -10,7 +10,11 @@ from datetime import datetime, timezone
 from decimal import ROUND_DOWN, Decimal
 from typing import Any, Dict, List, Optional
 
-from app.config_auto_params import GRID_LEVERAGE_DEFAULT, CHECK_CLOSE_GRACE_MINUTES
+from app.config_auto_params import (
+    GRID_LEVERAGE_DEFAULT,
+    CHECK_CLOSE_GRACE_MINUTES,
+    REPLENISH_POSITION_TOLERANCE_RATIO,
+)
 from app.core.config import settings
 from app.database.connection import get_sqlite_connection, SessionLocal
 from app.database.models import HistoricalGridLog, GridCycle, PnlSnapshot
@@ -675,15 +679,19 @@ class GridService:
         if not grid or grid["status"] != "RUNNING":
             return 0
 
-        # NEUTRAL mode: pause replenishment while the account carries a
-        # position on this symbol beyond a small dust tolerance. Replenishing
-        # while unbalanced would keep adding to the same directional
-        # exposure a NEUTRAL grid is meant to avoid.
+        # NEUTRAL mode: a grid earns precisely by holding inventory between
+        # legs, so replenishment is only paused near the hard MAX_POSITION
+        # limit — not at the first fill. Below that band the grid keeps
+        # placing the opposite leg that closes the cycle.
         if (grid.get("grid_mode") or "NEUTRAL").upper() == "NEUTRAL":
             position = await self.binance.get_position(grid["symbol"])
             position_amt = Decimal(position["positionAmt"]) if position else Decimal("0")
             qty_per_order = Decimal(grid.get("quantity_per_order") or 0)
-            tolerance = qty_per_order * Decimal("0.05") if qty_per_order > 0 else Decimal("0")
+            tolerance = (
+                Decimal(settings.MAX_NET_POSITION_LEVELS)
+                * qty_per_order
+                * REPLENISH_POSITION_TOLERANCE_RATIO
+            ) if qty_per_order > 0 else Decimal("0")
             if abs(position_amt) > tolerance:
                 logger.warning(
                     f"Grid {grid_id} ({grid['symbol']}) NEUTRAL mode: position {position_amt} "

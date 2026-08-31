@@ -192,6 +192,21 @@ Reconocer esto evita que el agente "refactorice" cosas que están bien:
 
 ## 4. Plan de acción
 
+### Estado de implementación
+
+| Tarea | Estado | Detalle |
+|---|---|---|
+| T7 · Quitar doble conteo | ✅ 2026-08-31 | `strategy_pnl = cierres + grids vivos`. `combined_pnl` queda como alias. Etiquetas del dashboard corregidas. |
+| T4 · SL/TP reales | ✅ 2026-08-31 | `GRID_STOP_LOSS_PCT_OF_BALANCE = 1 %`, `GRID_TAKE_PROFIT_PCT_OF_BALANCE = 3 %`; `derive_stop_loss_take_profit()`; expuestos en `/auto-params` y propagados en WF1. |
+| T1 · Desbloquear reposición | ✅ 2026-08-31 | `REPLENISH_POSITION_TOLERANCE_RATIO = 0.80` sobre `MAX_NET_POSITION_LEVELS` (antes: `0.05 × qty_per_order`). |
+| T2, T3, T5, T6, T8–T18 | ❌ pendiente | |
+
+> ⚠️ Hallazgo al validar: la suite `pytest` de `backend-python/` ya tenía
+> **21 fallos preexistentes** en `main` (verificado con un worktree limpio en
+> `5a4209a`). Los cambios de arriba no añaden regresiones (21 fallos antes y
+> después, +5 tests nuevos que pasan), pero esto **eleva la prioridad de
+> [T18](#t18)**: hoy nadie se entera de que la suite está rota.
+
 Cada tarea tiene: **archivo**, **cambio concreto**, **criterio de aceptación** y
 **riesgo**. Ejecutar en el orden de las fases. **No mezclar fases en un solo PR.**
 

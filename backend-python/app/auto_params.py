@@ -11,7 +11,8 @@ from app.config_auto_params import (
     FEE_ROUNDTRIP, FEE_MARGIN_FACTOR, MAX_RISK_PCT, CAPITAL_BUFFER,
     MULTIPLIER_BOUNDS, LEVELS_BOUNDS, ATR_PERIOD,
     CANDIDATE_INTERVALS, ER_LOOKBACK, ER_MAX_TRADEABLE, RANGE_LOOKBACK,
-    MIN_NOTIONAL_FALLBACK, LEVERAGE_BY_VOLATILITY, LEVERAGE_BOUNDS
+    MIN_NOTIONAL_FALLBACK, LEVERAGE_BY_VOLATILITY, LEVERAGE_BOUNDS,
+    GRID_STOP_LOSS_PCT_OF_BALANCE, GRID_TAKE_PROFIT_PCT_OF_BALANCE
 )
 from app.services.binance_client import BinanceClient
 from app.services.indicators import calculate_atr
@@ -284,6 +285,38 @@ def derive_risk_pct_and_levels(
     return Decimal("0"), 0, False, reason
 
 
+def derive_stop_loss_take_profit(
+    balance: Decimal
+) -> Tuple[Optional[Decimal], Optional[Decimal], str]:
+    """
+    Translate the balance-relative risk policy into absolute quote-currency
+    thresholds that check_close/check_sl_tp can compare against total_pnl.
+
+    Without these, stop_loss/take_profit stay None and the only backstops are
+    MAX_POSITION (inventory-based) and OUT_OF_RANGE (price-based) — neither of
+    which caps the loss in money terms.
+
+    Returns:
+        (stop_loss, take_profit, reason). A threshold is None when its
+        configured percentage is 0 (explicitly disabled).
+    """
+    def _threshold(pct: Decimal) -> Optional[Decimal]:
+        if pct <= 0:
+            return None
+        return (balance * pct).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+
+    stop_loss = _threshold(GRID_STOP_LOSS_PCT_OF_BALANCE)
+    take_profit = _threshold(GRID_TAKE_PROFIT_PCT_OF_BALANCE)
+
+    reason = (
+        f"balance {balance} * SL {GRID_STOP_LOSS_PCT_OF_BALANCE} = "
+        f"{stop_loss if stop_loss is not None else 'deshabilitado'} | "
+        f"balance {balance} * TP {GRID_TAKE_PROFIT_PCT_OF_BALANCE} = "
+        f"{take_profit if take_profit is not None else 'deshabilitado'}"
+    )
+    return stop_loss, take_profit, reason
+
+
 async def auto_derive_params(
     symbol: str,
     balance: Decimal,
@@ -434,6 +467,10 @@ async def auto_derive_params(
             }
         }
 
+    # Step 8: Derive stop_loss / take_profit in quote currency from the balance
+    stop_loss, take_profit, sl_tp_reason = derive_stop_loss_take_profit(balance)
+    reasoning["stop_loss_take_profit"] = sl_tp_reason
+
     # All viable
     return {
         "symbol": symbol,
@@ -448,13 +485,17 @@ async def auto_derive_params(
             "atr_multiplier": float(multiplier),
             "klines_interval": interval,
             "atr_period": ATR_PERIOD,
-            "leverage": leverage
+            "leverage": leverage,
+            "stop_loss": float(stop_loss) if stop_loss is not None else None,
+            "take_profit": float(take_profit) if take_profit is not None else None
         },
         "reasoning": reasoning,
         "policy": {
             "fee_roundtrip": float(FEE_ROUNDTRIP),
             "fee_margin_factor": float(FEE_MARGIN_FACTOR),
             "max_risk_pct": float(MAX_RISK_PCT),
-            "multiplier_bounds": [float(MULTIPLIER_BOUNDS[0]), float(MULTIPLIER_BOUNDS[1])]
+            "multiplier_bounds": [float(MULTIPLIER_BOUNDS[0]), float(MULTIPLIER_BOUNDS[1])],
+            "stop_loss_pct_of_balance": float(GRID_STOP_LOSS_PCT_OF_BALANCE),
+            "take_profit_pct_of_balance": float(GRID_TAKE_PROFIT_PCT_OF_BALANCE)
         }
     }

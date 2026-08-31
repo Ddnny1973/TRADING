@@ -225,8 +225,14 @@ def _compute(engine):
     win_rate = (wins / total_cycles) if total_cycles else None
     fees_pct = (overview["fees"] / overview["gross_pnl"] * 100) if overview["gross_pnl"] else None
 
-    cycles_pnl_f = num(overview["net_pnl"])
-    closed_pnl_f = num(closed["pnl"])
+    cycles_pnl_f = num(overview["net_pnl"]) or 0.0
+    closed_pnl_f = num(closed["pnl"]) or 0.0
+    # PnL vivo de los grids todavía abiertos (último snapshot de cada uno).
+    open_pnl_f = sum((r["total_pnl"] or 0.0) for r in latest_snapshot)
+    # Resultado real de la estrategia. NO se suman los grid_cycles: su parte
+    # realizada ya está incluida dentro del total_pnl de cada grid cerrado
+    # (calculate_grid_pnl = realized + unrealized), sumarlos la contaría dos veces.
+    strategy_pnl_f = closed_pnl_f + open_pnl_f
 
     balances = [e["account_balance"] for e in equity if e["account_balance"] is not None]
     first_balance = balances[0] if balances else None
@@ -350,8 +356,10 @@ def _compute(engine):
             "cycle_return_pct": cycle_return_pct,
             "cycles_pnl": cycles_pnl_f,
             "closed_pnl": closed_pnl_f,
-            "combined_pnl": cycles_pnl_f + closed_pnl_f,
-            "strategy_roi_pct": num(((cycles_pnl_f + closed_pnl_f) / num(first_balance) * 100) if first_balance else None),
+            "open_pnl": open_pnl_f,
+            "strategy_pnl": strategy_pnl_f,
+            "combined_pnl": strategy_pnl_f,  # alias retrocompatible (template/WF3)
+            "strategy_roi_pct": num((strategy_pnl_f / num(first_balance) * 100) if first_balance else None),
         },
         "per_grid": per_grid,
         "active_operations": active_ops,

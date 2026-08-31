@@ -39,13 +39,14 @@
 
 <div class="cards">
   <div class="card"><div class="label">Estrategia</div><div class="value" id="cStrategy">—</div><div class="hint" id="cStrategyHint">—</div></div>
-  <div class="card"><div class="label">PnL neto (ciclos)</div><div class="value" id="cNetPnl">—</div><div class="hint">incluye fees</div></div>
-  <div class="card"><div class="label">Ciclos completados</div><div class="value" id="cCycles">—</div><div class="hint"><span id="cWinRate">—</span> win rate</div></div>
+  <div class="card"><div class="label">PnL real de la estrategia</div><div class="value" id="cCombined">—</div><div class="hint">cierres + grids vivos — <b>este es el resultado del bot</b></div></div>
+  <div class="card"><div class="label">PnL en cierres</div><div class="value" id="cClosedPnl">—</div><div class="hint"><span id="cClosedCount">—</span> grids cerrados</div></div>
+  <div class="card"><div class="label">PnL de grids vivos</div><div class="value" id="cOpenPnl">—</div><div class="hint">realizado + no realizado, aún sin cerrar</div></div>
+  <div class="card"><div class="label">PnL bruto de ciclos</div><div class="value" id="cNetPnl">—</div><div class="hint">mecánica del grid — <b>no es el P&amp;L del bot</b></div></div>
+  <div class="card"><div class="label">Ciclos completados</div><div class="value" id="cCycles">—</div><div class="hint"><span id="cWinRate">—</span> win rate (estructural: siempre 100%)</div></div>
   <div class="card"><div class="label">Fees pagadas</div><div class="value" id="cFees">—</div><div class="hint"><span id="cFeesPct">—</span> % de ganancia bruta</div></div>
   <div class="card"><div class="label">ROI del período</div><div class="value" id="cRoi">—</div><div class="hint">balance 1er → último snapshot</div></div>
   <div class="card"><div class="label">Retorno por ciclo</div><div class="value" id="cCycleRet">—</div><div class="hint">neto / nocional promedio</div></div>
-  <div class="card"><div class="label">PnL combinado</div><div class="value" id="cCombined">—</div><div class="hint">ciclos + cierres de grids</div></div>
-  <div class="card"><div class="label">PnL en cierres</div><div class="value" id="cClosedPnl">—</div><div class="hint"><span id="cClosedCount">—</span> grids cerrados</div></div>
 </div>
 
 <section id="activeOpsSection">
@@ -122,7 +123,8 @@ if (pf.strategy_roi_pct !== null) {
 document.getElementById('cStrategyHint').innerHTML = strHint;
 setVal('cRoi', pf.roi_period_pct === null ? '—' : (pf.roi_period_pct >= 0 ? '+' : '') + pf.roi_period_pct.toFixed(2) + '%', pf.roi_period_pct >= 0 ? 'pos' : 'neg');
 setVal('cCycleRet', pf.cycle_return_pct === null ? '—' : (pf.cycle_return_pct >= 0 ? '+' : '') + pf.cycle_return_pct.toFixed(2) + '%', pf.cycle_return_pct >= 0 ? 'pos' : 'neg');
-setVal('cCombined', money(pf.combined_pnl), pnlClass(pf.combined_pnl));
+setVal('cCombined', money(pf.strategy_pnl), pnlClass(pf.strategy_pnl));
+setVal('cOpenPnl', money(pf.open_pnl), pnlClass(pf.open_pnl));
 
 function setVal(id, text, cls) {
   const el = document.getElementById(id);

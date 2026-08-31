@@ -13,6 +13,13 @@ FEE_MARGIN_FACTOR = Decimal("2.5")      # step must cover 2.5x round-trip fees
 MAX_RISK_PCT = Decimal("0.15")          # Never commit more than 15% of balance per grid
 CAPITAL_BUFFER = Decimal("1.1")         # 10% margin above min_notional
 
+# Tope de pérdida / objetivo de ganancia por grid, como fracción del balance.
+# auto_derive_params() los traduce a stop_loss/take_profit en USDT para que
+# check_close tenga un freno expresado en dinero (y no solo en inventario
+# acumulado vía MAX_NET_POSITION_LEVELS). 0 deshabilita el umbral.
+GRID_STOP_LOSS_PCT_OF_BALANCE = Decimal("0.010")     # 1.0% del balance
+GRID_TAKE_PROFIT_PCT_OF_BALANCE = Decimal("0.030")   # 3.0% del balance
+
 # Leverage por volatilidad del par (ATR% = ATR / precio)
 GRID_LEVERAGE_DEFAULT = 3
 LEVERAGE_BY_VOLATILITY = [
@@ -58,3 +65,9 @@ MIN_NOTIONAL_FALLBACK = Decimal("5.0")  # USDT
 # has been alive for at least this many minutes, giving orders time to fill
 # and cycles to complete before the first price-bound check.
 CHECK_CLOSE_GRACE_MINUTES = 30
+
+# Fracción de MAX_NET_POSITION_LEVELS hasta la que un grid NEUTRAL puede
+# acumular inventario sin dejar de reponer órdenes. Un grid funciona
+# acumulando inventario: pausar la reposición al primer fill lo deja inerte.
+# Solo se pausa al acercarse al límite duro que evaluará MAX_POSITION.
+REPLENISH_POSITION_TOLERANCE_RATIO = Decimal("0.80")
