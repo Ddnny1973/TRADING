@@ -194,17 +194,35 @@ Reconocer esto evita que el agente "refactorice" cosas que están bien:
 
 ### Estado de implementación
 
-| Tarea | Estado | Detalle |
-|---|---|---|
-| T7 · Quitar doble conteo | ✅ 2026-08-31 | `strategy_pnl = cierres + grids vivos`. `combined_pnl` queda como alias. Etiquetas del dashboard corregidas. |
-| T4 · SL/TP reales | ✅ 2026-08-31 | `GRID_STOP_LOSS_PCT_OF_BALANCE = 1 %`, `GRID_TAKE_PROFIT_PCT_OF_BALANCE = 3 %`; `derive_stop_loss_take_profit()`; expuestos en `/auto-params` y propagados en WF1. |
-| T1 · Desbloquear reposición | ✅ 2026-08-31 | `REPLENISH_POSITION_TOLERANCE_RATIO = 0.80` sobre `MAX_NET_POSITION_LEVELS` (antes: `0.05 × qty_per_order`). |
-| T2, T3, T5, T6, T8–T18 | ❌ pendiente | |
+Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 
-> ⚠️ Hallazgo al validar: la suite `pytest` de `backend-python/` ya tenía
-> **21 fallos preexistentes** en `main` (verificado con un worktree limpio en
-> `5a4209a`). Los cambios de arriba no añaden regresiones (21 fallos antes y
-> después, +5 tests nuevos que pasan), pero esto **eleva la prioridad de
+| # | Tarea | Fase | Estado | Commit / detalle |
+|---|---|---|---|---|
+| [T1](#t1) | Permitir que el grid acumule inventario | 1 | ✅ 2026-08-31 | `b315faf` — `REPLENISH_POSITION_TOLERANCE_RATIO = 0.80` sobre `MAX_NET_POSITION_LEVELS` (antes `0.05 × qty_per_order`). Falta la parte de reportar `replenish_status` en `/refresh`. |
+| [T2](#t2) | RECENTER en vez de cerrar (OUT_OF_RANGE) | 1 | ❌ pendiente | **Siguiente en impacto.** Requiere T4 (ya hecho) como freno. |
+| [T3](#t3) | `MAX_POSITION` = límite, no gatillo de cierre | 1 | ❌ pendiente | **Siguiente en prioridad.** Hoy sigue cerrando a mercado. |
+| [T4](#t4) | Stop-loss / take-profit reales | 1 | ✅ 2026-08-31 | `b315faf` — SL 1 % / TP 3 % del balance, expuestos en `/auto-params` y propagados en WF1. |
+| [T5](#t5) | Restar fee de salida al PnL no realizado | 1 | ❌ pendiente | Hace que el SL de T4 dispare con el número correcto. |
+| [T6](#t6) | Métricas útiles (closure drag, PnL por trigger…) | 2 | ❌ pendiente | Necesario para validar T2/T3. |
+| [T7](#t7) | Eliminar el doble conteo de `combined_pnl` | 2 | ✅ 2026-08-31 | `b315faf` — nuevo `strategy_pnl = cierres + grids vivos`; `combined_pnl` queda como alias. |
+| [T8](#t8) | Tablas `bot_executions` / `bot_health_events` | 2 | ❌ pendiente | Requiere que el dueño del repo corra la migración. |
+| [T9](#t9) | Reconciliar ROI del período vs. PnL de cierres | 2 | ❌ pendiente | |
+| [T10](#t10) | Relanzar automáticamente al cerrar un grid | 3 | ❌ pendiente | Mayor impacto en el objetivo 7/24. |
+| [T11](#t11) | Subir frecuencia del cron de WF1 | 3 | ❌ pendiente | Ver T13 antes, por el costo del LLM. |
+| [T12](#t12) | Watchdog de "bot inactivo" | 3 | ❌ pendiente | |
+| [T13](#t13) | Reducir dependencia del LLM | 3 | ❌ pendiente | |
+| [T14](#t14) | Investigar `RECONCILIATION_FAILED` | 4 | ❌ pendiente | 15 % de los cierres. |
+| [T15](#t15) | Kill-switch y tope de drawdown diario | 4 | ❌ pendiente | **Bloqueante para pasar a dinero real.** |
+| [T16](#t16) | Serializar `refresh` + `replenish` por grid | 4 | ❌ pendiente | Más relevante ahora que T1 genera más reposiciones. |
+| [T17](#t17) | Verificar posición residual tras el cierre | 4 | ❌ pendiente | |
+| [T18](#t18) | CI que corra los tests | 4 | ❌ pendiente | **Prioridad subida** — ver aviso abajo. |
+
+**Hecho: 3/18.** Próximo bloque recomendado: **T3 + T5**, y después **T2**.
+
+> ⚠️ Hallazgo al validar la Fase 1: la suite `pytest` de `backend-python/` ya
+> tenía **21 fallos preexistentes** en `main` (verificado con un worktree limpio
+> en `5a4209a`). Los cambios de T1/T4/T7 no añaden regresiones (21 fallos antes
+> y después, +5 tests nuevos que pasan), pero esto **eleva la prioridad de
 > [T18](#t18)**: hoy nadie se entera de que la suite está rota.
 
 Cada tarea tiene: **archivo**, **cambio concreto**, **criterio de aceptación** y
@@ -554,16 +572,17 @@ graph TD
 
 **PR sugeridos (uno por bloque, no todo junto):**
 
-1. **PR-1 «medición»** — T7 + T6 + T5. Sin riesgo operativo, y deja el
-   termómetro calibrado **antes** de cambiar la estrategia. **Empezar por aquí.**
-2. **PR-2 «riesgo»** — T4 (SL/TP reales). Habilita los siguientes.
-3. **PR-3 «motor»** — T1 + T3. Aquí es donde debería aparecer el salto en
-   número de ciclos.
-4. **PR-4 «cierres»** — T2 (RECENTER). El cambio más delicado; observar ≥ 1
+1. ✅ **PR-1 «urgente»** (`b315faf`, 2026-08-31) — T7 + T4 + T1. Se adelantaron
+   juntos porque T7 dejaba de mentir sobre el resultado, T4 era el freno
+   obligatorio y T1 era un bug que dejaba el motor inerte.
+2. ⬅️ **PR-2 «motor + medición»** — **T3 + T5 + T6**. Cierra lo que quedó de la
+   Fase 1 (que `MAX_POSITION` deje de cerrar a mercado) y calibra el termómetro
+   para poder evaluar el PR siguiente.
+3. **PR-3 «cierres»** — T2 (RECENTER). El cambio más delicado; observar ≥ 1
    semana antes de seguir.
-5. **PR-5 «continuidad»** — T10 + T11 + T12.
-6. **PR-6 «robustez»** — T14 + T16 + T17 + T18 + T8.
-7. **PR-7 «decisión»** — T13 + T9 + T15.
+4. **PR-4 «continuidad»** — T10 + T11 + T12.
+5. **PR-5 «robustez»** — T14 + T16 + T17 + T18 + T8.
+6. **PR-6 «decisión»** — T13 + T9 + T15.
 
 ---
 
