@@ -7,13 +7,15 @@ import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
-from decimal import ROUND_DOWN, Decimal
+from decimal import ROUND_CEILING, ROUND_DOWN, Decimal
 from typing import Any, Dict, List, Optional
 
 from app.config_auto_params import (
     GRID_LEVERAGE_DEFAULT,
     CHECK_CLOSE_GRACE_MINUTES,
     REPLENISH_POSITION_TOLERANCE_RATIO,
+    MAX_NET_POSITION_RATIO,
+    MAX_POSITION_HARD_MULTIPLE,
 )
 from app.core.config import settings
 from app.database.connection import get_sqlite_connection, SessionLocal
@@ -48,6 +50,28 @@ class GridService:
         if step <= 0:
             return value
         return (value / step).to_integral_value(rounding=ROUND_DOWN) * step
+
+    @staticmethod
+    def _max_net_position_qty(grid: Dict[str, Any]) -> Decimal:
+        """
+        Soft cap on how much one-sided inventory a grid may hold, in base asset.
+
+        Scales with the grid size (a 12-level grid can absorb more inventory
+        than a 5-level one) with settings.MAX_NET_POSITION_LEVELS as the floor.
+        Reaching it only pauses replenishment on the accumulating side; the
+        money-denominated backstop is stop_loss.
+
+        Returns:
+            Cap in base-asset quantity, or Decimal(0) when it cannot be derived
+            (no quantity_per_order stored), meaning "no inventory limit".
+        """
+        qty_per_order = Decimal(str(grid.get("quantity_per_order") or 0))
+        if qty_per_order <= 0:
+            return Decimal("0")
+        levels = Decimal(str(grid.get("levels") or 0))
+        by_levels = (levels * MAX_NET_POSITION_RATIO).to_integral_value(rounding=ROUND_CEILING)
+        slots = max(Decimal(settings.MAX_NET_POSITION_LEVELS), by_levels)
+        return slots * qty_per_order
 
     @staticmethod
     def _grid_age_hours(grid: Dict[str, Any]) -> Optional[float]:
@@ -680,24 +704,21 @@ class GridService:
             return 0
 
         # NEUTRAL mode: a grid earns precisely by holding inventory between
-        # legs, so replenishment is only paused near the hard MAX_POSITION
-        # limit — not at the first fill. Below that band the grid keeps
-        # placing the opposite leg that closes the cycle.
+        # legs, so replenishment is only throttled near the soft cap — and even
+        # then only on the side that would add to the existing exposure. The
+        # opposite leg (the one that unloads inventory) keeps being placed,
+        # which is what lets the position come back to zero on its own.
+        blocked_side: Optional[str] = None
         if (grid.get("grid_mode") or "NEUTRAL").upper() == "NEUTRAL":
             position = await self.binance.get_position(grid["symbol"])
             position_amt = Decimal(position["positionAmt"]) if position else Decimal("0")
-            qty_per_order = Decimal(grid.get("quantity_per_order") or 0)
-            tolerance = (
-                Decimal(settings.MAX_NET_POSITION_LEVELS)
-                * qty_per_order
-                * REPLENISH_POSITION_TOLERANCE_RATIO
-            ) if qty_per_order > 0 else Decimal("0")
-            if abs(position_amt) > tolerance:
+            tolerance = self._max_net_position_qty(grid) * REPLENISH_POSITION_TOLERANCE_RATIO
+            if tolerance > 0 and abs(position_amt) > tolerance:
+                blocked_side = "BUY" if position_amt > 0 else "SELL"
                 logger.warning(
                     f"Grid {grid_id} ({grid['symbol']}) NEUTRAL mode: position {position_amt} "
-                    f"outside tolerance {tolerance} — blocking replenish this cycle"
+                    f"over tolerance {tolerance} — pausing {blocked_side} replenishment this cycle"
                 )
-                return 0
 
         # Recalculate grid levels using stored params
         engine = GridEngine(
@@ -716,6 +737,7 @@ class GridService:
         # Find candidates for replenishment (filled but not yet replenished)
         conn = get_sqlite_connection()
         placed = 0
+        paused = 0
         try:
             cursor = conn.cursor()
             grid_orders = self.get_grid(grid_id)["orders"]
@@ -724,6 +746,26 @@ class GridService:
                 executed = Decimal(o.get("executed_qty") or 0)
                 if executed <= 0:
                     continue  # Not filled
+                if o.get("replenished"):
+                    continue  # Already replenished (the atomic claim below is still authoritative)
+
+                idx = o.get("level_index")
+                if idx is None:
+                    continue  # No level info, nothing to replenish against
+
+                # Determine opposite order position
+                if o["side"] == "BUY" and idx + 1 < len(price_levels):
+                    new_idx, new_side = idx + 1, "SELL"
+                elif o["side"] == "SELL" and idx - 1 >= 0:
+                    new_idx, new_side = idx - 1, "BUY"
+                else:
+                    continue  # Fill at grid edge, no adjacent level
+
+                # Side is resolved before claiming so a throttled leg stays
+                # claimable and gets replenished once the position unwinds.
+                if new_side == blocked_side:
+                    paused += 1
+                    continue
 
                 # CAPA A: Claim atómico — reclamar derecho a reponer ANTES de colocar orden
                 cursor.execute(
@@ -735,20 +777,6 @@ class GridService:
 
                 if cursor.rowcount != 1:
                     continue  # Otro ciclo ya reclamó esta orden — skip
-
-                # Solo llegamos aquí si reclamamos exitosamente
-                idx = o.get("level_index")
-                if idx is None:
-                    continue  # No level info, revert claim
-                    # (en la práctica es muy raro, pero si ocurre, la próxima iteración lo verá como replenished)
-
-                # Determine opposite order position
-                if o["side"] == "BUY" and idx + 1 < len(price_levels):
-                    new_idx, new_side = idx + 1, "SELL"
-                elif o["side"] == "SELL" and idx - 1 >= 0:
-                    new_idx, new_side = idx - 1, "BUY"
-                else:
-                    continue  # Fill at grid edge, no adjacent level
 
                 new_price = self._snap_down(price_levels[new_idx], filters["tick_size"])
 
@@ -816,6 +844,11 @@ class GridService:
         finally:
             conn.close()
 
+        if paused:
+            logger.info(
+                f"Grid {grid_id} ({grid['symbol']}): {placed} órdenes repuestas, "
+                f"{paused} en pausa por acumulación ({blocked_side})"
+            )
         return placed
 
     async def get_grid_pnl(self, grid_id: str, current_price: Optional[Decimal] = None) -> Optional[Dict[str, Any]]:
@@ -1028,7 +1061,8 @@ class GridService:
         Evaluate whether a grid should be closed based on five conditions:
         1. EXPIRED: grid age >= max_duration_hours
         2. OUT_OF_RANGE: mark price outside [lower_price, upper_price]
-        3. MAX_POSITION: net position exceeds MAX_NET_POSITION_LEVELS * quantity_per_order (FIX 2)
+        3. MAX_POSITION: net position beyond the hard cap (runaway inventory);
+           merely exceeding the soft cap pauses replenishment instead of closing
         4. STOP_LOSS: total PnL <= stop_loss threshold
         5. TAKE_PROFIT: total PnL >= take_profit threshold
 
@@ -1037,7 +1071,8 @@ class GridService:
 
         Returns:
             {"grid": <grid dict>, "triggered": "EXPIRED" | "OUT_OF_RANGE" | "MAX_POSITION" |
-             "STOP_LOSS" | "TAKE_PROFIT" | None}
+             "STOP_LOSS" | "TAKE_PROFIT" | None, "net_position_qty": float,
+             "accumulation_paused": bool}
             or None if grid_id does not exist.
         """
         grid = self.get_grid(grid_id)
@@ -1082,15 +1117,28 @@ class GridService:
                     )
                     return {"grid": closed_grid, "triggered": "OUT_OF_RANGE"}
 
-        # Check 3: Max net position accumulated (FIX 2)
-        qty_per_order = Decimal(grid.get("quantity_per_order") or 0)
-        if qty_per_order > 0:
+        # Check 3: inventory backstop. Holding one-sided inventory is how a
+        # grid works, so exceeding the soft cap only pauses replenishment on
+        # the accumulating side (see replenish_filled_orders). Closing here is
+        # reserved for a runaway position — the loss is capped by stop_loss.
+        soft_cap = self._max_net_position_qty(grid)
+        position_amt = Decimal("0")
+        accumulation_paused = False
+        if soft_cap > 0:
             position = await self.binance.get_position(grid["symbol"])
             position_amt = Decimal(position["positionAmt"]) if position else Decimal("0")
-            max_position = settings.MAX_NET_POSITION_LEVELS * qty_per_order * Decimal("1.05")  # 5% tolerance
-            if abs(position_amt) > max_position:
+            hard_cap = soft_cap * MAX_POSITION_HARD_MULTIPLE
+            if abs(position_amt) > hard_cap:
+                logger.warning(
+                    f"Grid {grid_id} ({grid['symbol']}) closed: net position {position_amt} "
+                    f"exceeds hard cap {hard_cap} (soft cap {soft_cap})"
+                )
                 closed_grid = await self.cancel_grid(grid_id, trigger_condition="MAX_POSITION")
-                return {"grid": closed_grid, "triggered": "MAX_POSITION"}
+                return {"grid": closed_grid, "triggered": "MAX_POSITION",
+                        "net_position_qty": float(position_amt), "accumulation_paused": True}
+            accumulation_paused = (
+                abs(position_amt) > soft_cap * REPLENISH_POSITION_TOLERANCE_RATIO
+            )
 
         # Check 4 & 5: SL/TP
         pnl = await self.get_grid_pnl(grid_id, current_price=current_price)
@@ -1100,7 +1148,11 @@ class GridService:
 
         trigger = check_sl_tp(pnl["total_pnl"], stop_loss, take_profit)
         if trigger is None:
-            return {"grid": grid, "triggered": None}
+            return {"grid": grid, "triggered": None,
+                    "net_position_qty": float(position_amt),
+                    "accumulation_paused": accumulation_paused}
 
         closed_grid = await self.cancel_grid(grid_id, trigger_condition=trigger)
-        return {"grid": closed_grid, "triggered": trigger}
+        return {"grid": closed_grid, "triggered": trigger,
+                "net_position_qty": float(position_amt),
+                "accumulation_paused": accumulation_paused}

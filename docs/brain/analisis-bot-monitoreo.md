@@ -160,6 +160,39 @@ proponer cualquier cambio de estrategia o de cierres.
 - ⚠️ La suite `pytest` de `backend-python/` tenía **21 fallos preexistentes**
   en `main` antes de estos cambios (comprobado con un worktree limpio en
   `5a4209a`). No hay CI que los detecte — ver T18 del plan.
+- ✅ **T3**: `MAX_POSITION` deja de ser un gatillo de cierre. El cap de
+  inventario ahora escala con `levels` (`MAX_NET_POSITION_RATIO = 0.6`, con
+  `MAX_NET_POSITION_LEVELS` como piso); superarlo **pausa la reposición solo
+  del lado que acumula** (la pata que descarga inventario se sigue colocando),
+  y solo se cierra al superar `MAX_POSITION_HARD_MULTIPLE = 2.0×` el cap. El
+  freno en dinero pasa a ser `stop_loss` (T4).
+- ✅ **T19**: `MAX_CONCURRENT_GRIDS` 2 → 4.
+
+## Análisis estratégico de portafolio (2026-08-31)
+
+Pregunta del usuario: qué estrategias implementar para que el bot sea rentable
+y si se pueden correr varias a la vez. Respuesta completa en
+`docs/analisis-bot/04-estrategia-y-portafolio.md`. Conclusiones clave:
+
+- **El grid es una estrategia short-vol / short-gamma** (perfil de pagos de
+  vender opciones). Los datos lo confirman: win rate 100 % estructural en
+  ciclos y pérdidas concentradas en los cierres. Su complemento correcto NO es
+  otra estrategia direccional, sino una **negativamente correlacionada**
+  (breakout), o simplemente apagar el grid en tendencia.
+- **Añadir estrategias no arregla la rentabilidad.** El cuello de botella es
+  $N_{ciclos}$ (0,5/día) y el destrozo en la salida, no la falta de estrategias.
+- **Descartadas hasta tener arnés de backtesting**: EMA Cross (sangra en
+  lateral, suma varianza sin descorrelacionar) y HMM (imán de sobreajuste).
+- **Idea de mayor valor (T21)**: convertir el evento `OUT_OF_RANGE` en la señal
+  de breakout — el stop del grid pasa a ser la entrada de la tendencia. Solo
+  después de T2 y de 4+ semanas con datos.
+- **Una estrategia por símbolo, regla dura**: Binance netea posiciones por
+  símbolo en one-way mode, y `cancel_grid()` hace `cancel_all_open_orders(symbol)`
+  — dos estrategias en el mismo par se cancelarían las órdenes entre sí.
+- **Hallazgo sin verificar**: el **funding no se contabiliza en ningún cálculo
+  de PnL** (`calculate_grid_pnl` solo descuenta fees de trading). En una
+  estrategia que gana ~0,43 USD por ciclo puede ser una fuga material invisible.
+  Verificar con `GET /fapi/v1/income?incomeType=FUNDING_FEE` (T22).
 
 ## Visión a futuro: orquestador multi-estrategia con IA (2026-07-30)
 

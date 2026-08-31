@@ -200,7 +200,7 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 |---|---|---|---|---|
 | [T1](#t1) | Permitir que el grid acumule inventario | 1 | ✅ 2026-08-31 | `b315faf` — `REPLENISH_POSITION_TOLERANCE_RATIO = 0.80` sobre `MAX_NET_POSITION_LEVELS` (antes `0.05 × qty_per_order`). Falta la parte de reportar `replenish_status` en `/refresh`. |
 | [T2](#t2) | RECENTER en vez de cerrar (OUT_OF_RANGE) | 1 | ❌ pendiente | **Siguiente en impacto.** Requiere T4 (ya hecho) como freno. |
-| [T3](#t3) | `MAX_POSITION` = límite, no gatillo de cierre | 1 | ❌ pendiente | **Siguiente en prioridad.** Hoy sigue cerrando a mercado. |
+| [T3](#t3) | `MAX_POSITION` = límite, no gatillo de cierre | 1 | ✅ 2026-08-31 | Cap proporcional a `levels` (`MAX_NET_POSITION_RATIO = 0.6`, piso `MAX_NET_POSITION_LEVELS`). Superarlo pausa la reposición **solo del lado que acumula**; solo cierra al pasar `MAX_POSITION_HARD_MULTIPLE = 2.0×`. |
 | [T4](#t4) | Stop-loss / take-profit reales | 1 | ✅ 2026-08-31 | `b315faf` — SL 1 % / TP 3 % del balance, expuestos en `/auto-params` y propagados en WF1. |
 | [T5](#t5) | Restar fee de salida al PnL no realizado | 1 | ❌ pendiente | Hace que el SL de T4 dispare con el número correcto. |
 | [T6](#t6) | Métricas útiles (closure drag, PnL por trigger…) | 2 | ❌ pendiente | Necesario para validar T2/T3. |
@@ -216,8 +216,12 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | [T16](#t16) | Serializar `refresh` + `replenish` por grid | 4 | ❌ pendiente | Más relevante ahora que T1 genera más reposiciones. |
 | [T17](#t17) | Verificar posición residual tras el cierre | 4 | ❌ pendiente | |
 | [T18](#t18) | CI que corra los tests | 4 | ❌ pendiente | **Prioridad subida** — ver aviso abajo. |
+| T19 | Escalar grids concurrentes | 3 | ✅ 2026-08-31 | `MAX_CONCURRENT_GRIDS` 2 → 4. Multiplica ciclos/día casi linealmente. Subir más exige un tope de exposición agregada (T15). |
+| T20 | Filtro de régimen **continuo** (ER en cada ciclo de WF2) | 3 | ❌ pendiente | Hoy el ER solo se evalúa al lanzar. Ver `04-estrategia-y-portafolio.md` §8. |
+| T21 | Flip `OUT_OF_RANGE` → posición de breakout | — | ❌ pendiente | Cobertura negativamente correlacionada con el grid. **Solo tras 4+ semanas de grid positivo y después de T2.** Ver `04-estrategia-y-portafolio.md` §4. |
+| T22 | Contabilizar el **funding** en el PnL | 2 | ❌ pendiente | Fuga potencialmente material hoy invisible. Ver `04-estrategia-y-portafolio.md` §6. |
 
-**Hecho: 3/18.** Próximo bloque recomendado: **T3 + T5**, y después **T2**.
+**Hecho: 5/22.** Próximo bloque recomendado: **T2 + T5 + T6**.
 
 > ⚠️ Hallazgo al validar la Fase 1: la suite `pytest` de `backend-python/` ya
 > tenía **21 fallos preexistentes** en `main` (verificado con un worktree limpio
@@ -575,14 +579,14 @@ graph TD
 1. ✅ **PR-1 «urgente»** (`b315faf`, 2026-08-31) — T7 + T4 + T1. Se adelantaron
    juntos porque T7 dejaba de mentir sobre el resultado, T4 era el freno
    obligatorio y T1 era un bug que dejaba el motor inerte.
-2. ⬅️ **PR-2 «motor + medición»** — **T3 + T5 + T6**. Cierra lo que quedó de la
-   Fase 1 (que `MAX_POSITION` deje de cerrar a mercado) y calibra el termómetro
-   para poder evaluar el PR siguiente.
-3. **PR-3 «cierres»** — T2 (RECENTER). El cambio más delicado; observar ≥ 1
-   semana antes de seguir.
-4. **PR-4 «continuidad»** — T10 + T11 + T12.
-5. **PR-5 «robustez»** — T14 + T16 + T17 + T18 + T8.
-6. **PR-6 «decisión»** — T13 + T9 + T15.
+2. ✅ **PR-2 «motor»** (2026-08-31) — T3 + T19. `MAX_POSITION` deja de cerrar a
+   mercado (pasa a pausar la pata que acumula) y se suben los grids concurrentes
+   de 2 a 4.
+3. ⬅️ **PR-3 «cierres + medición»** — **T2 + T5 + T6**. Elimina el resto del
+   closure drag y calibra el termómetro para poder evaluarlo.
+4. **PR-4 «continuidad»** — T10 + T11 + T12 + T20.
+5. **PR-5 «robustez»** — T14 + T16 + T17 + T18 + T8 + T22.
+6. **PR-6 «decisión»** — T13 + T9 + T15, y evaluar T21.
 
 ---
 
