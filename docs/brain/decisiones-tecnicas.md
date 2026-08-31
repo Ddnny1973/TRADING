@@ -7,7 +7,7 @@ tags: [decisiones, ia, alcance]
 related:
   - "[[_index]]"
   - "[[n8n-sync-y-gotchas]]"
-updated: 2026-08-26
+updated: 2026-08-31
 owner: dueño del repo
 ---
 
@@ -54,18 +54,34 @@ en [docs/50-WORKFLOWS/02-workflow1.md](../50-WORKFLOWS/02-workflow1.md).
 **Pendiente**: el system prompt de la IA no sabe de este tope — razona sobre
 un `gridCount` que puede ser recortado después sin que ella lo sepa.
 
-## Alcance de la fase actual
+## Alcance de la fase actual (ACTUALIZADO 2026-08-31)
 
-Objetivo declarado por el usuario: llegar a un **deployment funcional de los
-workflows n8n**, sin optimizar todavía la estrategia de trading/rentabilidad
-(esa optimización es una fase posterior). No inferir que falta trabajo de
-"mejora de estrategia" como pendiente urgente — es intencional en esta fase.
+⚠️ **Esta sección decía lo contrario hasta el 2026-08-31.** El alcance anterior
+era "llegar a un deployment funcional de los workflows n8n, sin optimizar
+todavía la estrategia/rentabilidad". **Ese objetivo ya se cumplió.**
 
-## Guardas de negocio ya implementadas en el backend
+El alcance actual, declarado explícitamente por el dueño del repo, es que el
+bot: (1) opere **7/24 sin quedarse sin operar**, (2) tome decisiones solo, y
+(3) **principalmente, sea rentable**.
+
+El diagnóstico del 2026-08-31 mostró que el bot **pierde ~8 USD** acumulados.
+Optimizar la rentabilidad **sí es trabajo pendiente y urgente** — lo contrario
+de lo que decía esta nota antes. El plan está en
+`docs/analisis-bot/03-plan-mejoras-rentabilidad.md` (22 tareas con tablero de
+estado) y el análisis de estrategia/portafolio en
+`docs/analisis-bot/04-estrategia-y-portafolio.md`.
+
+## Guardas de negocio implementadas en el backend
 
 - Solo **1 grid RUNNING por símbolo** (guardia en `POST /api/v1/grids`,
   responde 400 "already exists" — no es un error real, n8n debe interpretarlo
   como "ya hay un grid activo").
+- **`MAX_CONCURRENT_GRIDS = 4`** (era 2 hasta el 2026-08-31). Su 400 "Max
+  concurrent grids" también es informativo, no un error.
+- **Cap de inventario proporcional a `levels`** (2026-08-31): ver sección
+  dedicada más abajo. Reemplaza al tope fijo de `3 × quantity_per_order`.
+- **`stop_loss` / `take_profit` derivados del balance** (1 % / 3 %) en
+  `auto_params` y propagados por WF1 — antes se enviaban siempre en `null`.
 - `place_batch_orders()` (en
   [backend-python/app/services/binance_client.py](../../backend-python/app/services/binance_client.py))
   reintenta por **ítem** (no por batch completo) ante respuestas ambiguas de
@@ -141,8 +157,8 @@ El check-close no evalúa `OUT_OF_RANGE` hasta que el grid tenga al menos 30
 minutos de vida. Los demás triggers (`EXPIRED`, `MAX_POSITION`, `STOP_LOSS`,
 `TAKE_PROFIT`) NO se ven afectados por la gracia — solo `OUT_OF_RANGE`.
 
-**Archivo**: `app/services/grid_service.py`, check_close method (~línea 1049).
-**Constante**: `app/config_auto_params.py` línea 58.
+**Archivo**: `app/services/grid_service.py`, método `close_grid_if_triggered`.
+**Constante**: `CHECK_CLOSE_GRACE_MINUTES` en `app/config_auto_params.py`.
 
 ## Auto-close de posiciones residuales (2026-08-26)
 
@@ -155,3 +171,59 @@ posición residual antes de crear el grid. Solo falla si el cierre no logra
 limpiar la posición completamente.
 
 **Archivo**: `app/services/grid_service.py`, create_grid method (~línea 155).
+
+## El inventario deja de ser motivo de cierre (2026-08-31, commits `b315faf` + `5f9b5b0`)
+
+Las tres decisiones más importantes tomadas tras el diagnóstico de
+rentabilidad. Cambian el comportamiento operativo del bot, no solo su código.
+
+**1. Un grid NEUTRAL puede (y debe) cargar inventario.** El guard de
+`replenish_filled_orders()` usaba `tolerance = quantity_per_order * 0.05`, así
+que tras el *primer* fill la posición ya valía 20× la tolerancia y la
+reposición quedaba bloqueada de forma casi permanente — el motor quedaba
+inerte. Ahora la tolerancia es
+`_max_net_position_qty(grid) * REPLENISH_POSITION_TOLERANCE_RATIO` (0.80).
+
+**2. Superar el cap pausa, no cierra — y la pausa es direccional.** El cap de
+posición neta pasó de `MAX_NET_POSITION_LEVELS (3) × qty × 1.05` fijo a
+`max(MAX_NET_POSITION_LEVELS, ceil(levels × MAX_NET_POSITION_RATIO)) × qty`,
+es decir escala con el tamaño del grid. Al superarlo **solo se pausa la
+reposición del lado que acumula**; la pata que descarga inventario se sigue
+colocando, que es lo que permite que la posición vuelva sola a cero. El cierre
+por `MAX_POSITION` queda como red de seguridad a `MAX_POSITION_HARD_MULTIPLE`
+(2.0×) del cap.
+
+> Detalle de implementación fácil de romper: en el bucle de
+> `replenish_filled_orders()` el **lado de la orden se resuelve ANTES del claim
+> atómico** (`UPDATE ... replenished = 1`). Si se invierte ese orden, una pata
+> pausada quema su claim y no vuelve a reponerse nunca.
+
+**3. El freno real pasa a ser el dinero, no el inventario.**
+`auto_derive_params()` deriva `stop_loss` = 1 % y `take_profit` = 3 % del
+balance (`GRID_STOP_LOSS_PCT_OF_BALANCE` / `GRID_TAKE_PROFIT_PCT_OF_BALANCE`).
+Antes WF1 enviaba siempre `null` y por eso **nunca** hubo un cierre por SL/TP
+en toda la historia del bot.
+
+> Gotcha: `AutoParamsParamsV2` en `app/main.py` **debe declarar** los campos
+> nuevos o FastAPI los filtra silenciosamente de la respuesta de
+> `/auto-params`, y WF1 recibe `undefined`.
+
+**Constantes**: todas en `app/config_auto_params.py`, salvo
+`MAX_CONCURRENT_GRIDS` / `MAX_NET_POSITION_LEVELS` que viven en
+`app/core/config.py`.
+
+## Estado de la suite de tests (2026-08-31)
+
+`pytest` en `backend-python/` tiene **21 fallos preexistentes** en `main`
+(verificado con un worktree limpio en `5a4209a`, antes de cualquier cambio de
+esa sesión). **No hay CI que corra tests**, así que nadie se entera.
+
+Al validar cambios en este repo: comparar contra ese baseline de 21 fallos,
+**no** esperar 0. La forma segura de medir el baseline es
+`git worktree add <tmp> HEAD` — ⚠️ **no usar `git stash push -u`**: intenta
+borrar `docs/n8n-templates/`, `tests/` y `thunder-tests/`, falla con
+"Permission denied" y deja el estado a medias.
+
+Entorno local: `pip install -r requirements.txt` falla en Windows por
+`psycopg2-binary` (no hay `pg_config`). Instalar el resto de paquetes a mano;
+los tests saltan Postgres igualmente.
