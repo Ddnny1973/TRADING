@@ -35,6 +35,8 @@ class AutoParamsParamsV2(AutoParamsParams):
     quantity_per_order: float = 0.0
     lower_price: float = 0.0
     upper_price: float = 0.0
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
 
 
 class AutoParamsResponseV2(AutoParamsResponse):
@@ -55,7 +57,7 @@ grid_service = GridService()
 
 # Marcador de versión del código: visible en /health y /auto-params para
 # verificar remotamente qué build está corriendo (sin acceso a logs)
-CODE_VERSION = "v1.7.0-external-cancel-detection"
+CODE_VERSION = "v1.8.0-sltp-y-replenish-desbloqueado"
 
 # Cache de respuestas completas de /auto-params: (balance_bucket, symbol) → (ts, result)
 _auto_params_cache: dict = {}

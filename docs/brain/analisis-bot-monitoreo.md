@@ -142,6 +142,25 @@ criterios de aceptación y orden de PRs):
 `docs/analisis-bot/03-plan-mejoras-rentabilidad.md`. Leerlo antes de
 proponer cualquier cambio de estrategia o de cierres.
 
+### Correcciones ya aplicadas (2026-08-31, rama `fix/rentabilidad-fase1`)
+
+- ✅ **T1**: la tolerancia del guard NEUTRAL pasa de `0.05 × qty_per_order` a
+  `MAX_NET_POSITION_LEVELS × qty_per_order × REPLENISH_POSITION_TOLERANCE_RATIO`
+  (0.80). El grid ya puede acumular inventario y colocar la pata que cierra
+  el ciclo; solo se pausa cerca del límite duro.
+- ✅ **T4**: `derive_stop_loss_take_profit()` en `auto_params.py` traduce
+  `GRID_STOP_LOSS_PCT_OF_BALANCE` (1 %) y `GRID_TAKE_PROFIT_PCT_OF_BALANCE`
+  (3 %) a umbrales en USDT. Se exponen en `/auto-params`
+  (`AutoParamsParamsV2` tuvo que declararlos o FastAPI los filtraba) y WF1
+  los propaga al `POST /api/v1/grids` en vez de mandar `null`.
+- ✅ **T7**: `dashboard_data.py` y `scripts/dashboard/export_data.py` ya no
+  suman `grid_cycles` con `historical_grid_logs`. Nuevo `strategy_pnl =
+  cierres + PnL vivo de grids abiertos`; `combined_pnl` queda como alias
+  retrocompatible para el template y WF3.
+- ⚠️ La suite `pytest` de `backend-python/` tenía **21 fallos preexistentes**
+  en `main` antes de estos cambios (comprobado con un worktree limpio en
+  `5a4209a`). No hay CI que los detecte — ver T18 del plan.
+
 ## Visión a futuro: orquestador multi-estrategia con IA (2026-07-30)
 
 El usuario planteó el "sueño" de un agente que revise indicadores y decida
