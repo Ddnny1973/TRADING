@@ -7,7 +7,7 @@ tags: [monitoreo, analitica, postgres, grid-trading]
 related:
   - "[[_index]]"
   - "[[decisiones-tecnicas]]"
-updated: 2026-08-26
+updated: 2026-08-31
 owner: dueño del repo
 ---
 
@@ -108,6 +108,39 @@ Hay **tres bases Postgres/SQLite distintas**, fácil de confundir:
     NIM** (no "model not found"): explotaban al diagnosticar el 400 esperado
     "Max concurrent grids". Fix aplicado en WF1 (el 400 se trata como
     informativo y se salta el Diagnose) — ver [[decisiones-tecnicas]].
+
+## Diagnóstico de rentabilidad con ~2 meses de datos (2026-08-31)
+
+Primer análisis con volumen de datos suficiente (30 ciclos, 43 grids
+cerrados). **Resultado real del bot: ≈ −8 USD acumulados**, no los +12,86
+que muestra la tarjeta "PnL neto (ciclos)" ni los +4,88 de "PnL combinado".
+
+Tres causas raíz encadenadas, todas en el backend (no en n8n):
+
+1. **La reposición está bloqueada casi siempre.** El guard de modo NEUTRAL
+   en `replenish_filled_orders()` usa `tolerance = qty_per_order * 0.05`:
+   tras el primer fill la posición vale `1.0 × qty`, 20× la tolerancia →
+   deja de reponer. Explica los 8/20 grids que cerraron con **0 ciclos**.
+2. **Los cierres cristalizan la pérdida en la excursión adversa máxima.**
+   `cancel_grid()` siempre hace market-close del inventario, y los dos
+   triggers dominantes (`MAX_POSITION` 7/20, `OUT_OF_RANGE` 7/20) disparan
+   justo cuando ese inventario está bajo el agua. El "closure drag"
+   (PnL final − PnL de ciclos) suma **−15,43 USD** en 8 grids.
+3. **No hay stop-loss real.** `auto_params` no deriva `stop_loss`/
+   `take_profit` y WF1 los envía en `null` → 0 cierres por SL/TP en toda la
+   historia. `MAX_POSITION` (3 × qty) actúa como stop-loss de facto, pero
+   dispara por inventario, no por pérdida en USD.
+
+Otros hallazgos: el **win rate de 100 % es un artefacto** (la reposición se
+coloca siempre en el nivel adyacente favorable, así que todo ciclo
+registrado es positivo por construcción); y `combined_pnl` del dashboard
+**dobla el conteo** (`grid_closures.total_pnl` ya incluye lo realizado por
+los ciclos).
+
+➡️ **Plan accionable completo** (18 tareas priorizadas, con archivos, líneas,
+criterios de aceptación y orden de PRs):
+`docs/analisis-bot/03-plan-mejoras-rentabilidad.md`. Leerlo antes de
+proponer cualquier cambio de estrategia o de cierres.
 
 ## Visión a futuro: orquestador multi-estrategia con IA (2026-07-30)
 
