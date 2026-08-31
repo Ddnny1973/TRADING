@@ -140,6 +140,8 @@ class GridCloseCheckResponse(BaseModel):
 
     triggered: Optional[str] = None
     grid: GridDetailResponse
+    net_position_qty: Optional[float] = None
+    accumulation_paused: bool = False  # True while replenishment on the accumulating side is held back
 
 
 class MarketAnalysisResponse(BaseModel):

@@ -59,7 +59,10 @@ memoria de sesiones de IA y no estaba escrito en ningún archivo del repo.
   reposición está bloqueada y los cierres cristalizan la pérdida). Ver
   también `docs/analisis-bot/` (carpeta de análisis evolutivos, distinta de
   `docs/brain/` y de `Analisis Propios/`), en particular
-  `03-plan-mejoras-rentabilidad.md` — plan accionable de 18 tareas.
+  `03-plan-mejoras-rentabilidad.md` — plan accionable de 22 tareas — y
+  `04-estrategia-y-portafolio.md` — por qué el grid es short-vol, qué
+  estrategias añadir (y cuáles descartar) y por qué no se pueden correr dos
+  estrategias sobre el mismo símbolo.
 
 ## Puntos de entrada existentes (no duplicar, solo enlazar)
 

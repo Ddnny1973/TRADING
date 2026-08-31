@@ -71,3 +71,14 @@ CHECK_CLOSE_GRACE_MINUTES = 30
 # acumulando inventario: pausar la reposición al primer fill lo deja inerte.
 # Solo se pausa al acercarse al límite duro que evaluará MAX_POSITION.
 REPLENISH_POSITION_TOLERANCE_RATIO = Decimal("0.80")
+
+# Cap de inventario proporcional al tamaño del grid: un grid de N niveles
+# puede sostener aproximadamente N * ratio niveles de inventario de un solo
+# lado. Un tope fijo (3 niveles) mataba grids de 10-13 niveles con solo 3
+# fills, justo cuando debían estar acumulando.
+MAX_NET_POSITION_RATIO = Decimal("0.6")
+
+# Múltiplo del cap suave a partir del cual el inventario se considera
+# descontrolado y el grid sí se cierra. Es una red de seguridad, no el
+# mecanismo normal: el freno en dinero es stop_loss (ver auto_params).
+MAX_POSITION_HARD_MULTIPLE = Decimal("2.0")

@@ -57,7 +57,7 @@ grid_service = GridService()
 
 # Marcador de versión del código: visible en /health y /auto-params para
 # verificar remotamente qué build está corriendo (sin acceso a logs)
-CODE_VERSION = "v1.8.0-sltp-y-replenish-desbloqueado"
+CODE_VERSION = "v1.9.0-inventario-pausa-y-4-grids"
 
 # Cache de respuestas completas de /auto-params: (balance_bucket, symbol) → (ts, result)
 _auto_params_cache: dict = {}
