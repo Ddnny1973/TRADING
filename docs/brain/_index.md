@@ -8,7 +8,7 @@ related:
   - "[[infra-multi-servidor]]"
   - "[[n8n-sync-y-gotchas]]"
   - "[[decisiones-tecnicas]]"
-updated: 2026-08-26
+updated: 2026-08-31
 owner: dueño del repo
 ---
 
@@ -54,9 +54,12 @@ memoria de sesiones de IA y no estaba escrito en ningún archivo del repo.
   razón (proveedor de IA, límites de seguridad, alcance de la fase actual).
 - [[analisis-bot-monitoreo]] — línea de trabajo en curso: diseño de tablas
   de monitoreo en Postgres (`grid_cycles`, `pnl_snapshots`) para poder medir
-  rentabilidad real del bot antes de decidir el paso a dinero real. Ver
+  rentabilidad real del bot antes de decidir el paso a dinero real, más el
+  **diagnóstico de rentabilidad del 2026-08-31** (el bot pierde ~8 USD: la
+  reposición está bloqueada y los cierres cristalizan la pérdida). Ver
   también `docs/analisis-bot/` (carpeta de análisis evolutivos, distinta de
-  `docs/brain/` y de `Analisis Propios/`).
+  `docs/brain/` y de `Analisis Propios/`), en particular
+  `03-plan-mejoras-rentabilidad.md` — plan accionable de 18 tareas.
 
 ## Puntos de entrada existentes (no duplicar, solo enlazar)
 
