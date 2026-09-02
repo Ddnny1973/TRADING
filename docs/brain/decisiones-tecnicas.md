@@ -7,7 +7,7 @@ tags: [decisiones, ia, alcance]
 related:
   - "[[_index]]"
   - "[[n8n-sync-y-gotchas]]"
-updated: 2026-08-31
+updated: 2026-09-02
 owner: dueño del repo
 ---
 
@@ -212,11 +212,49 @@ en toda la historia del bot.
 `MAX_CONCURRENT_GRIDS` / `MAX_NET_POSITION_LEVELS` que viven en
 `app/core/config.py`.
 
+## T1: reportar la pausa de resposición (2026-09-02, rama `feat/rentabilidad-t1-t5-pnl-20260902`)
+
+Al pausar la reposición por inventario, `replenish_filled_orders()` no distinguía
+el caso de haber colocado órdenes del de haber quedado bloqueado: WF2 y el
+dashboard veían el refresh "ok" y no había forma de saber que el grid estaba
+parado por posición. Ahora devuelve (y `/refresh` propaga en cada llamada, no
+solo cuando coloca) `replenish_status` (`ok` / `paused_position` / `skipped`) más
+`replenish_placed`, `replenish_paused`, `replenish_blocked_side`,
+`replenish_position_amt`, `replenish_tolerance`, `replenish_reason`. Con esto
+WF2 puede notificar "reposición pausada" y el dashboard dejar rastro.
+
+- `app/services/grid_service.py::replenish_filled_orders` → devuelve `Dict` con
+  `replenish_*` (antes `bool`/sin rastro).
+- `app/schemas/grid_schema.py::GridDetailResponse` → campos transient
+  `replenish_*` junto a `refresh_status`.
+- `app/main.py::/refresh` → propaga los `replenish_*` siempre.
+- Tests: `tests/test_replenish_status.py` (4 tests, todos pasan).
+
+## T5: restar el fee de salida al PnL no realizado (arreglar D8, 2026-09-02)
+
+`calculate_grid_pnl` descuenta fees de las patas **realizadas** (compra+venta)
+pero **no** del inventario sin cerrar, así que `total_pnl` era mayor que lo que
+realmente quedará al cerrar la posición → el SL/TP (que dispara sobre
+`total_pnl`) era demasiado optimista y el SL llegaba tarde. Ahora
+`unrealized_pnl` resta `abs(net_position_qty) × current_price × fee_rate`
+(`app/services/indicators.py` ~L193-196), y `get_grid_pnl` propaga el **maker
+real** de `get_commission_rate` vía helper `_effective_fee_rate` (fallback
+`0.0002`), en vez de hardcodear el default.
+
+De paso se arreglaron 2 `TypeError` preexistentes en `tests/test_indicators.py`
+(el helper `_order` comparaba `executed_qty` str), que hacían que los tests de
+PnL nunca hubieran pasado; se añadió `test_calculate_grid_pnl_deducts_exit_fee_from_unrealized`.
+
 ## Estado de la suite de tests (2026-08-31)
 
 `pytest` en `backend-python/` tiene **21 fallos preexistentes** en `main`
 (verificado con un worktree limpio en `5a4209a`, antes de cualquier cambio de
 esa sesión). **No hay CI que corra tests**, así que nadie se entera.
+
+> Actualización 2026-09-02: al corregir los 2 `TypeError` de
+> `tests/test_indicators.py` (T5), el baseline bajó **19**, pero en `main` sigue
+> siendo 21. Seguir comparando contra **21** mientras no se mergee la rama
+> `feat/rentabilidad-t1-t5-pnl-20260902`.
 
 Al validar cambios en este repo: comparar contra ese baseline de 21 fallos,
 **no** esperar 0. La forma segura de medir el baseline es

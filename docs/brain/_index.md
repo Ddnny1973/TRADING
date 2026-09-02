@@ -8,7 +8,7 @@ related:
   - "[[infra-multi-servidor]]"
   - "[[n8n-sync-y-gotchas]]"
   - "[[decisiones-tecnicas]]"
-updated: 2026-08-31
+updated: 2026-09-02
 owner: dueño del repo
 ---
 
@@ -59,7 +59,8 @@ memoria de sesiones de IA y no estaba escrito en ningún archivo del repo.
   reposición está bloqueada y los cierres cristalizan la pérdida). Ver
   también `docs/analisis-bot/` (carpeta de análisis evolutivos, distinta de
   `docs/brain/` y de `Analisis Propios/`), en particular
-  `03-plan-mejoras-rentabilidad.md` — plan accionable de 22 tareas — y
+  `03-plan-mejoras-rentabilidad.md` — plan accionable de 22 tareas (tablero
+  al día: 6/22 hechas, ver [[decisiones-tecnicas]]) — y
   `04-estrategia-y-portafolio.md` — por qué el grid es short-vol, qué
   estrategias añadir (y cuáles descartar) y por qué no se pueden correr dos
   estrategias sobre el mismo símbolo.
