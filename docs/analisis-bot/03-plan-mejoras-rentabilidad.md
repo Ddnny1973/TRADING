@@ -202,7 +202,7 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | [T2](#t2) | RECENTER en vez de cerrar (OUT_OF_RANGE) | 1 | ❌ pendiente | **Siguiente en impacto.** Requiere T4 (ya hecho) como freno. |
 | [T3](#t3) | `MAX_POSITION` = límite, no gatillo de cierre | 1 | ✅ 2026-08-31 | Cap proporcional a `levels` (`MAX_NET_POSITION_RATIO = 0.6`, piso `MAX_NET_POSITION_LEVELS`). Superarlo pausa la reposición **solo del lado que acumula**; solo cierra al pasar `MAX_POSITION_HARD_MULTIPLE = 2.0×`. |
 | [T4](#t4) | Stop-loss / take-profit reales | 1 | ✅ 2026-08-31 | `b315faf` — SL 1 % / TP 3 % del balance, expuestos en `/auto-params` y propagados en WF1. |
-| [T5](#t5) | Restar fee de salida al PnL no realizado | 1 | ❌ pendiente | Hace que el SL de T4 dispare con el número correcto. |
+| [T5](#t5) | Restar fee de salida al PnL no realizado | 1 | ✅ 2026-09-02 | Rama `feat/t5-exit-fee-unrealized-20260902` — `unrealized_pnl` descuenta `abs(net_position_qty) × current_price × fee_rate`; `get_grid_pnl` propaga el `maker` real de `get_commission_rate` (fallback 0.0002). Tests actualizados + uno nuevo; suite sin regresiones. |
 | [T6](#t6) | Métricas útiles (closure drag, PnL por trigger…) | 2 | ❌ pendiente | Necesario para validar T2/T3. |
 | [T7](#t7) | Eliminar el doble conteo de `combined_pnl` | 2 | ✅ 2026-08-31 | `b315faf` — nuevo `strategy_pnl = cierres + grids vivos`; `combined_pnl` queda como alias. |
 | [T8](#t8) | Tablas `bot_executions` / `bot_health_events` | 2 | ❌ pendiente | Requiere que el dueño del repo corra la migración. |
@@ -221,7 +221,7 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | T21 | Flip `OUT_OF_RANGE` → posición de breakout | — | ❌ pendiente | Cobertura negativamente correlacionada con el grid. **Solo tras 4+ semanas de grid positivo y después de T2.** Ver `04-estrategia-y-portafolio.md` §4. |
 | T22 | Contabilizar el **funding** en el PnL | 2 | ❌ pendiente | Fuga potencialmente material hoy invisible. Ver `04-estrategia-y-portafolio.md` §6. |
 
-**Hecho: 5/22.** Próximo bloque recomendado: **T2 + T5 + T6**.
+**Hecho: 6/22.** Próximo bloque recomendado: **T2 + T6**.
 
 > ⚠️ Hallazgo al validar la Fase 1: la suite `pytest` de `backend-python/` ya
 > tenía **21 fallos preexistentes** en `main` (verificado con un worktree limpio
@@ -384,6 +384,10 @@ configurable, con el comportamiento actual como fallback.**
   actualizan y pasan; el `total_pnl` deja de ser optimista y por tanto el
   stop-loss de [T4](#t4) dispara con el número correcto.
 - **Riesgo:** bajo.
+- **✅ Hecho 2026-09-02.** En `tests/test_indicators.py` los dos tests de PnL que
+  daban `TypeError` (helper `_order` comparaba `executed_qty` str) se corrigieron
+  y pasan; se añadió `test_calculate_grid_pnl_deducts_exit_fee_from_unrealized`.
+  Suite completa: 55 passed / 19 failed (los 19 son preexistentes, sin regresiones).
 
 ---
 

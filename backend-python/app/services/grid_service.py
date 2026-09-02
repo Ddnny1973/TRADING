@@ -881,6 +881,25 @@ class GridService:
             "replenish_tolerance": float(tolerance),
         }
 
+    async def _effective_fee_rate(self, symbol: str) -> Decimal:
+        """
+        Best-effort real maker commission rate for a symbol, to feed
+        calculate_grid_pnl() (T5). Honors both the Binance response keys
+        ("maker") and whatever shape tests/fixtures may supply.
+
+        Returns:
+            Decimal rate, falling back to the hardcoded 0.02% on any failure.
+        """
+        try:
+            fees = await self.binance.get_commission_rate(symbol)
+            if isinstance(fees, dict):
+                for key in ("maker", "makerCommission"):
+                    if fees.get(key) is not None:
+                        return Decimal(str(fees[key]))
+        except Exception as e:
+            logger.warning(f"Could not fetch commission rate for {symbol}: {e}")
+        return Decimal("0.0002")
+
     async def get_grid_pnl(self, grid_id: str, current_price: Optional[Decimal] = None) -> Optional[Dict[str, Any]]:
         """
         Fetch a grid's current orders + mark price and compute PnL via the
@@ -905,7 +924,7 @@ class GridService:
                 raise ValueError(f"Could not fetch current price for {grid['symbol']}")
             current_price = Decimal(str(price_data["price"]))
 
-        pnl = calculate_grid_pnl(grid["orders"], current_price)
+        pnl = calculate_grid_pnl(grid["orders"], current_price, fee_rate=await self._effective_fee_rate(grid["symbol"]))
         return {
             "grid_id": grid_id,
             "symbol": grid["symbol"],
