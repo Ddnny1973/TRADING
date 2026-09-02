@@ -139,6 +139,24 @@ def main():
         FROM historical_grid_logs
     """)[0]
 
+    pnl_by_trigger = fetch(conn, """
+        SELECT trigger_condition, COUNT(*) AS cnt,
+               COALESCE(SUM(total_pnl), 0) AS pnl,
+               COALESCE(AVG(total_pnl), 0) AS avg_pnl
+        FROM historical_grid_logs
+        WHERE trigger_condition IS NOT NULL
+        GROUP BY trigger_condition
+        ORDER BY pnl DESC
+    """)
+
+    closed_all_grids = fetch(conn, """
+        SELECT h.grid_id, h.symbol, h.total_pnl AS closed_pnl,
+               COALESCE(SUM(c.net_pnl), 0) AS net_cycles_pnl
+        FROM historical_grid_logs h
+        LEFT JOIN grid_cycles c ON c.grid_id = h.grid_id
+        GROUP BY h.grid_id, h.symbol, h.total_pnl
+    """)
+
     latest_snapshot = fetch(conn, """
         SELECT DISTINCT ON (grid_id) grid_id, symbol, taken_at,
                realized_pnl, unrealized_pnl, total_pnl, account_balance, open_orders_count
@@ -236,15 +254,80 @@ def main():
     avg_notional = num(avg_cycle["avg_notional"]) or 0.0
     cycle_return_pct = (avg_net / avg_notional * 100) if avg_notional else None
 
+    # --- T6: closure drag, tasa de grids rentables, grids con 0 ciclos, trigger PnL, drawdown ---
+    drag_agg = 0.0
+    drag_grids = []
+    for g in closed_all_grids:
+        net_c = num(g["net_cycles_pnl"]) or 0.0
+        closed_c = num(g["closed_pnl"]) or 0.0
+        drag = closed_c - net_c
+        drag_agg += drag
+        drag_grids.append({
+            "grid_id": g["grid_id"],
+            "symbol": g["symbol"],
+            "closed_pnl": num(g["closed_pnl"]),
+            "net_cycles_pnl": num(g["net_cycles_pnl"]),
+            "drag": num(drag),
+        })
+    drag_grids.sort(key=lambda g: g["drag"])
+    drag_summary = {
+        "total": drag_agg,
+        "count": len(drag_grids),
+        "avg": num(drag_agg / len(drag_grids)) if drag_grids else None,
+    }
+
+    closed_total = int(closed["total"])
+    profitable_closed = sum(1 for g in closed_all_grids if (num(g["closed_pnl"]) or 0.0) > 0.0)
+    profitable_rate = (profitable_closed / closed_total) if closed_total else None
+
+    grid_ids_total = set()
+    for g in closed_all_grids:
+        grid_ids_total.add(g["grid_id"])
+    for r in latest_snapshot:
+        grid_ids_total.add(r["grid_id"])
+    grid_cycle_count = {g["grid_id"]: g["cycles"] for g in cycles_by_grid}
+    zero_cycle_grids = sum(1 for gid in grid_ids_total if grid_cycle_count.get(gid, 0) == 0)
+    zero_cycle_rate = (zero_cycle_grids / len(grid_ids_total)) if grid_ids_total else None
+
+    peak = None
+    max_dd = 0.0
+    dd_start = dd_end = None
+    peak_label = None
+    for e in equity:
+        v = num(e["total_pnl"] or 0.0)
+        t = iso(e["taken_at"])
+        if peak is None or v > peak:
+            peak = v
+            peak_label = t
+        dd = peak - v
+        if dd > max_dd:
+            max_dd = dd
+            dd_start = peak_label
+            dd_end = t
+    if max_dd == 0.0:
+        dd_start = dd_end = None
+
+    trigger_pnl = [
+        {
+            "trigger": r["trigger_condition"],
+            "count": r["cnt"],
+            "pnl": num(r["pnl"]),
+            "avg_pnl": num(r["avg_pnl"]),
+        }
+        for r in pnl_by_trigger
+    ]
+
     # Rentabilidad por grid: fusiona ciclos (grid_cycles) + cierres (historical_grid_logs) + estado actual
     cycles_map = {r["grid_id"]: r for r in cycles_by_grid}
     closed_map = {r["grid_id"]: r for r in closed_grids}
     current_map = {r["grid_id"]: r for r in latest_snapshot}
+    drag_map = {g["grid_id"]: g for g in drag_grids}
     per_grid = []
     for gid in set(cycles_map) | set(closed_map) | set(current_map):
         c = cycles_map.get(gid, {})
         cl = closed_map.get(gid, {})
         cu = current_map.get(gid, {})
+        dg = drag_map.get(gid, {})
         is_closed = gid in closed_map
         per_grid.append({
             "grid_id": gid,
@@ -259,6 +342,7 @@ def main():
             "closed_at": iso(cl.get("closed_at")),
             "current_pnl": num(cu.get("total_pnl")),
             "last_snapshot_at": iso(cu.get("taken_at")),
+            "drag": num(dg.get("drag")),
         })
     per_grid.sort(key=lambda g: (g["status"] == "CERRADO", g["net_cycles_pnl"] + (g["closed_pnl"] or 0)), reverse=True)
 
@@ -357,6 +441,19 @@ def main():
             "strategy_roi_pct": num((strategy_pnl_f / num(first_balance) * 100) if first_balance else None),
         },
         "per_grid": per_grid,
+        "closing_metrics": {
+            "closure_drag": drag_summary,
+            "closure_drag_grids": drag_grids,
+            "profitable_closed": profitable_closed,
+            "profitable_rate": profitable_rate,
+            "zero_cycle_grids": zero_cycle_grids,
+            "zero_cycle_total": len(grid_ids_total),
+            "zero_cycle_rate": zero_cycle_rate,
+            "trigger_pnl": trigger_pnl,
+            "max_drawdown": num(max_dd) if max_dd else None,
+            "drawdown_start": dd_start,
+            "drawdown_end": dd_end,
+        },
     }
 
     render(data)

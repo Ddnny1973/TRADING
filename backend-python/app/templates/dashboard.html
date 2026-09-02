@@ -43,10 +43,17 @@
   <div class="card"><div class="label">PnL en cierres</div><div class="value" id="cClosedPnl">—</div><div class="hint"><span id="cClosedCount">—</span> grids cerrados</div></div>
   <div class="card"><div class="label">PnL de grids vivos</div><div class="value" id="cOpenPnl">—</div><div class="hint">realizado + no realizado, aún sin cerrar</div></div>
   <div class="card"><div class="label">PnL bruto de ciclos</div><div class="value" id="cNetPnl">—</div><div class="hint">mecánica del grid — <b>no es el P&amp;L del bot</b></div></div>
-  <div class="card"><div class="label">Ciclos completados</div><div class="value" id="cCycles">—</div><div class="hint"><span id="cWinRate">—</span> win rate (estructural: siempre 100%)</div></div>
+  <div class="card"><div class="label">Ciclos completados</div><div class="value" id="cCycles">—</div><div class="hint"><span id="cWinRate">—</span> win rate de ciclos (estructural: siempre 100%)</div></div>
+  <div class="card"><div class="label">Tasa de grids rentables</div><div class="value" id="cGridsRent">—</div><div class="hint"><span id="cGridsRentCount">—</span> grids cerrados con PnL &gt; 0 — <b>la métrica que importa</b></div></div>
   <div class="card"><div class="label">Fees pagadas</div><div class="value" id="cFees">—</div><div class="hint"><span id="cFeesPct">—</span> % de ganancia bruta</div></div>
   <div class="card"><div class="label">ROI del período</div><div class="value" id="cRoi">—</div><div class="hint">balance 1er → último snapshot</div></div>
   <div class="card"><div class="label">Retorno por ciclo</div><div class="value" id="cCycleRet">—</div><div class="hint">neto / nocional promedio</div></div>
+</div>
+
+<div class="cards">
+  <div class="card"><div class="label">Closure drag (agregado)</div><div class="value" id="cDragAgg">—</div><div class="hint">lo que destruyó la salida a mercado vs. la mecánica — <b>esto es lo que T2/T3 atacan</b></div></div>
+  <div class="card"><div class="label">Drawdown máximo</div><div class="value" id="cDrawdown">—</div><div class="hint" id="cDrawdownHint">peak → valle de la curva de equity</div></div>
+  <div class="card"><div class="label">Grids con 0 ciclos</div><div class="value" id="cZeroCycles">—</div><div class="hint"><span id="cZeroCyclesPct">—</span> del total — mide el efecto de T1 (inventario acumulable)</div></div>
 </div>
 
 <section id="activeOpsSection">
@@ -85,6 +92,18 @@
   <table id="closedTable"></table>
 </section>
 
+<div class="grid2">
+  <section>
+    <h2>PnL por trigger de cierre</h2>
+    <table id="triggerTable"></table>
+    <div class="hint" style="margin-top:8px">Si T2/T3 funcionan, MAX_POSITION / OUT_OF_RANGE deben dejar de concentrar la pérdida.</div>
+  </section>
+  <section>
+    <h2>Closure drag por grid (lo que destruye la salida)</h2>
+    <table id="dragGridTable"></table>
+  </section>
+</div>
+
 <script>
 const DATA = __DATA__;
 const FMT = new Intl.NumberFormat('es-CO', { style:'currency', currency:'USD' });
@@ -110,6 +129,18 @@ setVal('cFees', money(o.fees));
 setVal('cFeesPct', o.fees_pct === null ? 'sin datos' : o.fees_pct.toFixed(1) + '%');
 setVal('cClosedPnl', money(o.closed_pnl), pnlClass(o.closed_pnl));
 setVal('cClosedCount', o.closed_grids + ' grids');
+
+// T6 cards: tasa de grids rentables, closure drag, drawdown, grids con 0 ciclos
+const cm = DATA.closing_metrics || {};
+setVal('cGridsRent', cm.profitable_rate === null || cm.profitable_rate === undefined ? '—' : (cm.profitable_rate*100).toFixed(1) + '%', (cm.profitable_rate||0)>=0.5?'pos':'neg');
+setVal('cGridsRentCount', (cm.profitable_closed||0) + ' de ' + (o.closed_grids||0));
+setVal('cDragAgg', money((cm.closure_drag||{}).total), pnlClass((cm.closure_drag||{}).total));
+setVal('cDrawdown', cm.max_drawdown === null || cm.max_drawdown === undefined ? '—' : money(cm.max_drawdown));
+if (cm.max_drawdown !== null && cm.max_drawdown !== undefined) {
+  document.getElementById('cDrawdownHint').innerHTML = (cm.drawdown_start ? iso2str(cm.drawdown_start) : '—') + ' → ' + (cm.drawdown_end ? iso2str(cm.drawdown_end) : '—');
+}
+setVal('cZeroCycles', (cm.zero_cycle_grids||0) + ' de ' + (cm.zero_cycle_total||0));
+setVal('cZeroCyclesPct', cm.zero_cycle_rate === null || cm.zero_cycle_rate === undefined ? '—' : (cm.zero_cycle_rate*100).toFixed(1) + '%');
 
 // Estrategia + rentabilidad
 const st = DATA.strategy;
@@ -311,6 +342,31 @@ clt.innerHTML = DATA.closed_grids.length
       pnlSpan(g.total_pnl)
     ])).join('')
   : '<div class="empty">Sin cierres registrados aún.</div>';
+
+// ---- T6: PnL por trigger + closure drag por grid ----
+const trigT = document.getElementById('triggerTable');
+trigT.innerHTML = (cm.trigger_pnl || []).length
+  ? '<tr><th>Trigger</th><th>Conteo</th><th>PnL total</th><th>PnL medio</th></tr>' +
+    cm.trigger_pnl.map(t => tableRow([
+      t.trigger,
+      t.count,
+      pnlSpan(t.pnl),
+      pnlSpan(t.avg_pnl)
+    ])).join('')
+  : '<div class="empty">Sin cierres con trigger aún.</div>';
+
+const dragT = document.getElementById('dragGridTable');
+const dragGrids = (cm.closure_drag_grids || []).filter(g => g.drag < 0);
+dragT.innerHTML = dragGrids.length
+  ? '<tr><th>Grid</th><th>Símbolo</th><th>PnL ciclos</th><th>PnL final</th><th>Drag (final − ciclos)</th></tr>' +
+    dragGrids.map(g => tableRow([
+      '<span class="mono">' + (g.grid_id||'').slice(0,8) + '</span>',
+      g.symbol,
+      pnlSpan(g.net_cycles_pnl),
+      pnlSpan(g.closed_pnl),
+      pnlSpan(g.drag)
+    ])).join('')
+  : '<div class="empty">Sin arrastre negativo (o sin cierres). La salida no está destruyendo PnL.</div>';
 </script>
 </body>
 </html>

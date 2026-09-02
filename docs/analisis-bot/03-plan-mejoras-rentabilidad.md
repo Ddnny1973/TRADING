@@ -203,7 +203,7 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | [T3](#t3) | `MAX_POSITION` = límite, no gatillo de cierre | 1 | ✅ 2026-08-31 | Cap proporcional a `levels` (`MAX_NET_POSITION_RATIO = 0.6`, piso `MAX_NET_POSITION_LEVELS`). Superarlo pausa la reposición **solo del lado que acumula**; solo cierra al pasar `MAX_POSITION_HARD_MULTIPLE = 2.0×`. |
 | [T4](#t4) | Stop-loss / take-profit reales | 1 | ✅ 2026-08-31 | `b315faf` — SL 1 % / TP 3 % del balance, expuestos en `/auto-params` y propagados en WF1. |
 | [T5](#t5) | Restar fee de salida al PnL no realizado | 1 | ✅ 2026-09-02 | Rama `feat/rentabilidad-t1-t5-pnl-20260902` — `unrealized_pnl` descuenta `abs(net_position_qty) × current_price × fee_rate`; `get_grid_pnl` propaga el `maker` real de `get_commission_rate` (fallback 0.0002). Tests actualizados + uno nuevo; suite sin regresiones. |
-| [T6](#t6) | Métricas útiles (closure drag, PnL por trigger…) | 2 | ❌ pendiente | Necesario para validar T2/T3. |
+| [T6](#t6) | Métricas útiles (closure drag, PnL por trigger…) | 2 | ✅ 2026-09-02 | Ramas `feat/t2-recenter-t6-metrics-20260902` — `dashboard_data.py` + `export_data.py` (espejo) + `dashboard.html`: closure drag agregado y por grid, PnL por trigger_condition, tasa de grids rentables, grids con 0 ciclos, drawdown máximo. Tarjeta "Tasa de grids rentables" reemplaza el win-rate de ciclos. |
 | [T7](#t7) | Eliminar el doble conteo de `combined_pnl` | 2 | ✅ 2026-08-31 | `b315faf` — nuevo `strategy_pnl = cierres + grids vivos`; `combined_pnl` queda como alias. |
 | [T8](#t8) | Tablas `bot_executions` / `bot_health_events` | 2 | ❌ pendiente | Requiere que el dueño del repo corra la migración. |
 | [T9](#t9) | Reconciliar ROI del período vs. PnL de cierres | 2 | ❌ pendiente | |
