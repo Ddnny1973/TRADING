@@ -7,7 +7,7 @@ tags: [rentabilidad, grid-trading, plan, backlog, n8n, backend]
 related:
   - "[[analisis-bot-monitoreo]]"
   - "[[decisiones-tecnicas]]"
-updated: 2026-08-31
+updated: 2026-09-02
 owner: dueño del repo
 audiencia: agente de IA que va a implementar los cambios
 ---
@@ -198,7 +198,7 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 
 | # | Tarea | Fase | Estado | Commit / detalle |
 |---|---|---|---|---|
-| [T1](#t1) | Permitir que el grid acumule inventario | 1 | ✅ 2026-08-31 | `b315faf` — `REPLENISH_POSITION_TOLERANCE_RATIO = 0.80` sobre `MAX_NET_POSITION_LEVELS` (antes `0.05 × qty_per_order`). Falta la parte de reportar `replenish_status` en `/refresh`. |
+| [T1](#t1) | Permitir que el grid acumule inventario | 1 | ✅ 2026-09-02 | `b315faf` + rama `feat/t1-replenish-status-20260902` — `REPLENISH_POSITION_TOLERANCE_RATIO = 0.80` sobre `MAX_NET_POSITION_LEVELS`. Completado: la reposición reporta `replenish_status: paused_position` + posición/tolerancia en `/refresh` (notificación WF2 + rastro en dashboard), con tests. |
 | [T2](#t2) | RECENTER en vez de cerrar (OUT_OF_RANGE) | 1 | ❌ pendiente | **Siguiente en impacto.** Requiere T4 (ya hecho) como freno. |
 | [T3](#t3) | `MAX_POSITION` = límite, no gatillo de cierre | 1 | ✅ 2026-08-31 | Cap proporcional a `levels` (`MAX_NET_POSITION_RATIO = 0.6`, piso `MAX_NET_POSITION_LEVELS`). Superarlo pausa la reposición **solo del lado que acumula**; solo cierra al pasar `MAX_POSITION_HARD_MULTIPLE = 2.0×`. |
 | [T4](#t4) | Stop-loss / take-profit reales | 1 | ✅ 2026-08-31 | `b315faf` — SL 1 % / TP 3 % del balance, expuestos en `/auto-params` y propagados en WF1. |

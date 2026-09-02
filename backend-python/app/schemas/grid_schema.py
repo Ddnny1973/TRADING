@@ -119,6 +119,15 @@ class GridDetailResponse(GridResponse):
     unconfirmed_order_ids: Optional[list[str]] = None
     extra_order_ids: Optional[list[str]] = None
     external_cancellations: Optional[list[dict]] = None
+    # Transient replenish fields set by POST /grids/{id}/refresh (written by
+    # replenish_filled_orders). Not persisted columns.
+    replenish_status: Optional[str] = None  # "ok" | "paused_position" | "skipped"
+    replenish_placed: Optional[int] = None
+    replenish_paused: Optional[int] = None
+    replenish_blocked_side: Optional[str] = None  # "BUY" | "SELL" while paused_position
+    replenish_position_amt: Optional[float] = None
+    replenish_tolerance: Optional[float] = None
+    replenish_reason: Optional[str] = None
 
 
 class GridPnlResponse(BaseModel):

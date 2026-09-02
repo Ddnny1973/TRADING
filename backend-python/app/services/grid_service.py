@@ -682,7 +682,7 @@ class GridService:
         grid["refresh_status"] = "auto_cancel_failed"
         return grid
 
-    async def replenish_filled_orders(self, grid_id: str) -> int:
+    async def replenish_filled_orders(self, grid_id: str) -> Dict[str, Any]:
         """
         Reposición de órdenes: por cada orden FILLED (o con executed_qty > 0 y no replenida),
         coloca la orden opuesta en el nivel adyacente.
@@ -697,11 +697,24 @@ class GridService:
         - Idempotente (dos capas): claim atómico en DB + clientOrderId determinístico
 
         Returns:
-            Número de órdenes nuevas colocadas. 0 si sin fills o error.
+            Dict con el detalle de la reposición. Cuando la posición supera la
+            tolerancia (modo NEUTRAL) y la reposición se pausa en la pata que
+            acumula, el resultado lleva `replenish_status: "paused_position"`
+            + `replenish_position_amt` / `replenish_tolerance`, para que el
+            llamador (POST /refresh → WF2) pueda notificarlo y el dashboard lo
+            registre.
         """
         grid = self.get_grid(grid_id)
         if not grid or grid["status"] != "RUNNING":
-            return 0
+            return {
+                "replenish_status": "skipped",
+                "replenish_placed": 0,
+                "replenish_paused": 0,
+                "replenish_blocked_side": None,
+                "replenish_position_amt": 0.0,
+                "replenish_tolerance": 0.0,
+                "replenish_reason": "grid not running or not found",
+            }
 
         # NEUTRAL mode: a grid earns precisely by holding inventory between
         # legs, so replenishment is only throttled near the soft cap — and even
@@ -709,6 +722,8 @@ class GridService:
         # opposite leg (the one that unloads inventory) keeps being placed,
         # which is what lets the position come back to zero on its own.
         blocked_side: Optional[str] = None
+        position_amt = Decimal("0")
+        tolerance = Decimal("0")
         if (grid.get("grid_mode") or "NEUTRAL").upper() == "NEUTRAL":
             position = await self.binance.get_position(grid["symbol"])
             position_amt = Decimal(position["positionAmt"]) if position else Decimal("0")
@@ -732,7 +747,15 @@ class GridService:
 
         filters = await self.binance.get_symbol_filters(grid["symbol"])
         if not filters:
-            return 0
+            return {
+                "replenish_status": "skipped",
+                "replenish_placed": 0,
+                "replenish_paused": 0,
+                "replenish_blocked_side": blocked_side,
+                "replenish_position_amt": float(position_amt),
+                "replenish_tolerance": float(tolerance),
+                "replenish_reason": "could not fetch symbol filters",
+            }
 
         # Find candidates for replenishment (filled but not yet replenished)
         conn = get_sqlite_connection()
@@ -849,7 +872,14 @@ class GridService:
                 f"Grid {grid_id} ({grid['symbol']}): {placed} órdenes repuestas, "
                 f"{paused} en pausa por acumulación ({blocked_side})"
             )
-        return placed
+        return {
+            "replenish_status": "paused_position" if blocked_side else "ok",
+            "replenish_placed": placed,
+            "replenish_paused": paused,
+            "replenish_blocked_side": blocked_side,
+            "replenish_position_amt": float(position_amt),
+            "replenish_tolerance": float(tolerance),
+        }
 
     async def get_grid_pnl(self, grid_id: str, current_price: Optional[Decimal] = None) -> Optional[Dict[str, Any]]:
         """
