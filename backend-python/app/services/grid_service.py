@@ -16,6 +16,10 @@ from app.config_auto_params import (
     REPLENISH_POSITION_TOLERANCE_RATIO,
     MAX_NET_POSITION_RATIO,
     MAX_POSITION_HARD_MULTIPLE,
+    OUT_OF_RANGE_POLICY,
+    MAX_RECENTERS_PER_GRID,
+    OUT_OF_RANGE_ATR_BUFFER,
+    OUT_OF_RANGE_STRIKES_TO_TRIGGER,
 )
 from app.core.config import settings
 from app.database.connection import get_sqlite_connection, SessionLocal
@@ -95,6 +99,20 @@ class GridService:
         return (datetime.now(timezone.utc) - opened).total_seconds() / 3600.0
 
     @staticmethod
+    def _set_grid_column(grid_id: str, column: str, value) -> None:
+        """Best-effort UPDATE of a single grid column (never raises)."""
+        try:
+            conn = get_sqlite_connection()
+            try:
+                cursor = conn.cursor()
+                cursor.execute(f"UPDATE grids SET {column} = ? WHERE id = ?", (value, grid_id))
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as e:
+            print(f"Warning: could not update grids.{column} for {grid_id}: {e}")
+
+    @staticmethod
     def _calculate_max_duration_hours(klines_interval: str, atr_period: int) -> float:
         """
         Calculate max grid duration deterministically from klines_interval and atr_period.
@@ -142,7 +160,9 @@ class GridService:
                            take_profit: Optional[float] = None,
                            max_duration_hours: Optional[float] = None,
                            leverage: Optional[int] = None,
-                           grid_mode: str = "NEUTRAL") -> Dict[str, Any]:
+                           grid_mode: str = "NEUTRAL",
+                           parent_grid_id: Optional[str] = None,
+                           recenter_count: int = 0) -> Dict[str, Any]:
         """
         Calculate grid levels, place LIMIT orders on Binance and persist the grid.
 
@@ -342,13 +362,14 @@ class GridService:
                 except Exception:
                     pass  # column already exists
             cursor.execute(
-                """INSERT INTO grids (id, symbol, lower_price, upper_price, levels, grid_type, status, stop_loss, take_profit, max_duration_hours, leverage, quantity_per_order, grid_mode)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO grids (id, symbol, lower_price, upper_price, levels, grid_type, status, stop_loss, take_profit, max_duration_hours, leverage, quantity_per_order, grid_mode, parent_grid_id, recenter_count)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (grid_id, symbol, str(engine.lower_price), str(engine.upper_price), levels, grid_type, "RUNNING",
                  str(stop_loss) if stop_loss is not None else None,
                  str(take_profit) if take_profit is not None else None,
                  str(max_duration_hours) if max_duration_hours is not None else None,
-                 effective_leverage, str(quantized_qty), grid_mode)
+                 effective_leverage, str(quantized_qty), grid_mode,
+                 parent_grid_id, recenter_count)
             )
             orders_placed = 0
             for spec, order in order_results:
@@ -972,6 +993,106 @@ class GridService:
         finally:
             conn.close()
 
+    async def recenter_grid(self, grid_id: str) -> Optional[Dict[str, Any]]:
+        """
+        T2 RECENTER: instead of liquidating a grid that the price has run away
+        from, cancel the open orders, KEEP the inventory and rebuild the grid
+        around the current price in LONG/SHORT mode so the accumulated position
+        can be unwound on the next reversal rather than sold at the low.
+
+        Pipeline:
+        1. Cancel open orders for the symbol WITHOUT place_market_close (inventory kept).
+        2. Determine inherited net position to pick grid_mode (LONG/SHORT/NEUTRAL).
+        3. Recompute ATR bounds around current price.
+        4. Create the new grid passing parent_grid_id + incremented recenter_count.
+           create_grid's anti-duplicate guard sees the old grid as CANCELED, so
+           the RUNNING-per-symbol index is free.
+        5. Return info about the re-centering.
+
+        Returns:
+            dict with new_grid_id, old_grid_id, symbol, grid_mode, reason,
+            recenter_count; or None if grid not found or policy is not RECENTER.
+        """
+        grid = self.get_grid(grid_id)
+        if not grid:
+            return None
+        if grid["status"] != "RUNNING":
+            return {"old_grid_id": grid_id, "triggered": None}
+
+        recenter_count = int(grid.get("recenter_count") or 0)
+        symbol = grid["symbol"]
+
+        # 1) Cancel open orders, keep inventory (no market close).
+        ok = await self.binance.cancel_all_open_orders(symbol)
+        if not ok:
+            raise ValueError(f"Could not cancel open orders for {symbol} — récentrage aborted")
+
+        # Mark old grid CANCELED + record RECENTERED closure (with parent link for the NEW grid).
+        conn = get_sqlite_connection()
+        try:
+            cursor = conn.cursor()
+            non_terminal = [o for o in grid["orders"] if o["status"] not in _TERMINAL_ORDER_STATUSES]
+            for order in non_terminal:
+                cursor.execute("UPDATE grid_orders SET status = 'CANCELED' WHERE id = ?", (order["id"],))
+            cursor.execute("UPDATE grids SET status = 'CANCELED' WHERE id = ?", (grid_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+        # 2) Inherited inventory direction picks the new grid_mode.
+        position_amt = Decimal("0")
+        position = await self.binance.get_position(symbol)
+        if position:
+            position_amt = Decimal(str(position.get("positionAmt", "0")))
+        if position_amt > 0:
+            mode = "LONG"
+        elif position_amt < 0:
+            mode = "SHORT"
+        else:
+            mode = "NEUTRAL"
+
+        # 3+4) Recompute bounds and create the new grid around current price.
+        new_grid = await self.create_grid(
+            symbol=symbol,
+            levels=grid["levels"],
+            grid_type=grid.get("grid_type") or "PERCENTAGE",
+            quantity_per_order=float(grid.get("quantity_per_order") or 0),
+            stop_loss=float(grid["stop_loss"]) if grid.get("stop_loss") is not None else None,
+            take_profit=float(grid["take_profit"]) if grid.get("take_profit") is not None else None,
+            max_duration_hours=float(grid["max_duration_hours"]) if grid.get("max_duration_hours") is not None else None,
+            leverage=int(grid["leverage"]) if grid.get("leverage") is not None else None,
+            grid_mode=mode,
+            parent_grid_id=grid_id,
+            recenter_count=recenter_count + 1,
+        )
+
+        # 5) Record RECENTERED in grid_closures once the new grid exists.
+        new_grid_id = new_grid["id"]
+        try:
+            conn = get_sqlite_connection()
+            try:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """INSERT INTO grid_closures
+                       (grid_id, symbol, trigger_condition, total_pnl, position_amt_at_close, parent_grid_id)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (grid_id, symbol, "RECENTERED", "0", str(position_amt), new_grid_id)
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as e:
+            print(f"Warning: could not insert RECENTERED grid_closure for {grid_id}: {e}")
+
+        return {
+            "old_grid_id": grid_id,
+            "new_grid_id": new_grid_id,
+            "symbol": symbol,
+            "grid_mode": mode,
+            "recenter_count": recenter_count + 1,
+            "triggered": "RECENTERED",
+        }
+
     async def cancel_grid(self, grid_id: str, trigger_condition: str = "MANUAL",
                          close_position: bool = True) -> Optional[Dict[str, Any]]:
         """
@@ -1149,20 +1270,63 @@ class GridService:
         # Check 2: Price left the grid's range entirely. A strong trend that
         # blows through the range stops earning from oscillation and just
         # accumulates one-sided exposure — MAX_POSITION (below) is the
-        # position-based backstop for that, this is the price-based one.
+        # position-based backstop for this, this is the price-based one.
         # Grace period: skip OUT_OF_RANGE until grid has had time to establish
         # orders and complete at least one cycle.
+        #
+        # T2: only fire once the price is decisively beyond the range (an ATR
+        # buffer kills re-centering on noise) AND has stayed out for
+        # OUT_OF_RANGE_STRIKES_TO_TRIGGER consecutive WF2 cycles (~10 min each).
+        # When it fires, OUT_OF_RANGE_POLICY decides: CLOSE (historical) or
+        # RECENTER (keep inventory, rebuild around current price).
         if current_price is not None:
             age_hours = self._grid_age_hours(grid)
             if age_hours is not None and age_hours * 60 >= CHECK_CLOSE_GRACE_MINUTES:
                 lower_price = Decimal(str(grid["lower_price"]))
                 upper_price = Decimal(str(grid["upper_price"]))
-                if current_price < lower_price or current_price > upper_price:
+
+                # ATR buffer to require a decisive departure, not a touch.
+                buffer = Decimal("0")
+                try:
+                    klines = await self.binance.get_klines(
+                        grid["symbol"], interval=grid.get("klines_interval", "4h"),
+                        limit=(int(grid.get("atr_period") or 14) + 1)
+                    )
+                    if klines:
+                        atr = calculate_atr(klines, period=int(grid.get("atr_period") or 14))
+                        buffer = atr * OUT_OF_RANGE_ATR_BUFFER
+                except Exception as e:
+                    logger.warning(f"Grid {grid_id}: could not compute ATR buffer for OUT_OF_RANGE: {e}")
+
+                decisive_out = current_price < (lower_price - buffer) or current_price > (upper_price + buffer)
+
+                strikes = int(grid.get("out_of_range_strikes") or 0)
+                strikes = (strikes + 1) if decisive_out else 0
+                self._set_grid_column(grid_id, "out_of_range_strikes", strikes)
+
+                if decisive_out and strikes >= OUT_OF_RANGE_STRIKES_TO_TRIGGER:
+                    if OUT_OF_RANGE_POLICY == "RECENTER":
+                        # Keep inventory and rebuild around the current price.
+                        recenter_result = await self.recenter_grid(grid_id)
+                        if recenter_result and recenter_result.get("new_grid_id"):
+                            new_grid = self.get_grid(recenter_result["new_grid_id"])
+                            logger.warning(
+                                f"Grid {grid_id} ({grid['symbol']}) RECENTERED: price {current_price} "
+                                f"decisively outside [{lower_price - buffer}, {upper_price + buffer}] "
+                                f"({strikes} strikes, ATR buffer {buffer:.4g}) → new grid "
+                                f"{recenter_result['new_grid_id']} ({recenter_result['grid_mode']})"
+                            )
+                            return {"grid": new_grid, "triggered": "RECENTERED"}
+                        # RECENTER failed partway — fall back to close to avoid a stranded grid.
+                        closed_grid = await self.cancel_grid(grid_id, trigger_condition="OUT_OF_RANGE")
+                        return {"grid": closed_grid, "triggered": "OUT_OF_RANGE"}
+
+                    # Policy CLOSE (historical behaviour): liquidate at market.
                     closed_grid = await self.cancel_grid(grid_id, trigger_condition="OUT_OF_RANGE")
                     logger.warning(
                         f"Grid {grid_id} ({grid['symbol']}) closed: "
-                        f"price {current_price} outside range [{lower_price}, {upper_price}] "
-                        f"(age {age_hours:.1f}h > {CHECK_CLOSE_GRACE_MINUTES}m grace)"
+                        f"price {current_price} decisively outside [{lower_price - buffer}, {upper_price + buffer}] "
+                        f"({strikes} strikes, age {age_hours:.1f}h > {CHECK_CLOSE_GRACE_MINUTES}m grace)"
                     )
                     return {"grid": closed_grid, "triggered": "OUT_OF_RANGE"}
 

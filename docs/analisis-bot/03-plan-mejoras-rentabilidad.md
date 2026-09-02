@@ -199,7 +199,7 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | # | Tarea | Fase | Estado | Commit / detalle |
 |---|---|---|---|---|
 | [T1](#t1) | Permitir que el grid acumule inventario | 1 | ✅ 2026-09-02 | `b315faf` + rama `feat/t1-replenish-status-20260902` — `REPLENISH_POSITION_TOLERANCE_RATIO = 0.80` sobre `MAX_NET_POSITION_LEVELS`. Completado: la reposición reporta `replenish_status: paused_position` + posición/tolerancia en `/refresh` (notificación WF2 + rastro en dashboard), con tests. |
-| [T2](#t2) | RECENTER en vez de cerrar (OUT_OF_RANGE) | 1 | ❌ pendiente | **Siguiente en impacto.** Requiere T4 (ya hecho) como freno. |
+| [T2](#t2) | RECENTER en vez de cerrar (OUT_OF_RANGE) | 1 | ✅ 2026-09-02 | Rama `feat/t2-recenter-t6-metrics-20260902`. OUT_OF_RANGE exige salida decisiva (`precio < lower − ATR×OUT_OF_RANGE_ATR_BUFFER=0.5` o simétrico) que persista `OUT_OF_RANGE_STRIKES_TO_TRIGGER=2` ciclos (columna `out_of_range_strikes`). Con política `RECENTER` (default), `recenter_grid()` cancela órdenes, conserva inventario, marca el grid CANCELED y reconstruye alrededor del precio actual en LONG/SHORT + cierre `grid_closures` con `trigger_condition=RECENTERED` (cadena por `parent_grid_id`/`recenter_count`, máx `MAX_RECENTERS_PER_GRID=2`). Endpoint `POST /api/v1/grids/{id}/recenter`. Tests `test_recenter.py` (6, pasan). |
 | [T3](#t3) | `MAX_POSITION` = límite, no gatillo de cierre | 1 | ✅ 2026-08-31 | Cap proporcional a `levels` (`MAX_NET_POSITION_RATIO = 0.6`, piso `MAX_NET_POSITION_LEVELS`). Superarlo pausa la reposición **solo del lado que acumula**; solo cierra al pasar `MAX_POSITION_HARD_MULTIPLE = 2.0×`. |
 | [T4](#t4) | Stop-loss / take-profit reales | 1 | ✅ 2026-08-31 | `b315faf` — SL 1 % / TP 3 % del balance, expuestos en `/auto-params` y propagados en WF1. |
 | [T5](#t5) | Restar fee de salida al PnL no realizado | 1 | ✅ 2026-09-02 | Rama `feat/rentabilidad-t1-t5-pnl-20260902` — `unrealized_pnl` descuenta `abs(net_position_qty) × current_price × fee_rate`; `get_grid_pnl` propaga el `maker` real de `get_commission_rate` (fallback 0.0002). Tests actualizados + uno nuevo; suite sin regresiones. |
@@ -221,7 +221,7 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | T21 | Flip `OUT_OF_RANGE` → posición de breakout | — | ❌ pendiente | Cobertura negativamente correlacionada con el grid. **Solo tras 4+ semanas de grid positivo y después de T2.** Ver `04-estrategia-y-portafolio.md` §4. |
 | T22 | Contabilizar el **funding** en el PnL | 2 | ❌ pendiente | Fuga potencialmente material hoy invisible. Ver `04-estrategia-y-portafolio.md` §6. |
 
-**Hecho: 6/22.** Próximo bloque recomendado: **T2 + T6**.
+**Hecho: 7/22.** Próximo bloque recomendado: **T10 + T11 + T12** (continuidad) o **T8** (migración tablas).
 
 > ⚠️ Hallazgo al validar la Fase 1: la suite `pytest` de `backend-python/` ya
 > tenía **21 fallos preexistentes** en `main` (verificado con un worktree limpio
@@ -328,6 +328,22 @@ configurable, con el comportamiento actual como fallback.**
   (stop-loss en USD) en el mismo PR o antes: sin un tope de pérdida absoluto,
   re-centrar indefinidamente en una tendencia fuerte es la receta de una pérdida
   ilimitada. `MAX_RECENTERS_PER_GRID` + stop-loss son los dos frenos.
+- **✅ Hecho 2026-09-02** (rama `feat/t2-recenter-t6-metrics-20260902`):
+  - Buffer en el gatillo `OUT_OF_RANGE`: salida decisiva
+    `precio < lower − ATR×OUT_OF_RANGE_ATR_BUFFER` (o simétrico) **y**
+    persistida `OUT_OF_RANGE_STRIKES_TO_TRIGGER` ciclos consecutivos (columna
+    nueva `out_of_range_strikes` en `grids`; se resetea con ruido/dentro de rango).
+    `OUT_OF_RANGE_POLICY = "RECENTER"` como default.
+  - `recenter_grid(grid_id)`: cancela órdenes **sin** `place_market_close`,
+    mantiene el inventario, marca el grid CANCELED, reconstruye con
+    `create_grid(parent_grid_id, recenter_count+1)` en modo LONG/SHORT/NEUTRAL
+    según la posición heredada, e inserta `grid_closures` con
+    `trigger_condition="RECENTERED"` (columna `parent_grid_id`). Máximo
+    `MAX_RECENTERS_PER_GRID`; fallo → fallback cierre `OUT_OF_RANGE`.
+    `close_grid_if_triggered` devuelve `{"grid", "triggered": "RECENTERED"}`.
+  - Endpoint `POST /api/v1/grids/{grid_id}/recenter`.
+  - Tests `tests/test_recenter.py` (6, pasan); suite completa 61 passed / 19
+    failed (mismas 19 preexistentes, sin regresiones nuevas).
 
 #### T3 — Recalibrar `MAX_POSITION` para que sea un límite, no un gatillo suicida (arreglar D3) {#t3}
 

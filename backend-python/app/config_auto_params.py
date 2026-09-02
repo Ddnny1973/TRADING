@@ -82,3 +82,18 @@ MAX_NET_POSITION_RATIO = Decimal("0.6")
 # descontrolado y el grid sí se cierra. Es una red de seguridad, no el
 # mecanismo normal: el freno en dinero es stop_loss (ver auto_params).
 MAX_POSITION_HARD_MULTIPLE = Decimal("2.0")
+
+# Política ante OUT_OF_RANGE (T2): "CLOSE" (comportamiento histórico, vender a
+# mercado y cristalizar la pérdida) o "RECENTER" (cancelar órdenes, conservar
+# el inventario y reconstruir el grid alrededor del precio actual en modo
+# LONG/SHORT, de modo que el inventario se descargue en la reversión en vez de
+# liquidarse en el mínimo).
+OUT_OF_RANGE_POLICY = "RECENTER"
+# Nº máximo de re-centrados por grid antes de forzar el cierre real.
+MAX_RECENTERS_PER_GRID = 2
+# Margen (en múltiplos de ATR) que el precio debe superar fuera del rango antes
+# de considerar el grid realmente "fuera", para no re-centrar por ruido.
+OUT_OF_RANGE_ATR_BUFFER = Decimal("0.5")
+# Nº de ciclos consecutivos de WF2 en los que el precio debe mantenerse fuera
+# del rango (con buffer) antes de disparar RECENTER/CLOSE.
+OUT_OF_RANGE_STRIKES_TO_TRIGGER = 2

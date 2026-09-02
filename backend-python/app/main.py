@@ -327,6 +327,22 @@ async def cancel_grid(grid_id: str):
     return grid
 
 
+@app.post("/api/v1/grids/{grid_id}/recenter", response_model=GridDetailResponse, tags=["Grids"])
+async def recenter_grid(grid_id: str):
+    """
+    T2 RECENTER — re-centrar un grid cuyo precio se escapó del rango: cancela
+    las órdenes abiertas, conserva el inventario y reconstruye el grid alrededor
+    del precio actual en modo LONG/SHORT (según el inventario heredado) en vez
+    de liquidarlo a mercado. Pensado para WF1/WF2 / uso manual.
+    """
+    result = await grid_service.recenter_grid(grid_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Grid not found")
+    if result.get("triggered") == "RECENTERED":
+        return grid_service.get_grid(result["new_grid_id"])
+    raise HTTPException(status_code=400, detail="Grid is not RUNNING")
+
+
 @app.post("/api/v1/grids/{grid_id}/refresh", response_model=GridDetailResponse, tags=["Grids"])
 async def refresh_grid_orders(grid_id: str):
     """

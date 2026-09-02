@@ -245,6 +245,45 @@ De paso se arreglaron 2 `TypeError` preexistentes en `tests/test_indicators.py`
 (el helper `_order` comparaba `executed_qty` str), que hacían que los tests de
 PnL nunca hubieran pasado; se añadió `test_calculate_grid_pnl_deducts_exit_fee_from_unrealized`.
 
+## T2: RECENTER en vez de cerrar en OUT_OF_RANGE (2026-09-02, rama `feat/t2-recenter-t6-metrics-20260902`)
+
+El cierre por `OUT_OF_RANGE` al mercado cristalizaba la pérdida en el peor
+punto. Ahora, configurable vía `OUT_OF_RANGE_POLICY` ("CLOSE" | "RECENTER",
+default RECENTER):
+
+- **Gatillo con buffer anti-ruido:** no se dispara en el primer tick fuera del
+  rango. Exige **salida decisiva** (`precio < lower − ATR×OUT_OF_RANGE_ATR_BUFFER
+  = 0.5×ATR`, o el simétrico superior) **persistida** `OUT_OF_RANGE_STRIKES_TO_
+  TRIGGER = 2` ciclos consecutivos de WF2 (persistido en la columna nueva
+  `out_of_range_strikes` de `grids`; se resetea al volver a rango/con ruido). El
+  comportamiento histórico (`OUT_OF_RANGE_POLICY = "CLOSE"`) sigue intacto como
+  fallback.
+- **`recenter_grid(grid_id)`:** cancela las órdenes abiertas **sin**
+  `place_market_close`, conserva el inventario, marca el grid CANCELED, calcula
+  la posición (`get_position`) y reconstruye vía
+  `create_grid(parent_grid_id=..., recenter_count+1)` en modo LONG/SHORT/NEUTRAL
+  según el inventario heredado (para que `create_grid` no cierre la posición).
+  Registra en `grid_closures` un evento `trigger_condition="RECENTERED"` con la
+  columna `parent_grid_id` apuntando al grid nuevo, lo que permite al dashboard
+  encadenar la vida real de una operación. Tope `MAX_RECENTERS_PER_GRID = 2`; si
+  `recenter_grid` falla o se supera, fallback a cierre `OUT_OF_RANGE`.
+  `close_grid_if_triggered` devuelve `{"grid": <nuevo>, "triggered": "RECENTERED"}`.
+- **API:** `POST /api/v1/grids/{grid_id}/recenter` (400 si no RUNNING, 404 si no
+  existe). Frenos: `MAX_RECENTERS_PER_GRID` + stop-loss (T4).
+- **Tests:** `tests/test_recenter.py` (6, pasan): salida decisiva con 1 strike no
+  dispara; el 2º strike dispara RECENTER; volver a rango resetea el contador; por
+  debajo del buffer ATR se trata como ruido; endpoint `/recenter` devuelve el grid
+  nuevo.
+
+## T6: métricas de dashboard que sí significan algo (2026-09-02, rama `feat/t2-recenter-t6-metrics-20260902`)
+
+`dashboard_data.py` (+ espejo `scripts/dashboard/export_data.py`) y
+`dashboard.html` añaden `closing_metrics`: **closure drag** agregado y por grid
+(pérdida por cierre a mercado), **PnL por trigger_condition**, **tasa de grids
+rentables** (`closed_pnl > 0` / total cerrados, reemplaza el win-rate de ciclos),
+**grids con 0 ciclos** y **drawdown máximo** con fechas. Permite verificar si T2
+(no liquidar) y T3 (no gatillar cierre) funcionaron de verdad.
+
 ## Estado de la suite de tests (2026-08-31)
 
 `pytest` en `backend-python/` tiene **21 fallos preexistentes** en `main`
@@ -255,6 +294,10 @@ esa sesión). **No hay CI que corra tests**, así que nadie se entera.
 > `tests/test_indicators.py` (T5), el baseline bajó **19**, pero en `main` sigue
 > siendo 21. Seguir comparando contra **21** mientras no se mergee la rama
 > `feat/rentabilidad-t1-t5-pnl-20260902`.
+>
+> Con T2+T6 encima de la rama T1/T5 (`feat/t2-recenter-t6-metrics-20260902`) la
+> suite es **61 passed / 19 failed** (19 preexistentes, sin regresiones nuevas;
+> incluye los 6 tests nuevos de `test_recenter.py`).
 
 Al validar cambios en este repo: comparar contra ese baseline de 21 fallos,
 **no** esperar 0. La forma segura de medir el baseline es
