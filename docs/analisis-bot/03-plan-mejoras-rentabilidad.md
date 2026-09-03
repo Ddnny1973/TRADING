@@ -7,7 +7,7 @@ tags: [rentabilidad, grid-trading, plan, backlog, n8n, backend]
 related:
   - "[[analisis-bot-monitoreo]]"
   - "[[decisiones-tecnicas]]"
-updated: 2026-09-02
+updated: 2026-09-03
 owner: dueño del repo
 audiencia: agente de IA que va a implementar los cambios
 ---
@@ -207,9 +207,9 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | [T7](#t7) | Eliminar el doble conteo de `combined_pnl` | 2 | ✅ 2026-08-31 | `b315faf` — nuevo `strategy_pnl = cierres + grids vivos`; `combined_pnl` queda como alias. |
 | [T8](#t8) | Tablas `bot_executions` / `bot_health_events` | 2 | ❌ pendiente | Requiere que el dueño del repo corra la migración. |
 | [T9](#t9) | Reconciliar ROI del período vs. PnL de cierres | 2 | ❌ pendiente | |
-| [T10](#t10) | Relanzar automáticamente al cerrar un grid | 3 | ❌ pendiente | Mayor impacto en el objetivo 7/24. |
+| [T10](#t10) | Relanzar automáticamente al cerrar un grid | 3 | ✅ 2026-09-03 | Rama `feat/continuidad-t10-t12-20260903` — WF2: en la rama `Grid closed = true`, tras `Notify: Grid Closed`, `Execute Sub-workflow` WF1 (`executeWorkflow`, async). El hueco cierre→nuevo grid baja de "hasta 4 h" a ≤ 5 min. |
 | [T11](#t11) | Subir frecuencia del cron de WF1 | 3 | ❌ pendiente | Ver T13 antes, por el costo del LLM. |
-| [T12](#t12) | Watchdog de "bot inactivo" | 3 | ❌ pendiente | |
+| [T12](#t12) | Watchdog de "bot inactivo" | 3 | ✅ 2026-09-03 | WF2 — contador `noGridsCount` en staticData: 3 ciclos (15 min) consecutivos con 0 grids → alerta Telegram "⚠️ Bot sin grids 15 min" + `Execute Sub-workflow` WF1. Se resetea cuando hay grids. |
 | [T13](#t13) | Reducir dependencia del LLM | 3 | ❌ pendiente | |
 | [T14](#t14) | Investigar `RECONCILIATION_FAILED` | 4 | ❌ pendiente | 15 % de los cierres. |
 | [T15](#t15) | Kill-switch y tope de drawdown diario | 4 | ❌ pendiente | **Bloqueante para pasar a dinero real.** |
@@ -221,7 +221,7 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | T21 | Flip `OUT_OF_RANGE` → posición de breakout | — | ❌ pendiente | Cobertura negativamente correlacionada con el grid. **Solo tras 4+ semanas de grid positivo y después de T2.** Ver `04-estrategia-y-portafolio.md` §4. |
 | T22 | Contabilizar el **funding** en el PnL | 2 | ❌ pendiente | Fuga potencialmente material hoy invisible. Ver `04-estrategia-y-portafolio.md` §6. |
 
-**Hecho: 7/22.** Próximo bloque recomendado: **T10 + T11 + T12** (continuidad) o **T8** (migración tablas).
+**Hecho: 9/22.** Próximo bloque recomendado: **T8** (tablas `bot_executions`/`health_events`) — la parte de continuidad inmediata está cubierta; T11 queda a la espera de T13 (costo de LLM).
 
 > ⚠️ Hallazgo al validar la Fase 1: la suite `pytest` de `backend-python/` ya
 > tenía **21 fallos preexistentes** en `main` (verificado con un worktree limpio
@@ -481,6 +481,13 @@ configurable, con el comportamiento actual como fallback.**
   "Max concurrent grids", que se tratan como informativos.
 - **Criterio de aceptación:** el hueco entre cierre y nuevo grid pasa de
   "hasta 4 h (o hasta que el usuario mande `/lanzar`)" a **≤ 5 minutos**.
+- **✅ Hecho 2026-09-03** (rama `feat/continuidad-t10-t12-20260903`): en WF2,
+  la rama `IF: Grid closed? = true` ahora fluye
+  `Notify: Grid Closed → Execute WF1: Relanzar grid → Wait`. El nodo es
+  `executeWorkflow` v1.2 con `workflowId: yggk1wajL1tsmABi` y
+  `waitForSubWorkflow: false` (async, no bloquea el ciclo de monitoreo). WF1 ya
+  es idempotente (400 "already exists"/"Max concurrent grids" se tratan como
+  informativos), así que el relanzado es seguro incluso si WF1 ya tenía cupo.
 
 #### T11 — Subir la frecuencia del cron de WF1 {#t11}
 
@@ -502,6 +509,17 @@ configurable, con el comportamiento actual como fallback.**
   `Notify: No Running Grids` sin actuar.
 - **Criterio de aceptación:** el estado "0 grids activos" nunca dura más de
   ~15 min sin alerta ni intento de relanzamiento.
+- **✅ Hecho 2026-09-03** (rama `feat/continuidad-t10-t12-20260903`): en WF2,
+  la rama "No Running Grids" ahora es
+  `IF: Hay grids running?(false) → Split Chat IDs (No Running Grids) →
+  Notify: No Running Grids → Watchdog: contar ciclos sin grids → IF: Watchdog
+  3 ciclos sin grids?`. El contador `noGridsCount` vive en
+  `$getWorkflowStaticData('global')`; al llegar a 3 (15 min a 5 min/ciclo),
+  `fire=true` y se resetea → `Split Chat IDs (Watchdog) → Notify: Bot sin
+  grids 15 min → Execute WF1: Relanzar watchdog → Monitor cycle complete`.
+  La rama true de `IF: Hay grids running?` lleva `Watchdog: reset contador`
+  (hace `noGridsCount = 0` y `return $input.all()` para no alterar el batch de
+  grids). Mantiene el aviso informativo "Sin grids en ejecución" de siempre.
 
 #### T13 — Reducir la dependencia (y el costo) del LLM (arreglar D10) {#t13}
 
