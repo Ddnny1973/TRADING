@@ -55,7 +55,7 @@ def test_calculate_grid_bounds_rejects_lower_bound_at_or_below_zero():
 def _order(side, price, quantity, status="FILLED", executed_qty=None):
     """Helper to create order dicts. If executed_qty not specified, default to quantity if FILLED, else 0."""
     if executed_qty is None:
-        executed_qty = quantity if status == "FILLED" else Decimal("0")
+        executed_qty = Decimal(quantity) if status == "FILLED" else Decimal("0")
     return {
         "side": side,
         "price": price,
@@ -84,9 +84,10 @@ def test_calculate_grid_pnl_matched_buy_sell_is_fully_realized():
     pnl = calculate_grid_pnl(orders, current_price=Decimal("42500"))
 
     # matched_qty=0.001, realized = 0.001 * (45000 - 40000) = 5
-    assert pnl["realized_pnl"] == Decimal("5")
+    # minus buy fees (0.001*40000*0.0002=0.008) and sell fees (0.001*45000*0.0002=0.009)
+    assert pnl["realized_pnl"] == Decimal("4.983")
     assert pnl["unrealized_pnl"] == Decimal("0")
-    assert pnl["total_pnl"] == Decimal("5")
+    assert pnl["total_pnl"] == Decimal("4.983")
     assert pnl["net_position_qty"] == Decimal("0")
 
 
@@ -95,10 +96,20 @@ def test_calculate_grid_pnl_unmatched_buy_is_unrealized_long():
     pnl = calculate_grid_pnl(orders, current_price=Decimal("42500"))
 
     assert pnl["realized_pnl"] == Decimal("0")
-    # unrealized = net_qty * (current - avg_buy) = 0.002 * (42500-40000) = 5
-    assert pnl["unrealized_pnl"] == Decimal("5")
-    assert pnl["total_pnl"] == Decimal("5")
+    # unrealized = net_qty * (current - avg_buy) = 0.002 * (42500-40000) = 5,
+    # minus the exit fee to close the inventory: 0.002 * 42500 * 0.0002 = 0.017
+    assert pnl["unrealized_pnl"] == Decimal("4.983")
+    assert pnl["total_pnl"] == Decimal("4.983")
     assert pnl["net_position_qty"] == Decimal("0.002")
+
+
+def test_calculate_grid_pnl_deducts_exit_fee_from_unrealized():
+    orders = [_order("BUY", "40000", "0.002")]
+    pnl = calculate_grid_pnl(orders, current_price=Decimal("42500"), fee_rate=Decimal("0.001"))
+
+    # unrealized = 5 minus close fee 0.002 * 42500 * 0.001 = 0.085 -> 4.915
+    assert pnl["unrealized_pnl"] == Decimal("4.915")
+    assert pnl["total_pnl"] == Decimal("4.915")
 
 
 def test_calculate_grid_pnl_ignores_non_filled_orders():

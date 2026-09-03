@@ -80,6 +80,31 @@ def _compute(engine):
             FROM historical_grid_logs
         """, [("total", int), ("pnl", num), ("avg_pnl", num)])[0]
 
+        # PnL por trigger_condition (T6): verifica si T2/T3 cambiaron el desenlace
+        # de los cierres (deben dejar de concentrar la pérdida en MAX_POSITION/OUT_OF_RANGE).
+        pnl_by_trigger = fetch(conn, """
+            SELECT trigger_condition, COUNT(*) AS cnt,
+                   COALESCE(SUM(total_pnl), 0) AS pnl,
+                   COALESCE(AVG(total_pnl), 0) AS avg_pnl
+            FROM historical_grid_logs
+            WHERE trigger_condition IS NOT NULL
+            GROUP BY trigger_condition
+            ORDER BY pnl DESC
+        """, [
+            ("trigger_condition", str), ("cnt", int), ("pnl", num), ("avg_pnl", num),
+        ])
+
+        # Ruptura de cierres por grid entero (T6): comparar el PnL que dejaron los
+        # ciclos (net_cycles) con el PnL final del grid (closed_pnl). La diferencia
+        # es el "arrastre de cierre" — cuánto destruyó la salida al vender a mercado.
+        closed_all_grids = fetch(conn, """
+            SELECT h.grid_id, h.symbol, h.total_pnl AS closed_pnl,
+                   COALESCE(SUM(c.net_pnl), 0) AS net_cycles_pnl
+            FROM historical_grid_logs h
+            LEFT JOIN grid_cycles c ON c.grid_id = h.grid_id
+            GROUP BY h.grid_id, h.symbol, h.total_pnl
+        """, [("grid_id", str), ("symbol", str), ("closed_pnl", num), ("net_cycles_pnl", num)])
+
         latest_snapshot = fetch(conn, """
             SELECT DISTINCT ON (grid_id) grid_id, symbol, taken_at,
                    realized_pnl, unrealized_pnl, total_pnl, account_balance, open_orders_count
@@ -234,6 +259,77 @@ def _compute(engine):
     # (calculate_grid_pnl = realized + unrealized), sumarlos la contaría dos veces.
     strategy_pnl_f = closed_pnl_f + open_pnl_f
 
+    # --- T6: métricas de cierre y drawdown ---
+    # Closure drag agregado: cuánto destruyó la salida a mercado vs. la mecánica del grid.
+    # closed_pnl_f ya incluye lo realizado por los ciclos (dentro de total_pnl), así que el
+    # drag NO es closed_pnl − net_cycles global (eso contaría dos veces). El drag real por
+    # grid = closed_pnl − net_cycles_pnl de ESA grid; agregado = suma de esos drags.
+    drag_agg = 0.0
+    drag_grids = []
+    for g in closed_all_grids:
+        net_c = num(g["net_cycles_pnl"]) or 0.0
+        closed_c = num(g["closed_pnl"]) or 0.0
+        drag = closed_c - net_c
+        drag_agg += drag
+        drag_grids.append({
+            "grid_id": g["grid_id"],
+            "symbol": g["symbol"],
+            "closed_pnl": num(g["closed_pnl"]),
+            "net_cycles_pnl": num(g["net_cycles_pnl"]),
+            "drag": num(drag),
+        })
+    drag_grids.sort(key=lambda g: g["drag"])  # peor arrastre primero
+    drag_summary = {
+        "total": drag_agg,
+        "count": len(drag_grids),
+        "avg": num(drag_agg / len(drag_grids)) if drag_grids else None,
+    }
+
+    # Tasa de grids rentables: closed_pnl > 0 / total grids cerrados (T6).
+    closed_total = int(closed["total"])
+    profitable_closed = sum(1 for g in closed_all_grids if (num(g["closed_pnl"]) or 0.0) > 0.0)
+    profitable_rate = (profitable_closed / closed_total) if closed_total else None
+
+    # Grids con 0 ciclos: del total de grids con señal (cerrados + vivos).
+    grid_ids_total = set()
+    for g in closed_all_grids:
+        grid_ids_total.add(g["grid_id"])
+    for r in latest_snapshot:
+        grid_ids_total.add(r["grid_id"])
+    grid_cycle_count = {g["grid_id"]: g["cycles"] for g in cycles_by_grid}
+    zero_cycle_grids = sum(1 for gid in grid_ids_total if grid_cycle_count.get(gid, 0) == 0)
+    zero_cycle_rate = (zero_cycle_grids / len(grid_ids_total)) if grid_ids_total else None
+
+    # Drawdown máximo sobre la curva de equity (total_pnl agregado por snapshot).
+    peak = None
+    max_dd = 0.0
+    dd_start = dd_end = None
+    peak_label = None
+    for e in equity:
+        v = num(e["total_pnl"] or 0.0)
+        t = iso(e["taken_at"])
+        if peak is None or v > peak:
+            peak = v
+            peak_label = t
+        dd = peak - v
+        if dd > max_dd:
+            max_dd = dd
+            dd_start = peak_label
+            dd_end = t
+    if max_dd == 0.0:
+        dd_start = dd_end = None
+
+    # PnL por trigger_condition con nombres legibles (T6).
+    trigger_pnl = [
+        {
+            "trigger": r["trigger_condition"],
+            "count": r["cnt"],
+            "pnl": num(r["pnl"]),
+            "avg_pnl": num(r["avg_pnl"]),
+        }
+        for r in pnl_by_trigger
+    ]
+
     balances = [e["account_balance"] for e in equity if e["account_balance"] is not None]
     first_balance = balances[0] if balances else None
     last_balance = balances[-1] if balances else None
@@ -245,11 +341,13 @@ def _compute(engine):
 
     cycles_map = {r["grid_id"]: r for r in cycles_by_grid}
     closed_map = {r["grid_id"]: r for r in closed_grids}
+    drag_map = {g["grid_id"]: g for g in drag_grids}
     per_grid = []
     for gid in set(cycles_map) | set(closed_map) | set(current_map):
         c = cycles_map.get(gid, {})
         cl = closed_map.get(gid, {})
         cu = current_map.get(gid, {})
+        dg = drag_map.get(gid, {})
         is_closed = gid in closed_map
         per_grid.append({
             "grid_id": gid,
@@ -264,6 +362,7 @@ def _compute(engine):
             "closed_at": iso(cl.get("closed_at")),
             "current_pnl": num(cu.get("total_pnl")),
             "last_snapshot_at": iso(cu.get("taken_at")),
+            "drag": num(dg.get("drag")),
         })
     per_grid.sort(key=lambda g: (g["status"] == "CERRADO", g["net_cycles_pnl"] + (g["closed_pnl"] or 0)), reverse=True)
 
@@ -363,6 +462,19 @@ def _compute(engine):
         },
         "per_grid": per_grid,
         "active_operations": active_ops,
+        "closing_metrics": {
+            "closure_drag": drag_summary,
+            "closure_drag_grids": drag_grids,
+            "profitable_closed": profitable_closed,
+            "profitable_rate": profitable_rate,
+            "zero_cycle_grids": zero_cycle_grids,
+            "zero_cycle_total": len(grid_ids_total),
+            "zero_cycle_rate": zero_cycle_rate,
+            "trigger_pnl": trigger_pnl,
+            "max_drawdown": num(max_dd) if max_dd else None,
+            "drawdown_start": dd_start,
+            "drawdown_end": dd_end,
+        },
     }
 
 

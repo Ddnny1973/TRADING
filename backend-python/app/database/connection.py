@@ -111,6 +111,15 @@ def init_sqlite_tables():
     except sqlite3.OperationalError:
         pass
 
+    # T2 RECENTER: contadores de re-centrado y de salidas de rango consecutivas.
+    for column_def in ("recenter_count INTEGER DEFAULT 0",
+                       "out_of_range_strikes INTEGER DEFAULT 0",
+                       "parent_grid_id TEXT"):
+        try:
+            cursor.execute(f"ALTER TABLE grids ADD COLUMN {column_def}")
+        except sqlite3.OperationalError:
+            pass
+
     # Anti-race index: enforce one RUNNING grid per symbol (Paso 13)
     try:
         cursor.execute(
@@ -129,6 +138,7 @@ def init_sqlite_tables():
         "trigger_condition TEXT NOT NULL, "
         "total_pnl TEXT, "
         "position_amt_at_close TEXT, "
+        "parent_grid_id TEXT, "
         "closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
     )
 

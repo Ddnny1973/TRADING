@@ -132,13 +132,18 @@ def calculate_grid_pnl(orders: List[Dict[str, Any]], current_price: Decimal, fee
         avg_sell_price = total sell value / total filled sell qty
         matched_qty    = min(filled buy qty, filled sell qty)
         realized_pnl   = matched_qty * (avg_sell_price - avg_buy_price) - fees
-    Any unmatched quantity is valued against current_price as unrealized_pnl.
+    Any unmatched quantity is valued against current_price as unrealized_pnl,
+    minus the estimated fee to close that inventory (T5): total_pnl must not
+    be more optimistic than what exiting the position will really cost, or a
+    stop-loss keyed on total_pnl would fire too late.
 
     Args:
         orders: order dicts with "side", "price", "quantity", "executed_qty", "avg_fill_price"
                 (price/quantity accepted as str or Decimal).
         current_price: anchor price used to value unmatched inventory.
         fee_rate: commission rate per side (default 0.02% = 0.0002 for maker/taker blend).
+                  Applied to realized matched legs (entry+exit) and to the estimated
+                  close of the unmatched inventory.
 
     Returns:
         dict with realized_pnl, unrealized_pnl, total_pnl, net_position_qty,
@@ -184,6 +189,11 @@ def calculate_grid_pnl(orders: List[Dict[str, Any]], current_price: Decimal, fee
         unrealized_pnl = abs(net_position_qty) * (avg_sell_price - current_price)
     else:
         unrealized_pnl = Decimal("0")
+
+    # T5: deduct the exit fee for closing the net inventory. Unrealized PnL
+    # must reflect what closing the position actually costs; without this the
+    # stop-loss (which keys on total_pnl) shoots at an over-optimistic number.
+    unrealized_pnl -= abs(net_position_qty) * current_price * fee_rate
 
     return {
         "realized_pnl": realized_pnl,
