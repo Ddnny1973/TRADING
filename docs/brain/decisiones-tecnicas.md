@@ -7,7 +7,7 @@ tags: [decisiones, ia, alcance]
 related:
   - "[[_index]]"
   - "[[n8n-sync-y-gotchas]]"
-updated: 2026-09-02
+updated: 2026-09-03
 owner: dueño del repo
 ---
 
@@ -283,6 +283,27 @@ default RECENTER):
 rentables** (`closed_pnl > 0` / total cerrados, reemplaza el win-rate de ciclos),
 **grids con 0 ciclos** y **drawdown máximo** con fechas. Permite verificar si T2
 (no liquidar) y T3 (no gatillar cierre) funcionaron de verdad.
+
+## T10: relanzar WF1 al cerrar un grid (2026-09-03, rama `feat/continuidad-t10-t12-20260903`)
+
+WF2 (`workflow2-monitor.json`), rama `IF: Grid closed? = true`:
+`Notify: Grid Closed → Execute WF1: Relanzar grid → Wait`. El nodo
+`executeWorkflow` v1.2 apunta a WF1 (`yggk1wajL1tsmABi`) con
+`waitForSubWorkflow: false` (async, no bloquea el ciclo de monitoreo). Como WF1
+es idempotente (400 "already exists"/"Max concurrent grids" = informativo), el
+relanzado es seguro aunque WF1 ya tuviera cupo. Cierra el hueco
+cierre→nuevo grid de "hasta 4 h" a **≤ 5 min**.
+
+## T12: watchdog de "bot inactivo" (2026-09-03, rama `feat/continuidad-t10-t12-20260903`)
+
+WF2, rama "No Running Grids": contador `noGridsCount` en
+`$getWorkflowStaticData('global')`. 3 ciclos consecutivos (15 min, a 5 min/ciclo)
+con 0 grids → `fire=true` y se resetea → alerta Telegram
+"⚠️ Bot sin grids 15 min" + `Execute WF1: Relanzar watchdog`. La rama true de
+`IF: Hay grids running?` lleva `Watchdog: reset contador` (`noGridsCount = 0` y
+`return $input.all()` para no alterar el batch de grids → **importante: el reset
+no debe reemplazar los items del grid**). Mantiene el aviso informativo "Sin
+grids en ejecución".
 
 ## Estado de la suite de tests (2026-08-31)
 

@@ -512,6 +512,143 @@
           "name": "TRADING"
         }
       }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "yggk1wajL1tsmABi",
+          "mode": "list",
+          "cachedResultName": "workflow1-market-decision"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "f465d612-559f-43c6-ba45-6e40bb7ba4f5",
+      "name": "Execute WF1: Relanzar grid",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1128,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $getWorkflowStaticData('global');\ndata.noGridsCount = 0;\nreturn $input.all();"
+      },
+      "id": "8776f4d9-0605-48ca-b7f4-b1abca342fbd",
+      "name": "Watchdog: reset contador",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1024,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $getWorkflowStaticData('global');\ndata.noGridsCount = (data.noGridsCount || 0) + 1;\nconst fire = data.noGridsCount >= 3;\nif (fire) {\n  data.noGridsCount = 0;\n}\nreturn [{ json: { count: data.noGridsCount, fire: fire } }];"
+      },
+      "id": "d02dc4bb-ede9-4470-b995-f780d90dde2f",
+      "name": "Watchdog: contar ciclos sin grids",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -912,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond_fire",
+              "leftValue": "={{ $json.fire }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1b62217d-d2f7-4280-99ea-818560ba4c08",
+      "name": "IF: Watchdog 3 ciclos sin grids?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -912,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatIds = $env.TELEGRAM_CHAT_ID.split(',');\nreturn chatIds.map(id => ({\n  json: {\n    chatId: id.trim()\n  }\n}));"
+      },
+      "id": "32024324-b14e-45ab-a305-3da27836eb60",
+      "name": "Split Chat IDs (Watchdog)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -912,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ '⚠️ Bot sin grids activos hace 15 min\\n\\n🔄 Ejecutando WF1 para relanzar...' }}",
+        "additionalFields": {}
+      },
+      "id": "80a2907c-5b5d-45f3-8bf5-82ee9e5cb72a",
+      "name": "Notify: Bot sin grids 15 min",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -912,
+        672
+      ],
+      "webhookId": "e363d379-90af-4ba8-8ecb-d7bb30889cb5",
+      "credentials": {
+        "telegramApi": {
+          "id": "zurDfqIC4Qy17sUA",
+          "name": "TRADING"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "yggk1wajL1tsmABi",
+          "mode": "list",
+          "cachedResultName": "workflow1-market-decision"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "b255071c-e0b0-40bb-ab25-b1fc49ba47f9",
+      "name": "Execute WF1: Relanzar watchdog",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -912,
+        768
+      ]
     }
   ],
   "pinData": {
@@ -552,7 +689,7 @@
       "main": [
         [
           {
-            "node": "Wait (1.5s between items)",
+            "node": "Execute WF1: Relanzar grid",
             "type": "main",
             "index": 0
           }
@@ -745,7 +882,7 @@
       "main": [
         [
           {
-            "node": "Split in Batches (Sequential)",
+            "node": "Watchdog: reset contador",
             "type": "main",
             "index": 0
           }
@@ -774,7 +911,7 @@
       "main": [
         [
           {
-            "node": "Monitor cycle complete",
+            "node": "Watchdog: contar ciclos sin grids",
             "type": "main",
             "index": 0
           }
@@ -848,6 +985,90 @@
         [
           {
             "node": "IF: Refresh failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute WF1: Relanzar grid": {
+      "main": [
+        [
+          {
+            "node": "Wait (1.5s between items)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Watchdog: reset contador": {
+      "main": [
+        [
+          {
+            "node": "Split in Batches (Sequential)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Watchdog: contar ciclos sin grids": {
+      "main": [
+        [
+          {
+            "node": "IF: Watchdog 3 ciclos sin grids?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Watchdog 3 ciclos sin grids?": {
+      "main": [
+        [
+          {
+            "node": "Split Chat IDs (Watchdog)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Monitor cycle complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Chat IDs (Watchdog)": {
+      "main": [
+        [
+          {
+            "node": "Notify: Bot sin grids 15 min",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify: Bot sin grids 15 min": {
+      "main": [
+        [
+          {
+            "node": "Execute WF1: Relanzar watchdog",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute WF1: Relanzar watchdog": {
+      "main": [
+        [
+          {
+            "node": "Monitor cycle complete",
             "type": "main",
             "index": 0
           }
