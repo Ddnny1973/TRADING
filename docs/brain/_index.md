@@ -60,7 +60,7 @@ memoria de sesiones de IA y no estaba escrito en ningún archivo del repo.
   también `docs/analisis-bot/` (carpeta de análisis evolutivos, distinta de
   `docs/brain/` y de `Analisis Propios/`), en particular
   `03-plan-mejoras-rentabilidad.md` — plan accionable de 22 tareas (tablero
-  al día: 10/22 hechas, ver [[decisiones-tecnicas]]) — y
+  al día: 11/22 hechas, ver [[decisiones-tecnicas]]) — y
   `04-estrategia-y-portafolio.md` — por qué el grid es short-vol, qué
   estrategias añadir (y cuáles descartar) y por qué no se pueden correr dos
   estrategias sobre el mismo símbolo.
