@@ -3,7 +3,7 @@ Pydantic schemas for request/response validation
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 
@@ -214,6 +214,7 @@ class AutoParamsResponse(BaseModel):
     params: Optional[AutoParamsParams] = None  # None if grid_viable is False
     reasoning: dict  # Detailed derivation steps
     policy: dict  # Policy constants used
+    veto_reasons: List[str] = []  # Razones deterministas (T13) que desaconsejan lanzar
 
     class Config:
         json_schema_extra = {
