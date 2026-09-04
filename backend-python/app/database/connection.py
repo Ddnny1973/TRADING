@@ -136,6 +136,7 @@ def init_sqlite_tables():
         "grid_id TEXT NOT NULL, "
         "symbol TEXT NOT NULL, "
         "trigger_condition TEXT NOT NULL, "
+        "failure_reason TEXT DEFAULT NULL, "
         "total_pnl TEXT, "
         "position_amt_at_close TEXT, "
         "parent_grid_id TEXT, "

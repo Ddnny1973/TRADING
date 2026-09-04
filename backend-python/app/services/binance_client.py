@@ -810,6 +810,45 @@ class BinanceClient:
             print(f"Error fetching commission rate: {e}")
         return None
 
+    async def get_all_orders(self, symbol: str, limit: int = 200) -> Optional[List[Dict[str, Any]]]:
+        """
+        Get ALL orders (open + closed/terminal) for a symbol in a single request.
+
+        GET /fapi/v1/allOrders is used to reconstruct local state when the
+        openOrders reconciliation fails — lets us decide whether an order is
+        genuinely dead or just unreachable via openOrders.
+
+        Args:
+            symbol: Trading pair
+            limit: Max number of orders to return (Binance caps at 1000)
+
+        Returns:
+            List of order dicts, or None if request failed
+        """
+        try:
+            await self.time_sync.sync_if_stale()
+            params = {
+                "symbol": symbol,
+                "limit": limit,
+                "timestamp": self.time_sync.get_adjusted_time(),
+                "recvWindow": settings.BINANCE_RECV_WINDOW,
+            }
+            params["signature"] = self.security.generate_signature(params)
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(
+                    f"{self.base_url}/fapi/v1/allOrders",
+                    params=params,
+                    headers=self.security.get_headers()
+                ) as r:
+                    if r.status == 200:
+                        return await r.json()
+                    else:
+                        print(f"Error fetching all orders: HTTP {r.status}")
+        except Exception as e:
+            print(f"Error fetching all orders: {e}")
+        return None
+
     async def get_open_orders(self, symbol: str) -> Optional[List[Dict[str, Any]]]:
         """
         Get all open orders for a symbol in a single request.

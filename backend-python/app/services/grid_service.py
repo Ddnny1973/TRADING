@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 _BATCH_SIZE = 5
 _INTER_BATCH_DELAY_SECONDS = 0.5
 _TERMINAL_ORDER_STATUSES = {"FILLED", "CANCELED", "REJECTED", "EXPIRED"}
-_MAX_REFRESH_FAILURES = 3  # consecutive unreconciled refresh cycles before auto-cancel
+_MAX_REFRESH_FAILURES = 6  # consecutive unreconciled refresh cycles before auto-cancel (~30 min at 5 min/cycle)
 
 
 class GridService:
@@ -45,7 +45,7 @@ class GridService:
         # state could not be fully reconciled for a grid — either the whole
         # openOrders call failed, or an individual order could be confirmed
         # neither open nor closed. Resets to 0 on any clean refresh.
-        # _MAX_REFRESH_FAILURES=3 -> auto-cancel window is ~15 minutes.
+        # _MAX_REFRESH_FAILURES=6 -> auto-cancel window is ~30 minutes.
         self._refresh_fail_counters: Dict[str, int] = {}
 
     @staticmethod
@@ -414,7 +414,8 @@ class GridService:
         Dead-order / reconciliation safety net: if this grid's state cannot
         be fully confirmed against Binance (the openOrders call itself fails,
         or an individual order comes back neither open nor resolvable) for
-        _MAX_REFRESH_FAILURES consecutive cycles, the grid is auto-canceled
+        _MAX_REFRESH_FAILURES consecutive cycles, the grid is reconstructed
+        from Binance allOrders; if that also fails, it is auto-canceled
         rather than left silently drifting between local and remote state.
         The result carries `refresh_status` / `unconfirmed_order_ids` /
         `extra_order_ids` (not persisted columns — added to the in-memory
@@ -676,6 +677,10 @@ class GridService:
         _MAX_REFRESH_FAILURES instead of letting local/remote state drift
         indefinitely. Never raises — cancellation failures are logged and
         the grid is still reported back with its (unreconciled) local state.
+
+        Before auto-canceling, attempts state reconstruction from
+        GET /fapi/v1/allOrders to recover from transient drift rather than
+        assuming the worst case.
         """
         count = self._refresh_fail_counters.get(grid_id, 0) + 1
         self._refresh_fail_counters[grid_id] = count
@@ -689,11 +694,29 @@ class GridService:
             return grid
 
         logger.critical(
-            f"Grid {grid_id}: {count} consecutive unreconciled refresh cycles — auto-canceling"
+            f"Grid {grid_id}: {count} consecutive unreconciled refresh cycles — "
+            f"attempting state reconstruction before auto-cancel"
+        )
+
+        # Attempt state reconstruction from Binance allOrders before giving up
+        reconstructed = await self._try_reconstruct_state(grid_id, grid, reason)
+        if reconstructed is not None:
+            self._refresh_fail_counters.pop(grid_id, None)
+            reconstructed["refresh_status"] = "reconstructed"
+            logger.info(f"Grid {grid_id}: state reconstructed successfully from allOrders")
+            return reconstructed
+
+        # Reconstruction failed — proceed with auto-cancel
+        logger.critical(
+            f"Grid {grid_id}: state reconstruction failed — auto-canceling"
         )
         self._refresh_fail_counters.pop(grid_id, None)
         try:
-            closed = await self.cancel_grid(grid_id, trigger_condition="RECONCILIATION_FAILED")
+            closed = await self.cancel_grid(
+                grid_id,
+                trigger_condition="RECONCILIATION_FAILED",
+                failure_reason=reason,
+            )
             if closed:
                 closed["refresh_status"] = "auto_canceled"
                 return closed
@@ -702,6 +725,64 @@ class GridService:
 
         grid["refresh_status"] = "auto_cancel_failed"
         return grid
+
+    async def _try_reconstruct_state(
+        self, grid_id: str, grid: Dict[str, Any], reason: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Attempt to reconcile local state by fetching ALL orders (open + closed)
+        from Binance via GET /fapi/v1/allOrders. If we can resolve the unconfirmed
+        orders, the grid survives. Returns the updated grid on success, None on
+        failure.
+        """
+        try:
+            all_orders = await self.binance.get_all_orders(grid["symbol"])
+            if all_orders is None:
+                logger.warning(f"Grid {grid_id}: reconstruction failed — allOrders call returned None")
+                return None
+
+            # Build lookup: orderId -> Binance order
+            remote_map = {str(o["orderId"]): o for o in all_orders}
+
+            grid = self.get_grid(grid_id) if not grid.get("orders") else grid
+            open_orders = [o for o in grid["orders"] if o["status"] not in _TERMINAL_ORDER_STATUSES]
+
+            conn = get_sqlite_connection()
+            resolved_count = 0
+            unresolved_ids = []
+            try:
+                cursor = conn.cursor()
+                for order in open_orders:
+                    order_id_str = str(order["id"])
+                    remote = remote_map.get(order_id_str)
+                    if remote:
+                        new_status = remote["status"]
+                        executed_qty = remote.get("executedQty", "0")
+                        avg_price = remote.get("avgPrice", "0")
+                        cursor.execute(
+                            "UPDATE grid_orders SET status = ?, executed_qty = ?, avg_fill_price = ? WHERE id = ?",
+                            (new_status, executed_qty, avg_price, order["id"])
+                        )
+                        resolved_count += 1
+                    else:
+                        unresolved_ids.append(order_id_str)
+                conn.commit()
+            finally:
+                conn.close()
+
+            if unresolved_ids:
+                logger.warning(
+                    f"Grid {grid_id}: reconstruction partial — {resolved_count} resolved, "
+                    f"{len(unresolved_ids)} still unresolved: {unresolved_ids}"
+                )
+                return None
+
+            logger.info(f"Grid {grid_id}: reconstructed {resolved_count} orders from allOrders")
+            return self.get_grid(grid_id)
+
+        except Exception as e:
+            logger.error(f"Grid {grid_id}: reconstruction exception: {e}")
+            return None
 
     async def replenish_filled_orders(self, grid_id: str) -> Dict[str, Any]:
         """
@@ -1094,7 +1175,8 @@ class GridService:
         }
 
     async def cancel_grid(self, grid_id: str, trigger_condition: str = "MANUAL",
-                         close_position: bool = True) -> Optional[Dict[str, Any]]:
+                         close_position: bool = True,
+                         failure_reason: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Cancel all open orders for a grid and close the net position.
 
@@ -1162,9 +1244,11 @@ class GridService:
             try:
                 cursor.execute(
                     """INSERT INTO grid_closures
-                       (grid_id, symbol, trigger_condition, total_pnl, position_amt_at_close)
-                       VALUES (?, ?, ?, ?, ?)""",
-                    (grid_id, grid["symbol"], trigger_condition, total_pnl_str, position_amt_at_close)
+                       (grid_id, symbol, trigger_condition, failure_reason,
+                        total_pnl, position_amt_at_close)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (grid_id, grid["symbol"], trigger_condition, failure_reason,
+                     total_pnl_str, position_amt_at_close)
                 )
             except Exception as e:
                 print(f"Warning: could not insert grid_closures for {grid_id}: {e}")
