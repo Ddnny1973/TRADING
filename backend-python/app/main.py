@@ -3,7 +3,8 @@ FastAPI Application - Grid Trading Hybrid Backend
 Main entry point for the trading engine microservice
 """
 
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+import json as _json
 import logging
 import time
 
@@ -57,7 +58,7 @@ grid_service = GridService()
 
 # Marcador de versión del código: visible en /health y /auto-params para
 # verificar remotamente qué build está corriendo (sin acceso a logs)
-CODE_VERSION = "v1.10.0-t13-puerta-determinista"
+CODE_VERSION = "v1.10.1-t13-wf1-logging"
 
 # Cache de respuestas completas de /auto-params: (balance_bucket, symbol) → (ts, result)
 _auto_params_cache: dict = {}
@@ -534,6 +535,51 @@ async def get_auto_params(balance: float, symbol: Optional[str] = None):
     except Exception as e:
         logger.error(f"auto_derive_params failed: {e}")
         raise HTTPException(status_code=502, detail=f"Binance API error: {str(e)}")
+
+
+# ==========================================
+# BOT HEALTH EVENTS (T13 logging)
+# ==========================================
+
+@app.post("/api/v1/bot-health-events", tags=["Monitoring"])
+async def create_bot_health_event(event: Dict[str, Any]):
+    """
+    Log a bot health event to Postgres (bot_health_events).
+    Used by WF1 to record the deterministic-vs-LLM decision comparison (T13).
+    Idempotent: safe to call multiple times.
+    """
+    if postgres_engine is None:
+        raise HTTPException(status_code=503, detail="Postgres no disponible")
+
+    from sqlalchemy import text
+    from psycopg2.extras import Json
+
+    event_type = event.get("event_type")
+    if not event_type:
+        raise HTTPException(status_code=422, detail="event_type es obligatorio")
+
+    try:
+        with postgres_engine.connect() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO bot_health_events "
+                    "(event_type, grid_id, symbol, severity, message, details) "
+                    "VALUES (:event_type, :grid_id, :symbol, :severity, :message, :details)"
+                ),
+                {
+                    "event_type": event_type,
+                    "grid_id": event.get("grid_id"),
+                    "symbol": event.get("symbol"),
+                    "severity": event.get("severity", "info"),
+                    "message": event.get("message"),
+                    "details": Json(event.get("details")) if event.get("details") else None,
+                },
+            )
+            conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        logger.error(f"bot_health_events insert failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Error insertando evento: {str(e)}")
 
 
 # ==========================================

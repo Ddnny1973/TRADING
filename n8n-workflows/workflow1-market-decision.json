@@ -427,6 +427,65 @@
         296,
         -256
       ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// T13: Extract veto_reasons and compare with LLM decision\nconst autoParams = $('Get Auto Params (FIX 4)').item.json;\nconst llmDecision = $input.first().json;\n\nconst vetoReasons = autoParams.veto_reasons || [];\nconst llmLaunch = llmDecision.launch === true;\nconst symbol = autoParams.symbol || 'unknown';\nconst gridViable = autoParams.grid_viable || false;\n\nlet alignment;\nif (vetoReasons.length === 0 && llmLaunch) {\n    alignment = 'BOTH_GO';\n} else if (vetoReasons.length > 0 && !llmLaunch) {\n    alignment = 'BOTH_VETO';\n} else if (vetoReasons.length > 0 && llmLaunch) {\n    alignment = 'LLM_GO_BUT_DETERMINISTIC_VETO';\n} else {\n    alignment = 'DETERMINISTIC_GO_BUT_LLAM_VETO';\n}\n\nreturn [{\n    json: {\n        event_type: 'DETERMINISTIC_VS_LLM_DECISION',\n        symbol: symbol,\n        severity: alignment === 'BOTH_GO' ? 'info' : 'warning',\n        message: `${symbol}: LLM=${llmLaunch ? 'GO' : 'VETO'}, deterministic=${vetoReasons.length === 0 ? 'GO' : 'VETO'}, alignment=${alignment}`,\n        details: {\n            llm_launch: llmLaunch,\n            veto_reasons: vetoReasons,\n            grid_viable: gridViable,\n            alignment: alignment,\n            llm_reasoning: (llmDecision.reasoning || '').substring(0, 500)\n        }\n    }\n}];\n"
+      },
+      "name": "Log: veto vs LLM",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -584,
+        64
+      ],
+      "id": "b3c4d5e6-f7a8-9b0c-d1e2-f3a4b5c6d7e8"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/api/v1/bot-health-events",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "event_type",
+              "value": "={{ $json.event_type }}"
+            },
+            {
+              "name": "symbol",
+              "value": "={{ $json.symbol }}"
+            },
+            {
+              "name": "severity",
+              "value": "={{ $json.severity }}"
+            },
+            {
+              "name": "message",
+              "value": "={{ $json.message }}"
+            },
+            {
+              "name": "details",
+              "value": "={{ JSON.stringify($json.details) }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "name": "Log Decision to Postgres",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -532,
+        64
+      ],
+      "id": "c4d5e6f7-a8b9-0c1d-e2f3-a4b5c6d7e8f9"
     }
   ],
   "pinData": {
@@ -562,17 +621,6 @@
         ]
       ]
     },
-    "Parse AI Decision": {
-      "main": [
-        [
-          {
-            "node": "IF: Launch = true?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "IF: Launch = true?": {
       "main": [
         [
@@ -685,6 +733,39 @@
         [
           {
             "node": "Notify: Grid Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Decision": {
+      "main": [
+        [
+          {
+            "node": "Log: veto vs LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log: veto vs LLM": {
+      "main": [
+        [
+          {
+            "node": "Log Decision to Postgres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Decision to Postgres": {
+      "main": [
+        [
+          {
+            "node": "IF: Launch = true?",
             "type": "main",
             "index": 0
           }
