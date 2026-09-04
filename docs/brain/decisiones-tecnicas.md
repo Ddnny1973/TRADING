@@ -325,6 +325,32 @@ tablas es un follow-up posterior, no parte de T8. Uso previsto: dashboard de
 uptime (T6 ya muestra drag/drawdown; uptime real quedó pendiente de
 `bot_executions`).
 
+## T13: puerta determinista `veto_reasons` en /auto-params (2026-09-03, rama `feat/t13-puerta-determinista-20260903`)
+
+El LLM de WF1 decidió `launch:true` en el 100 % de las ejecuciones históricas y
+sus criterios son todos deterministas y computables en el backend. T13 (paso 1 =
+instrumentación): `/auto-params` devuelve ahora `veto_reasons: []`, espejo de los
+4 criterios del prompt del LLM:
+
+1. `ER > 0.35` — mercado en tendencia (ya está en `ER_MAX_TRADEABLE = 0.35`).
+2. `leverage > 5x` con `ATR% > 2%` — helper puro `derive_leverage_atr_veto()`;
+   con la config actual el leverage topea en 5x, así que no se disparará en la
+   práctica (se mantiene como espejo fiel para comparar contra el LLM).
+3. `top_3` vacío — se enruta por `symbol_selection` en modo auto.
+4. `candidatos < 5` — `selection["candidates_passed_filters"] < 5` en modo auto.
+
+**Decisión clave:** durante el periodo de observación `veto_reasons` = solo
+instrumentación; NO fuerza `grid_viable=False`, para no cambiar el comportamiento
+mientras se junta la comparación LLM-vs-determinista. El paso 2 (degradar el LLM
+a solo-notificación) se aplica tras 2-4 semanas de datos, y el paso 1 completo
+requiere que WF1 registre en Postgres la decisión determinista y la del LLM.
+
+Los `veto_reasons` per-symbol viven en `auto_derive_params()`; los de selección
+auto se mergean en `/auto-params` (`main.py`). `CODE_VERSION` → `v1.10.0-t13-puerta-determinista`.
+Tests: `tests/test_auto_params_veto.py` (fallo no detectado en ejecución local —
+el `.venv` de Python 3.14 no puede instalar las dependencias pinneadas; solo
+`py_compile` verificado).
+
 ## Estado de la suite de tests (2026-08-31)
 
 `pytest` en `backend-python/` tiene **21 fallos preexistentes** en `main`

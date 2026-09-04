@@ -57,7 +57,7 @@ grid_service = GridService()
 
 # Marcador de versión del código: visible en /health y /auto-params para
 # verificar remotamente qué build está corriendo (sin acceso a logs)
-CODE_VERSION = "v1.9.0-inventario-pausa-y-4-grids"
+CODE_VERSION = "v1.10.0-t13-puerta-determinista"
 
 # Cache de respuestas completas de /auto-params: (balance_bucket, symbol) → (ts, result)
 _auto_params_cache: dict = {}
@@ -496,6 +496,20 @@ async def get_auto_params(balance: float, symbol: Optional[str] = None):
             warnings.append(f"Excluidos por tener grid RUNNING abierto: {', '.join(excluded)}")
         result["warnings"] = warnings
         result["code_version"] = CODE_VERSION
+
+        # T13 (paso 1): vetoes deterministas a nivel de selección automática de par,
+        # espejo de los criterios del prompt del LLM. Solo informativo (no fuerza
+        # grid_viable) durante el periodo de observación.
+        if selection:
+            if not selection["top_3"]:
+                result["veto_reasons"].append(
+                    "Candidatos: top_3 vacío (no hay al menos 3 candidatos puntuados)"
+                )
+            if selection["candidates_passed_filters"] < 5:
+                result["veto_reasons"].append(
+                    f"Candidatos: {selection['candidates_passed_filters']} candidatos (< 5)"
+                )
+
         if selection and len(selection["top_3"]) > 1:
             runner_up = selection["top_3"][1]
             result["reasoning"]["symbol"] = (

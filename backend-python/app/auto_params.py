@@ -217,6 +217,23 @@ def derive_leverage(atr_pct: float) -> int:
     return LEVERAGE_BOUNDS[0]
 
 
+def derive_leverage_atr_veto(leverage: int, atr_pct: float) -> Optional[str]:
+    """
+    T13 determinista (espejo del criterio del LLM): veto si "leverage > 5x con
+    ATR% > 2%". Devuelve la razón del veto o None si no aplica.
+
+    Con la config actual el leverage derivado topea en 5x, así que este veto no
+    se disparará en la práctica — se mantiene como espejo fiel del prompt del
+    LLM para que la comparación determinista-vs-LLM sea válida.
+    """
+    if leverage > 5 and atr_pct > 0.02:
+        return (
+            f"Apalancamiento alto con volatilidad: leverage {leverage}x con "
+            f"ATR%={atr_pct * 100:.2f}% (> 5x y > 2%)"
+        )
+    return None
+
+
 def derive_quantity_per_order(
     min_notional: Decimal,
     lower_price: Decimal,
@@ -330,6 +347,10 @@ async def auto_derive_params(
     - params (if viable): levels, risk_pct, atr_multiplier, klines_interval, atr_period
     - reasoning (detailed for each derivation)
     - policy (the config constants used)
+    - veto_reasons (T13): lista de razones deterministas que desaconsejan
+      lanzar el grid (espejo de la puerta del LLM), para instrumentar la
+      comparación LLM vs determinista. NO fuerza grid_viable=False durante el
+      periodo de observación (T13 paso 1).
 
     If grid_viable=False, params is None and reasoning includes "no_viable".
     """
@@ -379,6 +400,7 @@ async def auto_derive_params(
             "current_price": float(current_price),
             "grid_viable": False,
             "params": None,
+            "veto_reasons": [f"ER: mercado en tendencia en todos los plazos (ER > {ER_MAX_TRADEABLE})"],
             "reasoning": {
                 "no_viable": interval_reason,
                 "klines_interval": interval_reason
@@ -411,6 +433,7 @@ async def auto_derive_params(
                 "current_price": float(current_price),
                 "grid_viable": False,
                 "params": None,
+                "veto_reasons": [f"Rango: ATR demasiado alto vs precio (lower_price <= 0 con multiplier mínimo)"],
                 "reasoning": {"no_viable": no_viable_reason, **reasoning},
                 "policy": {
                     "fee_roundtrip": float(FEE_ROUNDTRIP),
@@ -455,6 +478,7 @@ async def auto_derive_params(
             "current_price": float(current_price),
             "grid_viable": False,
             "params": None,
+            "veto_reasons": [f"Riesgo: balance insuficiente incluso con {LEVELS_BOUNDS[0]} niveles"],
             "reasoning": {
                 "no_viable": risk_reason,
                 **reasoning
@@ -471,11 +495,21 @@ async def auto_derive_params(
     stop_loss, take_profit, sl_tp_reason = derive_stop_loss_take_profit(balance)
     reasoning["stop_loss_take_profit"] = sl_tp_reason
 
+    # T13 puerta determinista (paso 1: instrumentación): espejo de los criterios
+    # del prompt del LLM en /auto-params. Solo se reportan en veto_reasons; NO
+    # fuerzan grid_viable=False durante el periodo de observación para poder
+    # comparar la decisión determinista vs la del LLM.
+    veto_reasons: List[str] = []
+    lev_atr_veto = derive_leverage_atr_veto(leverage, atr_pct)
+    if lev_atr_veto:
+        veto_reasons.append(lev_atr_veto)
+
     # All viable
     return {
         "symbol": symbol,
         "current_price": float(current_price),
         "grid_viable": True,
+        "veto_reasons": veto_reasons,
         "params": {
             "levels": levels_final,
             "risk_pct": float(risk_pct),
