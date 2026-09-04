@@ -387,3 +387,24 @@ borrar `docs/n8n-templates/`, `tests/` y `thunder-tests/`, falla con
 Entorno local: `pip install -r requirements.txt` falla en Windows por
 `psycopg2-binary` (no hay `pg_config`). Instalar el resto de paquetes a mano;
 los tests saltan Postgres igualmente.
+
+## T14: backoff y reconstrucción de estado en reconciliación de refresh (2026-09-03, rama `feat/t14-reconciliation-20260903`)
+
+D7: el 15 % de los cierres eran `RECONCILIATION_FAILED` — grids que morían por
+no poder sincronizarse con Binance (incidencia transitoria de red entre dos
+servidores). Cambios (solo backend Python, sin tocar workflows vivos):
+
+- `_MAX_REFRESH_FAILURES` 3 → 6 (`grid_service.py:36`): ventana de auto-cancel
+  de ~15 min a ~30 min (WF2 poll cada 5 min).
+- `_handle_refresh_failure`: antes de auto-cancelar, intenta reconstruir el
+  estado desde `GET /fapi/v1/allOrders` (nuevo `binance_client.get_all_orders()`).
+  Si la reconstrucción resuelve todas las órdenes no confirmadas, el grid
+  sobrevive (`refresh_status='reconstructed'`); solo si falla se auto-cancela.
+- `cancel_grid()` acepta y guarda `failure_reason` en `grid_closures` — nueva
+  columna `failure_reason` (migration_004 + CREATE TABLE actualizado) para
+  conocer el motivo concreto de cada cierre, no solo `trigger_condition`.
+- ⚠️ **Operacional:** la columna `failure_reason` requiere correr
+  `migration_004_add_failure_reason.sql` UNA VEZ contra el `grid_trading.db`
+  existente (CREATE TABLE IF NOT EXISTS no altera tablas ya existentes). Es un
+  simple `ALTER TABLE ... ADD COLUMN`.
+- `CODE_VERSION` → `v1.11.0-t14-reconciliation`.

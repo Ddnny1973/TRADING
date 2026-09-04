@@ -211,7 +211,7 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | [T11](#t11) | Subir frecuencia del cron de WF1 | 3 | ❌ pendiente | Ver T13 antes, por el costo del LLM. |
 | [T12](#t12) | Watchdog de "bot inactivo" | 3 | ✅ 2026-09-03 | WF2 — contador `noGridsCount` en staticData: 3 ciclos (15 min) consecutivos con 0 grids → alerta Telegram "⚠️ Bot sin grids 15 min" + `Execute Sub-workflow` WF1. Se resetea cuando hay grids. |
 | [T13](#t13) | Reducir dependencia del LLM | 3 | ✅ paso 1 (2026-09-03) | `/auto-params` con `veto_reasons` + WF1 logea comparación LLM-vs-determinista en Postgres (`bot_health_events`). Endpoint `POST /api/v1/bot-health-events`. Sigue: paso 2 (degradar LLM a solo-notificación, tras 2–4 sem datos). |
-| [T14](#t14) | Investigar `RECONCILIATION_FAILED` | 4 | ❌ pendiente | 15 % de los cierres. |
+| [T14](#t14) | Investigar `RECONCILIATION_FAILED` | 4 | ✅ (2026-09-03) | Backoff + reconstruct. `_MAX_REFRESH_FAILURES` 3→6, reconstruct vía `GET allOrders` antes de cancelar, columna `failure_reason` en `grid_closures`. Solo backend. Requiere correr migration_004 una vez. |
 | [T15](#t15) | Kill-switch y tope de drawdown diario | 4 | ❌ pendiente | **Bloqueante para pasar a dinero real.** |
 | [T16](#t16) | Serializar `refresh` + `replenish` por grid | 4 | ❌ pendiente | Más relevante ahora que T1 genera más reposiciones. |
 | [T17](#t17) | Verificar posición residual tras el cierre | 4 | ❌ pendiente | |
@@ -221,7 +221,7 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | T21 | Flip `OUT_OF_RANGE` → posición de breakout | — | ❌ pendiente | Cobertura negativamente correlacionada con el grid. **Solo tras 4+ semanas de grid positivo y después de T2.** Ver `04-estrategia-y-portafolio.md` §4. |
 | T22 | Contabilizar el **funding** en el PnL | 2 | ❌ pendiente | Fuga potencialmente material hoy invisible. Ver `04-estrategia-y-portafolio.md` §6. |
 
-**Hecho: 10/22** (T13 paso 1 COMPLETO — puerta determinista + WF1 logging). Próximo bloque recomendado: **T14** (backoff exponencial RECONCILIATION_FAILED, solo backend Python, sin tocar workflows vivos) o **T13 paso 2** (degradar LLM, tras 2–4 sem de datos en `bot_health_events`). T11 queda a la espera de T13 paso 2.
+**Hecho: 11/22** (T13 paso 1 COMPLETO + T14). Próximo bloque recomendado: **T13 paso 2** (degradar LLM, tras 2–4 sem de datos en `bot_health_events`) o **T16** (serializar refresh+replenish). T11 queda a la espera de T13 paso 2.
 
 > ⚠️ Hallazgo al validar la Fase 1: la suite `pytest` de `backend-python/` ya
 > tenía **21 fallos preexistentes** en `main` (verificado con un worktree limpio
@@ -587,6 +587,17 @@ uno es un grid que deja de generar dinero. Acciones:
   transitoria de red entre dos servidores distintos.
 - Antes de auto-cancelar, intentar una reconstrucción del estado desde
   `GET /fapi/v1/allOrders` en vez de asumir el peor caso.
+
+**✅ Hecho (2026-09-03)** en rama `feat/t14-reconciliation-20260903`:
+- `_MAX_REFRESH_FAILURES` 3 → 6 (ventana ~30 min, `grid_service.py:36`).
+- `_handle_refresh_failure`: antes de auto-cancelar intenta reconstruir el
+  estado vía `get_all_orders()` (`GET /fapi/v1/allOrders`). Si resuelve todas
+  las órdenes no confirmadas, el grid sobrevive (`refresh_status='reconstructed'`).
+- `cancel_grid()` acepta y guarda `failure_reason` en `grid_closures`
+  (nueva columna, `migration_004`).
+- ⚠️ Requiere correr `migration_004_add_failure_reason.sql` una vez contra el
+  `grid_trading.db` existente (ALTER TABLE ADD COLUMN).
+- `CODE_VERSION` → `v1.11.0-t14-reconciliation`.
 
 #### T15 — Kill-switch y tope de drawdown diario (arreglar D9) {#t15}
 
