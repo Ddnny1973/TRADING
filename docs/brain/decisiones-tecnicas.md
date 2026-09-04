@@ -305,6 +305,26 @@ con 0 grids → `fire=true` y se resetea → alerta Telegram
 no debe reemplazar los items del grid**). Mantiene el aviso informativo "Sin
 grids en ejecución".
 
+## T8: tablas de salud `bot_executions` / `bot_health_events` (2026-09-03, rama `feat/t8-health-tables-20260903`)
+
+`backend-python/app/database/migration_003_health_tables.sql` define dos tablas
+en `postgres-trading` (el Postgres de analítica del backend, NO el de n8n):
+
+- **`bot_executions`** — una fila por ejecución de WF1/WF2: `workflow_id`,
+  `status` ('success'|'error'), `trigger_source`, `started_at`, `finished_at`,
+  `duration_ms`, `error_message`. Da uptime real del orquestador y tasa de error
+  por workflow.
+- **`bot_health_events`** — incidentes de negocio con `event_type` tipado:
+  `RECONCILIATION_FAILED`, `AUTO_CANCEL`, `REPLENISH_PAUSED`, `RECENTERED` (T2);
+  con `severity` ('info'|'warning'|'critical'), `grid_id`, `symbol`,
+  `details JSONB`, `occurred_at`.
+
+**Estado:** T8 = solo el script de migración (el dueño del repo lo ejecuta; el
+agente no tiene acceso a Postgres). La escritura real desde backend/n8n a estas
+tablas es un follow-up posterior, no parte de T8. Uso previsto: dashboard de
+uptime (T6 ya muestra drag/drawdown; uptime real quedó pendiente de
+`bot_executions`).
+
 ## Estado de la suite de tests (2026-08-31)
 
 `pytest` en `backend-python/` tiene **21 fallos preexistentes** en `main`
