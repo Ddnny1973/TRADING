@@ -7,7 +7,7 @@ tags: [decisiones, ia, alcance]
 related:
   - "[[_index]]"
   - "[[n8n-sync-y-gotchas]]"
-updated: 2026-09-03
+updated: 2026-09-05
 owner: dueño del repo
 ---
 
@@ -429,3 +429,36 @@ sección crítica real:
   locked; IDs UUID → no colisionan).
 - Tests: `tests/test_refresh_lock.py`.
 - `CODE_VERSION` → `v1.12.0-t16-refresh-lock`.
+
+## T15: kill-switch global + tope de drawdown diario (2026-09-03, rama `feat/t15-kill-switch-20260903`)
+
+D9: no existía un freno global. Antes de dinero real es obligatorio poder
+parar el bot entero y limitar la pérdida diaria agregada. Diseño:
+
+- **Persistencia** en SQLite (tabla `system_state`, key/value/updated_at):
+  un flag en memoria moriría con un restart del backend y desactivaría el
+  freno justo cuando más falta. `migration_005_add_system_state.sql` es
+  idempotente (CREATE TABLE IF NOT EXISTS) y `init_sqlite_tables()` la crea
+  sola en el boot — no requiere paso manual obligatorio, a diferencia de
+  migration_004 (ALTER TABLE).
+- **ENGAGE manual** (`POST /api/v1/kill-switch {action: engage}`): persiste
+  estado + cierra todos los grids RUNNING (`trigger_condition=KILL_SWITCH`,
+  `failure_reason` con el motivo) y reporta cuáles se cerraron.
+- **ENGAGE automático** (`check_daily_drawdown`): PnL del día = cierres de
+  `grid_closures` (UTC, `date(closed_at)=date('now')`) + PnL no realizado de
+  grids RUNNING; si `< −MAX_DAILY_DRAWDOWN_PCT × balance USDT`, ENGAGE.
+  Corre al inicio de **cada `/refresh`** (y vía `POST /kill-switch/check`),
+  así no hay que tocar WF2. Idempotente: si ya está activo, no hace nada.
+  Errores se loguean y no lanzan (best-effort): un fallo del balance no debe
+  romper el flujo normal de refresco.
+- **Guard en `create_grid`**: si el kill-switch está activo, `ValueError`
+  (400). ⚠️ También bloquea **re-centrados** (`recenter_grid` re-crea vía
+  `create_grid`): si un ENGAGE pilla un recenter in-flight, el grid queda
+  CANCELED con la posición a la vista (inventario sin pérdida, revisable en
+  Binance) — aceptado como trade-off de seguridad.
+- **WF3**: `/pausar` (engage) y `/reanudar` (disarm) — Reescrito **en vivo**
+  en producción al mergear (#11). Patrón de body de los nodos HTTP =
+  `bodyParameters` (idéntico al nodo "Log Decision to Postgres" de WF1).
+  Backup del WF tocado → `backup-workflow3-*.json` (ignorado por git).
+- `/health` expone el estado del kill-switch (para ojos humanos y monitoreo).
+- `CODE_VERSION` → `v1.13.0-t15-kill-switch`.

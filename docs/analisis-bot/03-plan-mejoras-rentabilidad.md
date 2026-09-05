@@ -212,7 +212,7 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | [T12](#t12) | Watchdog de "bot inactivo" | 3 | ✅ 2026-09-03 | WF2 — contador `noGridsCount` en staticData: 3 ciclos (15 min) consecutivos con 0 grids → alerta Telegram "⚠️ Bot sin grids 15 min" + `Execute Sub-workflow` WF1. Se resetea cuando hay grids. |
 | [T13](#t13) | Reducir dependencia del LLM | 3 | ✅ paso 1 (2026-09-03) | `/auto-params` con `veto_reasons` + WF1 logea comparación LLM-vs-determinista en Postgres (`bot_health_events`). Endpoint `POST /api/v1/bot-health-events`. Sigue: paso 2 (degradar LLM a solo-notificación, tras 2–4 sem datos). |
 | [T14](#t14) | Investigar `RECONCILIATION_FAILED` | 4 | ✅ (2026-09-03) | Backoff + reconstruct. `_MAX_REFRESH_FAILURES` 3→6, reconstruct vía `GET allOrders` antes de cancelar, columna `failure_reason` en `grid_closures`. Solo backend. Requiere correr migration_004 una vez. |
-| [T15](#t15) | Kill-switch y tope de drawdown diario | 4 | ❌ pendiente | **Bloqueante para pasar a dinero real.** |
+| [T15](#t15) | Kill-switch y tope de drawdown diario | 4 | ✅ 2026-09-03 | Rama `feat/t15-kill-switch-20260903` (#11) — `POST/GET /api/v1/kill-switch` (engage/disarm), ENGAGE automático en `/refresh` si el PnL diario < −3 % del balance, tabla SQLite `system_state`, `create_grid` bloqueado si está activo, `/health` expone el estado. WF3: `/pausar` y `/reanudar`. Requiere correr migration_005 una vez (o auto-crea en boot). |
 | [T16](#t16) | Serializar `refresh` + `replenish` por grid | 4 | ✅ 2026-09-03 | `asyncio.Lock` por grid en `GridService.get_refresh_lock()` envuelve refresh+replenish en `/refresh`. Comunity no tiene "1 instancia a la vez" por workflow (solo global) — se resuelve en backend. Solo backend. |
 | [T17](#t17) | Verificar posición residual tras el cierre | 4 | ❌ pendiente | |
 | [T18](#t18) | CI que corra los tests | 4 | ❌ pendiente | **Prioridad subida** — ver aviso abajo. |
@@ -221,7 +221,7 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | T21 | Flip `OUT_OF_RANGE` → posición de breakout | — | ❌ pendiente | Cobertura negativamente correlacionada con el grid. **Solo tras 4+ semanas de grid positivo y después de T2.** Ver `04-estrategia-y-portafolio.md` §4. |
 | T22 | Contabilizar el **funding** en el PnL | 2 | ❌ pendiente | Fuga potencialmente material hoy invisible. Ver `04-estrategia-y-portafolio.md` §6. |
 
-**Hecho: 12/22** (T13 paso 1 + T14 + T16). Próximo bloque recomendado: **T13 paso 2** (degradar LLM, tras 2–4 sem de datos en `bot_health_events`) o **T15** (kill-switch). T11 queda a la espera de T13 paso 2.
+**Hecho: 13/22** (T13 paso 1 + T14 + T15 + T16). Próximo bloque recomendado: **T13 paso 2** (degradar LLM, tras 2–4 sem de datos en `bot_health_events`). T11 queda a la espera de T13 paso 2.
 
 > ⚠️ Hallazgo al validar la Fase 1: la suite `pytest` de `backend-python/` ya
 > tenía **21 fallos preexistentes** en `main` (verificado con un worktree limpio
@@ -606,6 +606,24 @@ uno es un grid que deja de generar dinero. Acciones:
   `POST /api/v1/kill-switch` (+ comando `/pausar` y `/reanudar` en WF3).
 - Si el PnL agregado del día cae por debajo del umbral: cerrar todos los grids,
   bloquear `create_grid` hasta reactivación manual y alertar por Telegram.
+
+**✅ Hecho (2026-09-03)** en rama `feat/t15-kill-switch-20260903` (#11):
+- `MAX_DAILY_DRAWDOWN_PCT = 0.03` en `config_auto_params.py` (0 deshabilita).
+- Tabla SQLite `system_state` (key/value/updated_at) en `init_sqlite_tables` +
+  `migration_005_add_system_state.sql` (idempotente, auto-crea en boot).
+- `GridService`: `get_kill_switch_state`, `engage_kill_switch` (cierra todos los
+  grids RUNNING con `trigger_condition=KILL_SWITCH` + `failure_reason`),
+  `disarm_kill_switch`, `check_daily_drawdown` (cierres del día UTC +
+  PnL no realizado de grids RUNNING vs balance USDT).
+- Guard en `create_grid`: rechaza con 400/`ValueError` si el kill-switch está
+  activo. ⚠️ también bloquea re-centrados (un recenter in-flight durante un
+  ENGAGE deja la posición descubierta, sin pérdida — revisable en Binance).
+- Endpoints `GET/POST /api/v1/kill-switch` y `POST /api/v1/kill-switch/check`.
+  La guardia corre además al inicio de cada `POST /refresh` (sin cambios en WF2).
+- `/health` expone el estado; `CODE_VERSION` → `v1.13.0-t15-kill-switch`.
+- WF3: comandos `/pausar` (engage) y `/reanudar` (disarm) — reescrito en vivo
+  al mergear (#11). Help actualizado.
+- Tests `test_kill_switch.py` (6, solo `py_compile` por venv sin deps).
 
 #### T16 — Serializar `refresh` + `replenish` por grid (arreglar D12) {#t16}
 
