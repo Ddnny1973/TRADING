@@ -121,7 +121,7 @@ def mock_binance(monkeypatch, order_id_counter):
         "ensure_symbol_settings": AsyncMock(return_value=True),
         "get_open_orders": AsyncMock(return_value=[]),
         "get_position": AsyncMock(return_value={"positionAmt": "0"}),
-        "get_commission_rate": AsyncMock(return_value={"makerCommission": 0.0002, "takerCommission": 0.0004}),
+        "get_commission_rate": AsyncMock(return_value={"maker": Decimal("0.0002"), "taker": Decimal("0.0004")}),
         "set_leverage": AsyncMock(return_value={"leverage": "3"}),
         "get_account_balance": AsyncMock(return_value={"balances": [{"asset": "USDT", "balance": "1000"}]}),
     }
