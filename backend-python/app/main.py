@@ -58,7 +58,7 @@ grid_service = GridService()
 
 # Marcador de versión del código: visible en /health y /auto-params para
 # verificar remotamente qué build está corriendo (sin acceso a logs)
-CODE_VERSION = "v1.11.0-t14-reconciliation"
+CODE_VERSION = "v1.12.0-t16-refresh-lock"
 
 # Cache de respuestas completas de /auto-params: (balance_bucket, symbol) → (ts, result)
 _auto_params_cache: dict = {}
@@ -357,12 +357,15 @@ async def refresh_grid_orders(grid_id: str):
     Intended to be called periodically by the external orchestrator
     (Workflow 2 every 15 min). Handles Fase 3 grid cycling.
     """
-    grid = await grid_service.refresh_order_status(grid_id)
-    if not grid:
-        raise HTTPException(status_code=404, detail="Grid not found")
+    # T16: serialize refresh+replenish per grid so overlapping WF2 cycles
+    # (cron + on-demand /monitorear) never run concurrently on the same grid.
+    async with grid_service.get_refresh_lock(grid_id):
+        grid = await grid_service.refresh_order_status(grid_id)
+        if not grid:
+            raise HTTPException(status_code=404, detail="Grid not found")
 
-    # Replenish filled orders to create continuous grid cycles
-    replenish = await grid_service.replenish_filled_orders(grid_id)
+        # Replenish filled orders to create continuous grid cycles
+        replenish = await grid_service.replenish_filled_orders(grid_id)
 
     if replenish.get("replenish_placed", 0) > 0:
         # get_grid() returns a fresh dict without the transient reconciliation

@@ -47,6 +47,24 @@ class GridService:
         # neither open nor closed. Resets to 0 on any clean refresh.
         # _MAX_REFRESH_FAILURES=6 -> auto-cancel window is ~30 minutes.
         self._refresh_fail_counters: Dict[str, int] = {}
+        # T16: per-grid asyncio.Lock so two overlapping WF2 cycles (cron +
+        # on-demand /monitorear) don't run refresh+replenish concurrently on
+        # the same grid. Effectively serializes refresh_order_status() +
+        # replenish_filled_orders() per grid via get_refresh_lock().
+        self._refresh_locks: Dict[str, asyncio.Lock] = {}
+
+    def get_refresh_lock(self, grid_id: str) -> asyncio.Lock:
+        """
+        Return the per-grid asyncio.Lock used to serialize the refresh +
+        replenish critical section for a given grid. Different grids get
+        different locks, so they never block each other. Bounded growth: a
+        few grids/day at most, cleaned on cancel_grid().
+        """
+        lock = self._refresh_locks.get(grid_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._refresh_locks[grid_id] = lock
+        return lock
 
     @staticmethod
     def _snap_down(value: Decimal, step: Decimal) -> Decimal:
@@ -1256,6 +1274,12 @@ class GridService:
             conn.commit()
         finally:
             conn.close()
+
+        # T16: grid is terminal — release its refresh lock if no coroutine is
+        # inside the critical section (safe to discard; grid IDs are UUIDs).
+        dormant_lock = self._refresh_locks.get(grid_id)
+        if dormant_lock is not None and not dormant_lock.locked():
+            self._refresh_locks.pop(grid_id, None)
 
         # 4) Log closure (PostgreSQL)
         closed_grid = self.get_grid(grid_id)
