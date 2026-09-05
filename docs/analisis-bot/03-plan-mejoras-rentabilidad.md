@@ -183,7 +183,7 @@ Reconocer esto evita que el agente "refactorice" cosas que están bien:
 | D8 | `unrealized_pnl` no descuenta fee de salida; `fee_rate` hardcodeado 0,0002 en `indicators.py` mientras `grid_service` usa la real | Precisión de SL/TP | 🟡 Media |
 | D9 | Sin kill-switch global ni tope de drawdown diario | Riesgo (crítico si pasa a real) | 🟡 Media |
 | D10 | El LLM decidió `launch:true` en el 100 % de los casos: costo + latencia + 504s, valor no medido | Decisiones | 🟡 Media |
-| D11 | Sin CI que corra `pytest`; venv local vacío | Calidad | 🟡 Media |
+| D11 | Sin CI que corra `pytest`; venv local vacío | Calidad | 🟡 Media → ✅ Resuelta (2026-09-05) |
 | D12 | Posible carrera `refresh`/`replenish` (cron 5 min + `/monitorear` on-demand) | Estabilidad | 🟡 Media |
 | D13 | Sin verificación de posición residual tras `place_market_close` | Operación | 🟢 Baja |
 | D14 | `MAX_CONCURRENT_GRIDS = 2` limita diversificación y continuidad | 7/24 | 🟢 Baja |
@@ -215,13 +215,13 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | [T15](#t15) | Kill-switch y tope de drawdown diario | 4 | ✅ 2026-09-03 | Rama `feat/t15-kill-switch-20260903` (#11) — `POST/GET /api/v1/kill-switch` (engage/disarm), ENGAGE automático en `/refresh` si el PnL diario < −3 % del balance, tabla SQLite `system_state`, `create_grid` bloqueado si está activo, `/health` expone el estado. WF3: `/pausar` y `/reanudar`. Requiere correr migration_005 una vez (o auto-crea en boot). |
 | [T16](#t16) | Serializar `refresh` + `replenish` por grid | 4 | ✅ 2026-09-03 | `asyncio.Lock` por grid en `GridService.get_refresh_lock()` envuelve refresh+replenish en `/refresh`. Comunity no tiene "1 instancia a la vez" por workflow (solo global) — se resuelve en backend. Solo backend. |
 | [T17](#t17) | Verificar posición residual tras el cierre | 4 | ❌ pendiente | |
-| [T18](#t18) | CI que corra los tests | 4 | ❌ pendiente | **Prioridad subida** — ver aviso abajo. |
+| [T18](#t18) | CI que corra los tests | 4 | ✅ 2026-09-05 | `.github/workflows/tests.yml` (push main + PRs, pytest 3.11, solo `backend-python/**`) + `deploy.yml` con job `test` y `deploy needs: test` (PRs #13/#14/#15). Suite reparada: 6 causas raíz en `tests/` (mocks `set_leverage`/`ensure_symbol_settings`/`cancel_all_open_orders`/`get_commission_rate`/`get_account_balance`, min_notional 50, `executed_qty`+`avg_fill_price` en fills, fixtures `memory_db` con schema/`row_factory` reales, `_log_grid_closure` con `query`+`add`, fake `selected` en auto-params). Resultado: **102/102 tests en verde**. |
 | T19 | Escalar grids concurrentes | 3 | ✅ 2026-08-31 | `MAX_CONCURRENT_GRIDS` 2 → 4. Multiplica ciclos/día casi linealmente. Subir más exige un tope de exposición agregada (T15). |
 | T20 | Filtro de régimen **continuo** (ER en cada ciclo de WF2) | 3 | ❌ pendiente | Hoy el ER solo se evalúa al lanzar. Ver `04-estrategia-y-portafolio.md` §8. |
 | T21 | Flip `OUT_OF_RANGE` → posición de breakout | — | ❌ pendiente | Cobertura negativamente correlacionada con el grid. **Solo tras 4+ semanas de grid positivo y después de T2.** Ver `04-estrategia-y-portafolio.md` §4. |
 | T22 | Contabilizar el **funding** en el PnL | 2 | ❌ pendiente | Fuga potencialmente material hoy invisible. Ver `04-estrategia-y-portafolio.md` §6. |
 
-**Hecho: 13/22** (T13 paso 1 + T14 + T15 + T16). Próximo bloque recomendado: **T13 paso 2** (degradar LLM, tras 2–4 sem de datos en `bot_health_events`). T11 queda a la espera de T13 paso 2.
+**Hecho: 14/22** (T13 paso 1 + T14 + T15 + T16 + T18). Próximo bloque recomendado: **T13 paso 2** (degradar LLM, tras 2–4 sem de datos en `bot_health_events`). T11 queda a la espera de T13 paso 2.
 
 > ⚠️ Hallazgo al validar la Fase 1: la suite `pytest` de `backend-python/` ya
 > tenía **21 fallos preexistentes** en `main` (verificado con un worktree limpio
@@ -658,6 +658,33 @@ Añadir `.github/workflows/tests.yml`: en cada push/PR, `pip install -r
 backend-python/requirements.txt` + `pytest -v` desde `backend-python/`. La suite
 ya está aislada (Binance mockeado, SQLite descartable, Postgres salteado). Hacer
 que `deploy.yml` dependa de ese job.
+
+**✅ Completado 2026-09-05** (PRs #13/#14/#15, merged en `20717a7`):
+
+- `.github/workflows/tests.yml`: corre en push a `main` y PRs (paths `backend-python/**`
+  + el propio workflow). Job `test`: checkout + Python 3.11 + `pip install -r requirements.txt` + `pytest -v`.
+- `.github/workflows/deploy.yml`: job `test` idéntico + `deploy needs: test` → ningún
+  deploy si la suite falla. Validado en vivo en el merge de la fase 2 (run 33992365082: pytest 35 s → deploy 22 s success).
+- **Reparación de la suite**: al activar CI aparecieron **28 fallos preexistentes** (74 pasaban) — el venv
+  local vacío los había ocultado. Las 6 causas raíz, todas en `tests/`:
+
+  1. `conftest.mock_binance` sin `set_leverage` (create_grid llamaba Binance real → `ValueError` →
+     400) y `ensure_symbol_settings` devuelto `None` (falsy → 400).
+  2. `get_commission_rate` mock con formato crudo de Binance (`makerCommission`) en vez del
+     normalizado (`maker`) que espera `validate_grid_step`.
+  3. `get_account_balance` sin mockear (lo usa `check_daily_drawdown`/T15) y
+     `cancel_all_open_orders` sin mockear (cancel_grid la llama real → `None` → 400).
+  4. Fills simulados con solo `status='FILLED'` → desde T5 el PnL usa `executed_qty`+`avg_fill_price`;
+     `_mark_order_filled` ahora los setea.
+  5. Fixtures `memory_db` (kill-switch/reconciliation/refresh-lock) con `sqlite3.connect()` crudo
+     (sin `row_factory`, schema incompleto, grid `g1` ausente) → reescritas con
+     `connection.init_sqlite_tables()` + seed del grid.
+  6. Tests desactualizados: `_log_grid_closure` usa `query().filter_by()...add()` (no `merge`),
+     `/auto-params` requiere `selection["selected"]`, `min_notional` real del mock es 50 y
+     `cancel_grid` cancela con un solo `cancelAllOpenOrders` (no 10× `cancel_order`).
+
+- **Resultado: 102/102 tests en verde** (antes 74/102). Nota: GitHub no ejecuta workflow nuevo
+  desde un PR hasta que el archivo está en la rama por defecto (por eso el PR #13 no corrió CI).
 
 ---
 

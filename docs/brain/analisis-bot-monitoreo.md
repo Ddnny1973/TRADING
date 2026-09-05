@@ -7,7 +7,7 @@ tags: [monitoreo, analitica, postgres, grid-trading]
 related:
   - "[[_index]]"
   - "[[decisiones-tecnicas]]"
-updated: 2026-08-31
+updated: 2026-09-05
 owner: dueño del repo
 ---
 
@@ -74,7 +74,9 @@ Hay **tres bases Postgres/SQLite distintas**, fácil de confundir:
 - ⚠️ PENDIENTE: validar en vivo (Binance testnet) que un ciclo completo
   BUY→replenish SELL→FILLED genera la fila esperada en `grid_cycles`.
   `pytest` local no se pudo correr (falta `sqlalchemy` en el venv local) —
-  validar en Docker/CI antes de desplegar a los servidores reales.
+  validar en Docker/CI antes de desplegar a los servidores reales
+  (✅ desde T18/2026-09-05 hay CI: `.github/workflows/tests.yml`
+  corre pytest en push/PR y `deploy.yml` despliega solo con tests en verde).
 - ❌ PENDIENTE (fase 2, no diseñado en detalle aún): tablas `bot_executions`
   (uptime/errores de Workflow 1 y 2) y `bot_health_events` (incidentes de
   reconciliación, auto-cancelaciones). Ver sección 4 de
@@ -157,9 +159,10 @@ proponer cualquier cambio de estrategia o de cierres.
   suman `grid_cycles` con `historical_grid_logs`. Nuevo `strategy_pnl =
   cierres + PnL vivo de grids abiertos`; `combined_pnl` queda como alias
   retrocompatible para el template y WF3.
-- ⚠️ La suite `pytest` de `backend-python/` tenía **21 fallos preexistentes**
-  en `main` antes de estos cambios (comprobado con un worktree limpio en
-  `5a4209a`). No hay CI que los detecte — ver T18 del plan.
+- ✅ La suite `pytest` de `backend-python/` — que tenía **21-28 fallos
+  preexistentes** ocultos por falta de CI — quedó **102/102 en verde** con T18
+  (2026-09-05): `.github/workflows/tests.yml` corre en push/PR y `deploy.yml`
+  despliega solo con tests en verde. Detalle en [[decisiones-tecnicas]].
 - ✅ **T3**: `MAX_POSITION` deja de ser un gatillo de cierre. El cap de
   inventario ahora escala con `levels` (`MAX_NET_POSITION_RATIO = 0.6`, con
   `MAX_NET_POSITION_LEVELS` como piso); superarlo **pausa la reposición solo

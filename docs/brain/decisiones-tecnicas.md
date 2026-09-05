@@ -363,30 +363,33 @@ pinneadas).
 LLM nunca discrepa (o discrepa peor), degradarlo a solo-notificación y quitarlo
 del camino crítico.
 
-## Estado de la suite de tests (2026-08-31)
+## Estado de la suite de tests
 
-`pytest` en `backend-python/` tiene **21 fallos preexistentes** en `main`
-(verificado con un worktree limpio en `5a4209a`, antes de cualquier cambio de
-esa sesión). **No hay CI que corra tests**, así que nadie se entera.
+> **Actualización 2026-09-05 (T18)**: la suite ya no tiene fallos. Se creó
+> `.github/workflows/tests.yml` (push a `main` + PRs, pytest Python 3.11) y
+> `deploy.yml` ahora corre `test` y despliega solo con `needs: test`
+> (PRs #13/#14/#15). Al activar CI aparecieron **28 fallos preexistentes**
+> (74/102 pasaban), todos en `tests/`; se repararon las 6 causas raíz:
+> mocks faltantes en `conftest` (`set_leverage`, `cancel_all_open_orders`,
+> `get_account_balance`), `get_commission_rate` con formato normalizado
+> `maker`/`taker`, fills con `executed_qty`+`avg_fill_price` (T5), fixtures
+> `memory_db` con schema/`row_factory` reales, y asserts desactualizados
+> (`_log_grid_closure` `query`+`add`, `selected` de `/auto-params`,
+> `cancelAllOpenOrders` en lote, `min_notional` 50). **Resultado: 102/102
+> tests en verde.** El baseline de comparación ya no aplica: esperar 0 fallos
+> en CI.
 
-> Actualización 2026-09-02: al corregir los 2 `TypeError` de
-> `tests/test_indicators.py` (T5), el baseline bajó **19**, pero en `main` sigue
-> siendo 21. Seguir comparando contra **21** mientras no se mergee la rama
-> `feat/rentabilidad-t1-t5-pnl-20260902`.
->
-> Con T2+T6 encima de la rama T1/T5 (`feat/t2-recenter-t6-metrics-20260902`) la
-> suite es **61 passed / 19 failed** (19 preexistentes, sin regresiones nuevas;
-> incluye los 6 tests nuevos de `test_recenter.py`).
+Antes de T18 (histórico): `pytest` en `backend-python/` tenía **21 fallos
+preexistentes** en `main` (verificado con un worktree limpio en `5a4209a`,
+antes de cualquier cambio de esa sesión). Sin CI, nadie se enteraba.
 
-Al validar cambios en este repo: comparar contra ese baseline de 21 fallos,
-**no** esperar 0. La forma segura de medir el baseline es
-`git worktree add <tmp> HEAD` — ⚠️ **no usar `git stash push -u`**: intenta
-borrar `docs/n8n-templates/`, `tests/` y `thunder-tests/`, falla con
-"Permission denied" y deja el estado a medias.
+> Nota 2026-09-02: al corregir los 2 `TypeError` de `tests/test_indicators.py`
+> (T5), el baseline bajó 19 en la rama, pero en `main` seguía en 21; con
+> T2+T6 encima la suite era **61 passed / 19 failed**.
 
 Entorno local: `pip install -r requirements.txt` falla en Windows por
 `psycopg2-binary` (no hay `pg_config`). Instalar el resto de paquetes a mano;
-los tests saltan Postgres igualmente.
+los tests saltan Postgres igualmente. Hoy el feedback real es GitHub Actions.
 
 ## T14: backoff y reconstrucción de estado en reconciliación de refresh (2026-09-03, rama `feat/t14-reconciliation-20260903`)
 
