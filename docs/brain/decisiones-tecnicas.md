@@ -403,8 +403,29 @@ servidores). Cambios (solo backend Python, sin tocar workflows vivos):
 - `cancel_grid()` acepta y guarda `failure_reason` en `grid_closures` — nueva
   columna `failure_reason` (migration_004 + CREATE TABLE actualizado) para
   conocer el motivo concreto de cada cierre, no solo `trigger_condition`.
-- ⚠️ **Operacional:** la columna `failure_reason` requiere correr
+- - ⚠️ **Operacional:** la columna `failure_reason` requiere correr
   `migration_004_add_failure_reason.sql` UNA VEZ contra el `grid_trading.db`
   existente (CREATE TABLE IF NOT EXISTS no altera tablas ya existentes). Es un
   simple `ALTER TABLE ... ADD COLUMN`.
 - `CODE_VERSION` → `v1.11.0-t14-reconciliation`.
+
+## T16: lock por grid serializa refresh+replenish (2026-09-03, rama `feat/t16-refresh-lock-20260903`)
+
+D12: WF2 corre por cron cada 5 min **y** on-demand vía `/monitorear`, así que
+dos ciclos pueden solaparse sobre el mismo grid y corromper estado SQLite
+(carrera refresh+replenish). La idea original de activar "una sola instancia
+concurrente" en n8n **NO aplica en Community Edition**: no existe esa opción
+por workflow; el único control de concurrencia es global
+(`N8N_CONCURRENCY_PRODUCTION_LIMIT=1`), que afectaría a WF1/WF2/WF3 a la vez.
+
+**Decisión:** resolver la serialización en el **backend**, donde está la
+sección crítica real:
+
+- `GridService.get_refresh_lock(grid_id)`: `asyncio.Lock` **por grid** (dict
+  `_refresh_locks`). Grids distintos → locks distintos, nunca se bloquean entre sí.
+- `POST /api/v1/grids/{grid_id}/refresh` (`main.py`): `refresh_order_status()` +
+  `replenish_filled_orders()` envueltos en el lock del grid.
+- `cancel_grid()` descarta el lock al quedar el grid terminal (solo si no está
+  locked; IDs UUID → no colisionan).
+- Tests: `tests/test_refresh_lock.py`.
+- `CODE_VERSION` → `v1.12.0-t16-refresh-lock`.
