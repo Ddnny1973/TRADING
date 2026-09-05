@@ -143,6 +143,16 @@ def init_sqlite_tables():
         "closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
     )
 
+    # Auto-migración (migration_004): columnas añadidas a grid_closures después
+    # de su primer despliegue (FIX 3). En bases preexistentes el CREATE IF NOT
+    # EXISTS no las agrega y el INSERT best-effort de cancel_grid/recenter
+    # falla en silencio, dejando de loguear los cierres.
+    for column_def in ("failure_reason TEXT DEFAULT NULL", "parent_grid_id TEXT"):
+        try:
+            cursor.execute(f"ALTER TABLE grid_closures ADD COLUMN {column_def}")
+        except sqlite3.OperationalError:
+            pass
+
     cursor.execute(
         "CREATE TABLE IF NOT EXISTS system_state ("
         "key TEXT PRIMARY KEY, "
