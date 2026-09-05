@@ -56,6 +56,7 @@ Durante las pruebas de Workflow 1 se detectó que **todas** las órdenes de un g
   - `/grids` → lista grids RUNNING (símbolo, niveles, rango, edad, ID).
   - `/grid-detail SYMBOL` → detalle + PnL de la grid más reciente del símbolo.
   - `/trigger-wf1 confirm` / `/trigger-wf2` → alias de los dos primeros (el de WF1 con confirmación obligatoria).
+  - `/pausar` → kill-switch ENGAGE (T15): cierra todos los grids RUNNING y bloquea la creación. `/reanudar` → disarm.
   - Cualquier otro texto → mensaje de ayuda. Chats fuera de `TELEGRAM_CHAT_ID` se ignoran en silencio (soporta varios IDs separados por coma).
 
   Guía de instalación y pruebas: [WORKFLOW3_TELEGRAM_MONITOR.md](WORKFLOW3_TELEGRAM_MONITOR.md).

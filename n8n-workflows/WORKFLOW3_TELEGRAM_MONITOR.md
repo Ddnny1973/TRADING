@@ -17,6 +17,8 @@
 | `/monitorear` | Ejecuta un ciclo de WF2 (Monitor) — comando histórico | Execute Workflow (n8n) |
 | `/trigger-wf1 confirm` | Igual que `/lanzar` pero con confirmación obligatoria | Execute Workflow (n8n) |
 | `/trigger-wf2` | Alias de `/monitorear` | Execute Workflow (n8n) |
+| `/pausar` | **Kill-switch**: cierra todos los grids RUNNING y bloquea la creación (T15). Requiere `/reanudar` para volver | `POST /api/v1/kill-switch` (engage) |
+| `/reanudar` | Desactiva el kill-switch (no reabre grids cerrados) | `POST /api/v1/kill-switch` (disarm) |
 | Cualquier otro texto | Mensaje de ayuda con los comandos | — |
 
 > Los comandos `/lanzar` y `/monitorear` vivían en el WF1 original (nodos
@@ -43,6 +45,8 @@ Telegram Trigger (mensajes al bot)
         │                     → IF found? → GET detail → GET pnl → Format → Send
         ├─ /trigger-wf1  → IF confirm? → Execute WF1 → Format → Send
         ├─ /trigger-wf2  → Execute WF2 → Format → Send
+        ├─ /pausar       → POST /kill-switch (engage) → Format → Send
+        ├─ /reanudar     → POST /kill-switch (disarm) → Format → Send
         └─ fallback      → Format: Help → Send
    Todos convergen en "Send Telegram Reply" (1 solo nodo Telegram de salida)
 ```
