@@ -143,6 +143,13 @@ def init_sqlite_tables():
         "closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
     )
 
+    cursor.execute(
+        "CREATE TABLE IF NOT EXISTS system_state ("
+        "key TEXT PRIMARY KEY, "
+        "value TEXT NOT NULL, "
+        "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+    )
+
     conn.commit()
     conn.close()
 
