@@ -13,13 +13,16 @@ from app.services.grid_service import GridService
 
 class FakeSession:
     def __init__(self):
-        self.merged = []
+        self.added = []
         self.committed = False
         self.rolled_back = False
         self.closed = False
 
-    def merge(self, obj):
-        self.merged.append(obj)
+    def query(self, model):
+        return self._FakeQuery()
+
+    def add(self, obj):
+        self.added.append(obj)
 
     def commit(self):
         self.committed = True
@@ -29,6 +32,13 @@ class FakeSession:
 
     def close(self):
         self.closed = True
+
+    class _FakeQuery:
+        def filter_by(self, **kwargs):
+            return self
+
+        def first(self):
+            return None
 
 
 class ExplodingSession(FakeSession):
@@ -45,8 +55,8 @@ def test_log_grid_closure_writes_historical_log(monkeypatch):
 
     GridService()._log_grid_closure(grid, pnl, "TAKE_PROFIT")
 
-    assert len(fake_session.merged) == 1
-    entry = fake_session.merged[0]
+    assert len(fake_session.added) == 1
+    entry = fake_session.added[0]
     assert entry.grid_id == "grid-123"
     assert entry.symbol == "BTCUSDT"
     assert entry.total_pnl == Decimal("12.5")
@@ -63,8 +73,8 @@ def test_log_grid_closure_defaults_pnl_to_zero_when_unavailable(monkeypatch):
         {"id": "grid-456", "symbol": "ETHUSDT", "created_at": None}, None, "MANUAL"
     )
 
-    assert fake_session.merged[0].total_pnl == Decimal("0")
-    assert fake_session.merged[0].trigger_condition == "MANUAL"
+    assert fake_session.added[0].total_pnl == Decimal("0")
+    assert fake_session.added[0].trigger_condition == "MANUAL"
 
 
 def test_log_grid_closure_swallows_exceptions_without_blocking_cancellation(monkeypatch):

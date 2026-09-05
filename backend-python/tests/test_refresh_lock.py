@@ -9,6 +9,7 @@ Covers:
 
 import asyncio
 import sqlite3
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -17,31 +18,20 @@ from app.services.grid_service import GridService
 
 @pytest.fixture
 def memory_db(monkeypatch, tmp_path):
-    """Fake SQLite that get_sqlite_connection() returns."""
+    """SQLite con el schema real (init_sqlite_tables) + grid g1 RUNNING."""
+    import app.database.connection as connection
     db_path = tmp_path / "test.db"
-    conn = sqlite3.connect(str(db_path))
-    conn.execute("""CREATE TABLE grids (
-        id TEXT PRIMARY KEY, symbol TEXT NOT NULL, status TEXT NOT NULL,
-        created_at TEXT)""")
-    conn.execute("""CREATE TABLE grid_orders (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, grid_id TEXT NOT NULL,
-        symbol TEXT NOT NULL, status TEXT NOT NULL,
-        executed_qty TEXT DEFAULT '0', avg_fill_price TEXT DEFAULT '0',
-        price TEXT, quantity TEXT)""")
-    conn.execute("""CREATE TABLE grid_closures (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, grid_id TEXT NOT NULL,
-        symbol TEXT NOT NULL, trigger_condition TEXT NOT NULL,
-        failure_reason TEXT DEFAULT NULL, total_pnl TEXT,
-        position_amt_at_close TEXT, parent_grid_id TEXT,
-        closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
-    conn.execute(
-        "INSERT INTO grids (id, symbol, status, created_at) VALUES ('g1', 'BTCUSDT', 'RUNNING', 'now')")
-    conn.commit()
-
-    def fake_conn():
-        return sqlite3.connect(str(db_path))
-
-    monkeypatch.setattr("app.services.grid_service.get_sqlite_connection", fake_conn)
+    monkeypatch.setattr(connection, "SQLITE_DB_PATH", str(db_path))
+    connection.init_sqlite_tables()
+    conn = connection.get_sqlite_connection()
+    try:
+        conn.execute(
+            "INSERT INTO grids (id, symbol, lower_price, upper_price, levels, status, created_at) "
+            "VALUES ('g1', 'BTCUSDT', 40000, 45000, 10, 'RUNNING', '2026-01-01 00:00:00')"
+        )
+        conn.commit()
+    finally:
+        conn.close()
     return db_path
 
 
@@ -50,6 +40,7 @@ def make_service(monkeypatch):
     monkeypatch.setattr(service.binance, "cancel_all_open_orders", None)
     monkeypatch.setattr(service.binance, "get_position", None)
     monkeypatch.setattr(service.binance, "place_market_close", None)
+    monkeypatch.setattr(service.binance, "get_mark_price", AsyncMock(return_value={"price": "50000"}))
     return service
 
 

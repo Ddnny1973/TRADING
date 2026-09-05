@@ -85,6 +85,7 @@ def test_market_analysis_returns_atr_and_bounds(client, mock_binance):
 
 
 def test_market_analysis_custom_parameters(client, mock_binance):
+    mock_binance["get_mark_price"].return_value = {"symbol": "ETHUSDT", "price": "100"}
     mock_binance["get_klines"].return_value = make_klines(
         base_price=Decimal("100"), spread=Decimal("10")
     )
