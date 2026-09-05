@@ -11,6 +11,7 @@ import time
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from contextlib import asynccontextmanager
+from pydantic import BaseModel
 
 # Import configuration and services
 from app.core.config import settings
@@ -58,7 +59,7 @@ grid_service = GridService()
 
 # Marcador de versión del código: visible en /health y /auto-params para
 # verificar remotamente qué build está corriendo (sin acceso a logs)
-CODE_VERSION = "v1.12.0-t16-refresh-lock"
+CODE_VERSION = "v1.13.0-t15-kill-switch"
 
 # Cache de respuestas completas de /auto-params: (balance_bucket, symbol) → (ts, result)
 _auto_params_cache: dict = {}
@@ -112,7 +113,8 @@ async def health_check():
         "version": "0.1.0",
         "code_version": CODE_VERSION,
         "binance_synced": binance_ok,
-        "time_offset_ms": grid_service.binance.time_sync.time_offset or "unknown"
+        "time_offset_ms": grid_service.binance.time_sync.time_offset or "unknown",
+        "kill_switch": grid_service.get_kill_switch_state()
     }
 
 
@@ -357,6 +359,11 @@ async def refresh_grid_orders(grid_id: str):
     Intended to be called periodically by the external orchestrator
     (Workflow 2 every 15 min). Handles Fase 3 grid cycling.
     """
+    # T15: guardia de drawdown diario al inicio de cada ciclo de refresh.
+    # Si el PnL agregado del día cruza el umbral, ENGAGE automático que cierra
+    # todos los grids y bloquea la creación — el siguiente ciclo no actualiza.
+    await grid_service.check_daily_drawdown()
+
     # T16: serialize refresh+replenish per grid so overlapping WF2 cycles
     # (cron + on-demand /monitorear) never run concurrently on the same grid.
     async with grid_service.get_refresh_lock(grid_id):
@@ -583,6 +590,49 @@ async def create_bot_health_event(event: Dict[str, Any]):
     except Exception as e:
         logger.error(f"bot_health_events insert failed: {e}")
         raise HTTPException(status_code=500, detail=f"Error insertando evento: {str(e)}")
+
+
+# ==========================================
+# KILL-SWITCH (T15)
+# ==========================================
+
+class KillSwitchRequest(BaseModel):
+    """Cuerpo de POST /api/v1/kill-switch."""
+    action: str   # "engage" | "disarm"
+    reason: Optional[str] = None
+
+
+@app.get("/api/v1/kill-switch", tags=["Monitoring"])
+async def get_kill_switch_status():
+    """Estado actual del kill-switch (activo, motivo y timestamp de activación)."""
+    return grid_service.get_kill_switch_state()
+
+
+@app.post("/api/v1/kill-switch", tags=["Monitoring"])
+async def set_kill_switch(request: KillSwitchRequest):
+    """
+    Engage/disarm el kill-switch. Engage cierra todos los grids RUNNING
+    (trigger_condition=KILL_SWITCH) y bloquea la creación de nuevos grids;
+    disarm solo lo desbloquea (no reabre grids). /pausar y /reanudar (WF3)
+    llaman este endpoint con action engage/disarm.
+    """
+    action = request.action.lower()
+    if action not in ("engage", "disarm"):
+        raise HTTPException(status_code=422, detail="action debe ser 'engage' o 'disarm'")
+    if action == "engage":
+        return await grid_service.engage_kill_switch(request.reason or "MANUAL")
+    return await grid_service.disarm_kill_switch()
+
+
+@app.post("/api/v1/kill-switch/check", tags=["Monitoring"])
+async def check_daily_drawdown():
+    """
+    Evalúa la guardia de drawdown diario (T15): si el PnL del día (cierres +
+    no realizado) cae bajo el umbral, ENGAGE automático y cierra los grids.
+    Idempotente: si el kill-switch ya está activo no hace nada. También corre
+    al inicio de cada POST /refresh (sin llamada extra de n8n).
+    """
+    return await grid_service.check_daily_drawdown() or {"active": False, "reason": None, "closed_grids": []}
 
 
 # ==========================================

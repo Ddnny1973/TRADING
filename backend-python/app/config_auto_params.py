@@ -20,6 +20,11 @@ CAPITAL_BUFFER = Decimal("1.1")         # 10% margin above min_notional
 GRID_STOP_LOSS_PCT_OF_BALANCE = Decimal("0.010")     # 1.0% del balance
 GRID_TAKE_PROFIT_PCT_OF_BALANCE = Decimal("0.030")   # 3.0% del balance
 
+# Kill-switch (T15): fracción del balance que, como pérdida diaria agregada
+# (cierres del día + PnL no realizado de grids RUNNING), dispara el cierre de
+# todos los grids, bloquea create_grid y exige reactivación manual. 0 deshabilita.
+MAX_DAILY_DRAWDOWN_PCT = Decimal("0.030")            # 3.0% del balance en un día
+
 # Leverage por volatilidad del par (ATR% = ATR / precio)
 GRID_LEVERAGE_DEFAULT = 3
 LEVERAGE_BY_VOLATILITY = [

@@ -278,6 +278,54 @@
               },
               "renameOutput": true,
               "outputKey": "estado"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cmd-pausar",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "/pausar",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pausar"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cmd-reanudar",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "/reanudar",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "reanudar"
             }
           ]
         },
@@ -617,7 +665,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const chatId = $('Parse Command').first().json.chatId;\nconst lines = [\n  '[BOT] COMANDOS DISPONIBLES',\n  '',\n  '[CONSULTA]',\n  '/estado — Estado general del bot',\n  '/grids — Grids activos',\n  '/grid-detail SYMBOL — Detalle + PnL de una grid',\n  '/salud — Verificar backend',\n  '',\n  '[EJECUCION]',\n  '/lanzar — Lanzar Market Decision (WF1)',\n  '/monitorear — Ejecutar ciclo de monitoreo (WF2)',\n  '/trigger-wf1 confirm — Lanzar WF1 (con confirmacion)',\n  '/trigger-wf2 — Igual que /monitorear',\n  '',\n  '[PRONTO]: /history, /stats, /config'\n];\nconst text = lines.join('\\n');\nreturn [{ json: { chatId, text } }];"
+        "jsCode": "const chatId = $('Parse Command').first().json.chatId;\nconst lines = [\n  '[BOT] COMANDOS DISPONIBLES',\n  '',\n  '[CONSULTA]',\n  '/estado — Estado general del bot',\n  '/grids — Grids activos',\n  '/grid-detail SYMBOL — Detalle + PnL de una grid',\n  '/salud — Verificar backend',\n  '',\n  '[EJECUCION]',\n  '/lanzar — Lanzar Market Decision (WF1)',\n  '/monitorear — Ejecutar ciclo de monitoreo (WF2)',\n  '/trigger-wf1 confirm — Lanzar WF1 (con confirmacion)',\n  '/trigger-wf2 — Igual que /monitorear',\n  '',\n  '[KILL-SWITCH]',\n  '/pausar — Cerrar todos los grids y pausar (kill-switch)',\n  '/reanudar — Reanudar trading (disarm kill-switch)',\n  '',\n  '[PRONTO]: /history, /stats, /config'\n];\nconst text = lines.join('\\n');\nreturn [{ json: { chatId, text } }];"
       },
       "id": "f5a6b7c8-9d0e-4f1a-8b2c-3d4e5f6a7b8c",
       "name": "Format: Help",
@@ -696,6 +744,98 @@
       "position": [
         -120,
         960
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.BACKEND_URL }}/api/v1/kill-switch",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "action",
+              "value": "engage"
+            },
+            {
+              "name": "reason",
+              "value": "MANUAL_TELEGRAM"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "kill-00000001",
+      "name": "Kill: Pausar (engage)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -560,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = $('Parse Command').first().json.chatId;\nconst ks = $json;\nconst closed = (ks.closed_grids || []).length;\nlet text = '🛑 KILL-SWITCH ENGAGED. ';\nif (ks.active) {\n  text += `Trading pausado, se cerraron ${closed} grid(s). `;\n  text += `Motivo: ${ks.reason || 'MANUAL'}.`;\n} else {\n  text += `El kill-switch NO se activo (respuesta inesperada: ${JSON.stringify(ks)}).`;\n}\nreturn [{ json: { chatId, text } }];"
+      },
+      "id": "kill-00000002",
+      "name": "Format: Pausar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -340,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.BACKEND_URL }}/api/v1/kill-switch",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "action",
+              "value": "disarm"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "kill-00000003",
+      "name": "Kill: Reanudar (disarm)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -560,
+        1120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = $('Parse Command').first().json.chatId;\nconst ks = $json;\nlet text = '🟢 KILL-SWITCH DISARMED. ';\nif (!ks.active) {\n  text += 'Trading reanudado. Puedes volver a crear grids.';\n} else {\n  text += `Sigue activo: ${ks.reason || 'desconocido'}.`;\n}\nreturn [{ json: { chatId, text } }];"
+      },
+      "id": "kill-00000004",
+      "name": "Format: Reanudar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -340,
+        1120
       ]
     },
     {
@@ -816,6 +956,20 @@
         [
           {
             "node": "Get Dashboard Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Kill: Pausar (engage)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Kill: Reanudar (disarm)",
             "type": "main",
             "index": 0
           }
@@ -1082,6 +1236,50 @@
       ]
     },
     "Format: Estado": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kill: Pausar (engage)": {
+      "main": [
+        [
+          {
+            "node": "Format: Pausar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format: Pausar": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kill: Reanudar (disarm)": {
+      "main": [
+        [
+          {
+            "node": "Format: Reanudar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format: Reanudar": {
       "main": [
         [
           {

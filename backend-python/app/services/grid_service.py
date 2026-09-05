@@ -20,6 +20,7 @@ from app.config_auto_params import (
     MAX_RECENTERS_PER_GRID,
     OUT_OF_RANGE_ATR_BUFFER,
     OUT_OF_RANGE_STRIKES_TO_TRIGGER,
+    MAX_DAILY_DRAWDOWN_PCT,
 )
 from app.core.config import settings
 from app.database.connection import get_sqlite_connection, SessionLocal
@@ -209,6 +210,14 @@ class GridService:
         grid_mode = grid_mode.upper()
         if grid_mode not in self._VALID_GRID_MODES:
             raise ValueError(f"grid_mode must be one of {sorted(self._VALID_GRID_MODES)}, got {grid_mode!r}")
+
+        # T15: kill-switch bloquea la creación de grids (incluye re-centrados,
+        # que re-crean vía create_grid). Reactivar exige disarm explícito.
+        if self.get_kill_switch_state()["active"]:
+            raise ValueError(
+                "Kill-switch ENGAGED: trading pausado, no se pueden crear grids. "
+                "Reanude con POST /api/v1/kill-switch {action: disarm}."
+            )
 
         manual_bounds_given = lower_price is not None or upper_price is not None
         manual_bounds_complete = lower_price is not None and upper_price is not None
@@ -1072,6 +1081,137 @@ class GridService:
             return [dict(row) for row in cursor.fetchall()]
         finally:
             conn.close()
+
+    # ==========================================
+    # KILL-SWITCH (T15)
+    # ==========================================
+
+    def _get_system_state(self, key: str) -> Optional[str]:
+        conn = get_sqlite_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM system_state WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            return row["value"] if row else None
+        finally:
+            conn.close()
+
+    def _set_system_state(self, key: str, value: str) -> None:
+        conn = get_sqlite_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO system_state (key, value, updated_at) "
+                "VALUES (?, ?, CURRENT_TIMESTAMP) "
+                "ON CONFLICT(key) DO UPDATE SET "
+                "value = excluded.value, updated_at = CURRENT_TIMESTAMP",
+                (key, value),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_kill_switch_state(self) -> Dict[str, Any]:
+        """Estado persistido del kill-switch (solo SQLite, sin Binance)."""
+        active = self._get_system_state("kill_switch") == "1"
+        return {
+            "active": active,
+            "reason": self._get_system_state("kill_switch_reason") if active else None,
+            "triggered_at": self._get_system_state("kill_switch_triggered_at") if active else None,
+        }
+
+    async def _engage_and_close_all(self, reason: str) -> List[str]:
+        """Marca el kill-switch activo y cancela todos los grids RUNNING."""
+        closed: List[str] = []
+        for grid in self.list_grids(status="RUNNING"):
+            try:
+                result = await self.cancel_grid(
+                    grid["id"], trigger_condition="KILL_SWITCH", failure_reason=reason
+                )
+                if result:
+                    closed.append(grid["id"])
+            except Exception as e:
+                logger.error(f"kill-switch: error cancelando grid {grid['id']}: {e}")
+        return closed
+
+    async def engage_kill_switch(self, reason: str = "MANUAL") -> Dict[str, Any]:
+        """Engage: persiste el estado, cierra todos los grids RUNNING y reporta."""
+        self._set_system_state("kill_switch", "1")
+        self._set_system_state("kill_switch_reason", reason)
+        self._set_system_state("kill_switch_triggered_at", datetime.now(timezone.utc).isoformat())
+        closed = await self._engage_and_close_all(reason)
+        logger.warning(f"Kill-switch ENGAGED (reason={reason}) — grids cerrados: {closed}")
+        return {"active": True, "reason": reason, "closed_grids": closed}
+
+    async def disarm_kill_switch(self) -> Dict[str, Any]:
+        """Disarm: desbloquea la creación de grids. No reabre grids cerrados."""
+        self._set_system_state("kill_switch", "0")
+        self._set_system_state("kill_switch_reason", "")
+        self._set_system_state("kill_switch_triggered_at", "")
+        logger.warning("Kill-switch DISARMED")
+        return {"active": False, "reason": None, "closed_grids": []}
+
+    def _daily_closed_pnl_usdt(self) -> float:
+        """PnL realizado hoy (UTC) sumando grid_closures del día actual."""
+        conn = get_sqlite_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT COALESCE(SUM(CAST(total_pnl AS REAL)), 0) AS pnl "
+                "FROM grid_closures WHERE date(closed_at) = date('now')"
+            )
+            row = cursor.fetchone()
+            return float(row["pnl"] or 0) if row else 0.0
+        except Exception as e:
+            logger.error(f"_daily_closed_pnl_usdt error: {e}")
+            return 0.0
+        finally:
+            conn.close()
+
+    async def check_daily_drawdown(self) -> Optional[Dict[str, Any]]:
+        """
+        Guardia de drawdown diario (T15). Best-effort e idempotente: si el
+        kill-switch ya está activo (o MAX_DAILY_DRAWDOWN_PCT <= 0) no hace nada.
+        Compara el PnL agregado del día (cierres realizados en SQLite + PnL no
+        realizado de los grids RUNNING) contra el porcentaje del balance USDT.
+        Si se supera el umbral, ENGAGE automático que cierra todos los grids y
+        bloquea la creación. Nunca lanza: los errores se loguean y se ignora.
+        """
+        if MAX_DAILY_DRAWDOWN_PCT <= 0 or self.get_kill_switch_state()["active"]:
+            return None
+        try:
+            balance = 0.0
+            balance_data = await self.binance.get_account_balance()
+            if balance_data:
+                for entry in (balance_data.get("balances") or []):
+                    if entry.get("asset") == "USDT":
+                        balance = float(entry.get("balance") or 0)
+                        break
+
+            daily_pnl = self._daily_closed_pnl_usdt()
+            for grid in self.list_grids(status="RUNNING"):
+                try:
+                    pnl = await self.get_grid_pnl(grid["id"])
+                    if pnl:
+                        daily_pnl += float(pnl.get("total_pnl") or 0)
+                except Exception as e:
+                    logger.error(f"check_daily_drawdown: pnl del grid {grid['id']} no disponible: {e}")
+
+            threshold_pnl = -float(MAX_DAILY_DRAWDOWN_PCT) * balance
+            if balance > 0 and daily_pnl <= threshold_pnl:
+                reason = f"DAILY_DRAWDOWN daily_pnl={daily_pnl:.2f} threshold={threshold_pnl:.2f} usdt"
+                self._set_system_state("kill_switch", "1")
+                self._set_system_state("kill_switch_reason", reason)
+                self._set_system_state("kill_switch_triggered_at", datetime.now(timezone.utc).isoformat())
+                closed = await self._engage_and_close_all(reason)
+                logger.warning(f"Kill-switch auto-ENGAGED por drawdown diario: {reason}")
+                return {
+                    "active": True, "reason": reason, "auto": True,
+                    "daily_pnl": daily_pnl, "balance": balance, "closed_grids": closed,
+                }
+        except Exception as e:
+            logger.error(f"check_daily_drawdown error: {e}")
+        return None
 
     def get_grid(self, grid_id: str) -> Optional[Dict[str, Any]]:
         """Get a single grid with its orders"""
