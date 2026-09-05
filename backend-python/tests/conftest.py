@@ -116,12 +116,15 @@ def mock_binance(monkeypatch, order_id_counter):
         "place_batch_orders": AsyncMock(side_effect=batch_side_effect),
         "place_limit_order": AsyncMock(side_effect=lambda *a, **k: make_order_response(next(order_id_counter))),
         "cancel_order": AsyncMock(return_value={"status": "CANCELED"}),
+        "cancel_all_open_orders": AsyncMock(return_value=True),
         "get_order_status": AsyncMock(return_value=None),
         "is_one_way_mode": AsyncMock(return_value=True),
-        "ensure_symbol_settings": AsyncMock(return_value=None),
+        "ensure_symbol_settings": AsyncMock(return_value=True),
         "get_open_orders": AsyncMock(return_value=[]),
         "get_position": AsyncMock(return_value={"positionAmt": "0"}),
-        "get_commission_rate": AsyncMock(return_value={"makerCommission": 0.0002, "takerCommission": 0.0004}),
+        "get_commission_rate": AsyncMock(return_value={"maker": Decimal("0.0002"), "taker": Decimal("0.0004")}),
+        "set_leverage": AsyncMock(return_value={"leverage": "3"}),
+        "get_account_balance": AsyncMock(return_value={"balances": [{"asset": "USDT", "balance": "1000"}]}),
     }
     for name, mock in mocks.items():
         monkeypatch.setattr(binance, name, mock)

@@ -66,6 +66,7 @@ def test_auto_params_merge_veto_autoselection(client, monkeypatch):
         "top_3": [{"symbol": "BTCUSDT", "score": 1.0, "er": 0.1, "volume_24h_m": 5}],
         "candidates_passed_filters": 3,
         "candidates_evaluated": 50,
+        "selected": {"symbol": "BTCUSDT", "score": 1.0, "er": 0.1, "volume_24h_usdt": 5_000_000},
         "selected_reason": "Score 1.00: ER=0.10, vol=5M USDT",
     }
 
@@ -96,6 +97,7 @@ def test_auto_params_vetoreasons_ausente_cuando_seleccion_ok(client, monkeypatch
         "top_3": [{"symbol": "BTCUSDT", "score": 1.0, "er": 0.1, "volume_24h_m": 5}],
         "candidates_passed_filters": 8,
         "candidates_evaluated": 50,
+        "selected": {"symbol": "BTCUSDT", "score": 1.0, "er": 0.1, "volume_24h_usdt": 5_000_000},
         "selected_reason": "Score 1.00",
     }
 
