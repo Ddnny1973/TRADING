@@ -28,10 +28,14 @@ def create_grid(client, **overrides):
     return client.post("/api/v1/grids", json=payload)
 
 
-def _mark_order_filled(order_id: str) -> None:
+def _mark_order_filled(order_id: str, price: float, quantity: float) -> None:
     conn = connection.get_sqlite_connection()
     try:
-        conn.execute("UPDATE grid_orders SET status = 'FILLED' WHERE id = ?", (str(order_id),))
+        conn.execute(
+            "UPDATE grid_orders SET status = 'FILLED', executed_qty = ?, avg_fill_price = ? "
+            "WHERE id = ?",
+            (str(quantity), str(price), str(order_id)),
+        )
         conn.commit()
     finally:
         conn.close()
@@ -197,8 +201,9 @@ def test_create_grid_levels_zero_returns_two_level_grid(client):
     treats levels<2 as a special case and still returns a valid 2-level
     grid - it does not reject levels=0.
     """
+    # 0.30 * 200 = 60 >= mocked min_notional (50)
     response = create_grid(client, symbol="ADAUSDT", lower_price=0.30, upper_price=0.50,
-                            levels=0, quantity_per_order=20)  # 0.30 * 20 = 6 >= mocked min_notional (5)
+                            levels=0, quantity_per_order=200)
     assert response.status_code == 200
 
     data = response.json()
@@ -264,7 +269,7 @@ def test_refresh_grid_not_found(client):
 def test_refresh_with_no_open_orders_skips_binance_call(client, mock_binance):
     grid = create_grid(client).json()
     for order in grid["orders"]:
-        _mark_order_filled(order["id"])
+        _mark_order_filled(order["id"], order["price"], order["quantity"])
 
     response = client.post(f"/api/v1/grids/{grid['id']}/refresh")
     assert response.status_code == 200
@@ -292,13 +297,27 @@ def test_pnl_after_fills_reflects_orders(client):
     grid = create_grid(client).json()
     buy = next(o for o in grid["orders"] if o["side"] == "BUY")
     sell = next(o for o in grid["orders"] if o["side"] == "SELL")
-    _mark_order_filled(buy["id"])
-    _mark_order_filled(sell["id"])
+    _mark_order_filled(buy["id"], buy["price"], buy["quantity"])
+    _mark_order_filled(sell["id"], sell["price"], sell["quantity"])
 
     expected = calculate_grid_pnl(
         [
-            {"side": "BUY", "price": buy["price"], "quantity": buy["quantity"], "status": "FILLED"},
-            {"side": "SELL", "price": sell["price"], "quantity": sell["quantity"], "status": "FILLED"},
+            {
+                "side": "BUY",
+                "price": buy["price"],
+                "quantity": buy["quantity"],
+                "executed_qty": buy["quantity"],
+                "avg_fill_price": buy["price"],
+                "status": "FILLED",
+            },
+            {
+                "side": "SELL",
+                "price": sell["price"],
+                "quantity": sell["quantity"],
+                "executed_qty": sell["quantity"],
+                "avg_fill_price": sell["price"],
+                "status": "FILLED",
+            },
         ],
         current_price=Decimal(DEFAULT_PRICE),
     )
@@ -331,14 +350,28 @@ def test_check_close_triggers_take_profit(client):
     grid = create_grid(client, take_profit=0.01).json()
     buy = next(o for o in grid["orders"] if o["side"] == "BUY")
     sell = next(o for o in grid["orders"] if o["side"] == "SELL")
-    _mark_order_filled(buy["id"])
-    _mark_order_filled(sell["id"])
+    _mark_order_filled(buy["id"], buy["price"], buy["quantity"])
+    _mark_order_filled(sell["id"], sell["price"], sell["quantity"])
 
     # Sanity: the manufactured fills really do clear the tiny take_profit threshold
     pnl = calculate_grid_pnl(
         [
-            {"side": "BUY", "price": buy["price"], "quantity": buy["quantity"], "status": "FILLED"},
-            {"side": "SELL", "price": sell["price"], "quantity": sell["quantity"], "status": "FILLED"},
+            {
+                "side": "BUY",
+                "price": buy["price"],
+                "quantity": buy["quantity"],
+                "executed_qty": buy["quantity"],
+                "avg_fill_price": buy["price"],
+                "status": "FILLED",
+            },
+            {
+                "side": "SELL",
+                "price": sell["price"],
+                "quantity": sell["quantity"],
+                "executed_qty": sell["quantity"],
+                "avg_fill_price": sell["price"],
+                "status": "FILLED",
+            },
         ],
         current_price=Decimal(DEFAULT_PRICE),
     )
@@ -360,8 +393,8 @@ def test_check_close_short_circuits_when_not_running(client, mock_binance):
     grid = create_grid(client, take_profit=0.01).json()
     buy = next(o for o in grid["orders"] if o["side"] == "BUY")
     sell = next(o for o in grid["orders"] if o["side"] == "SELL")
-    _mark_order_filled(buy["id"])
-    _mark_order_filled(sell["id"])
+    _mark_order_filled(buy["id"], buy["price"], buy["quantity"])
+    _mark_order_filled(sell["id"], sell["price"], sell["quantity"])
 
     first = client.post(f"/api/v1/grids/{grid['id']}/check-close").json()
     assert first["triggered"] == "TAKE_PROFIT"
@@ -386,7 +419,9 @@ def test_cancel_grid_cancels_open_orders(client, mock_binance):
     data = response.json()
     assert data["status"] == "CANCELED"
     assert all(o["status"] == "CANCELED" for o in data["orders"])
-    assert mock_binance["cancel_order"].await_count == 10
+    # cancel_grid now cancels ALL open orders in one batch call (Binance cancelAllOpenOrders)
+    assert mock_binance["cancel_all_open_orders"].await_count == 1
+    assert mock_binance["cancel_order"].await_count == 0
 
 
 def test_cancel_grid_not_found(client):
@@ -403,10 +438,12 @@ def test_repeated_cancel_is_idempotent(client, mock_binance):
 
     first = client.delete(f"/api/v1/grids/{grid['id']}")
     assert first.status_code == 200
-    calls_after_first = mock_binance["cancel_order"].await_count
+    calls_after_first = mock_binance["cancel_all_open_orders"].await_count
 
     second = client.delete(f"/api/v1/grids/{grid['id']}")
     assert second.status_code == 200
     assert second.json()["status"] == "CANCELED"
-    # no NEW orders left -> no further cancel_order calls
-    assert mock_binance["cancel_order"].await_count == calls_after_first
+    # cancel_grid always cancels open orders on the symbol (Binance batch call),
+    # so it runs again on a repeated cancel, but no individual cancel_order is used
+    assert mock_binance["cancel_all_open_orders"].await_count == calls_after_first + 1
+    assert mock_binance["cancel_order"].await_count == 0

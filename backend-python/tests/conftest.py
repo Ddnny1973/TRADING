@@ -116,6 +116,7 @@ def mock_binance(monkeypatch, order_id_counter):
         "place_batch_orders": AsyncMock(side_effect=batch_side_effect),
         "place_limit_order": AsyncMock(side_effect=lambda *a, **k: make_order_response(next(order_id_counter))),
         "cancel_order": AsyncMock(return_value={"status": "CANCELED"}),
+        "cancel_all_open_orders": AsyncMock(return_value=True),
         "get_order_status": AsyncMock(return_value=None),
         "is_one_way_mode": AsyncMock(return_value=True),
         "ensure_symbol_settings": AsyncMock(return_value=True),
