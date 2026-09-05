@@ -213,7 +213,7 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | [T13](#t13) | Reducir dependencia del LLM | 3 | ✅ paso 1 (2026-09-03) | `/auto-params` con `veto_reasons` + WF1 logea comparación LLM-vs-determinista en Postgres (`bot_health_events`). Endpoint `POST /api/v1/bot-health-events`. Sigue: paso 2 (degradar LLM a solo-notificación, tras 2–4 sem datos). |
 | [T14](#t14) | Investigar `RECONCILIATION_FAILED` | 4 | ✅ (2026-09-03) | Backoff + reconstruct. `_MAX_REFRESH_FAILURES` 3→6, reconstruct vía `GET allOrders` antes de cancelar, columna `failure_reason` en `grid_closures`. Solo backend. Requiere correr migration_004 una vez. |
 | [T15](#t15) | Kill-switch y tope de drawdown diario | 4 | ❌ pendiente | **Bloqueante para pasar a dinero real.** |
-| [T16](#t16) | Serializar `refresh` + `replenish` por grid | 4 | ❌ pendiente | Más relevante ahora que T1 genera más reposiciones. |
+| [T16](#t16) | Serializar `refresh` + `replenish` por grid | 4 | ✅ 2026-09-03 | `asyncio.Lock` por grid en `GridService.get_refresh_lock()` envuelve refresh+replenish en `/refresh`. Comunity no tiene "1 instancia a la vez" por workflow (solo global) — se resuelve en backend. Solo backend. |
 | [T17](#t17) | Verificar posición residual tras el cierre | 4 | ❌ pendiente | |
 | [T18](#t18) | CI que corra los tests | 4 | ❌ pendiente | **Prioridad subida** — ver aviso abajo. |
 | T19 | Escalar grids concurrentes | 3 | ✅ 2026-08-31 | `MAX_CONCURRENT_GRIDS` 2 → 4. Multiplica ciclos/día casi linealmente. Subir más exige un tope de exposición agregada (T15). |
@@ -221,7 +221,7 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | T21 | Flip `OUT_OF_RANGE` → posición de breakout | — | ❌ pendiente | Cobertura negativamente correlacionada con el grid. **Solo tras 4+ semanas de grid positivo y después de T2.** Ver `04-estrategia-y-portafolio.md` §4. |
 | T22 | Contabilizar el **funding** en el PnL | 2 | ❌ pendiente | Fuga potencialmente material hoy invisible. Ver `04-estrategia-y-portafolio.md` §6. |
 
-**Hecho: 11/22** (T13 paso 1 COMPLETO + T14). Próximo bloque recomendado: **T13 paso 2** (degradar LLM, tras 2–4 sem de datos en `bot_health_events`) o **T16** (serializar refresh+replenish). T11 queda a la espera de T13 paso 2.
+**Hecho: 12/22** (T13 paso 1 + T14 + T16). Próximo bloque recomendado: **T13 paso 2** (degradar LLM, tras 2–4 sem de datos en `bot_health_events`) o **T15** (kill-switch). T11 queda a la espera de T13 paso 2.
 
 > ⚠️ Hallazgo al validar la Fase 1: la suite `pytest` de `backend-python/` ya
 > tenía **21 fallos preexistentes** en `main` (verificado con un worktree limpio
@@ -614,6 +614,18 @@ así que dos ciclos pueden solaparse. Añadir un `asyncio.Lock` por `grid_id` en
 `GridService` que envuelva `refresh_order_status()` + `replenish_filled_orders()`.
 Complementariamente, activar en n8n la opción de **una sola instancia
 concurrente** para WF2.
+
+**✅ Hecho (2026-09-03)** en rama `feat/t16-refresh-lock-20260903`:
+- `GridService.get_refresh_lock(grid_id)`: `asyncio.Lock` **por grid**
+  (dict `_refresh_locks`). Grids distintos → locks distintos (sin bloqueo cruzado).
+- `POST /api/v1/grids/{grid_id}/refresh` (main.py): `refresh_order_status()` +
+  `replenish_filled_orders()` envueltos en el lock del grid.
+- `cancel_grid()` descarta el lock cuando el grid queda terminal (si no está locked).
+- **Parte n8n no aplica**: n8n Community Edition NO tiene "una sola instancia a
+  la vez" por workflow — el único control de concurrencia es global
+  (`N8N_CONCURRENCY_PRODUCTION_LIMIT=1`), que afectaría a WF1/WF2/WF3 a la vez.
+  La serialización se resuelve en el backend, donde está la sección crítica real.
+- `CODE_VERSION` → `v1.12.0-t16-refresh-lock`.
 
 #### T17 — Verificar posición residual tras el cierre (arreglar D13) {#t17}
 
