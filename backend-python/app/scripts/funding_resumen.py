@@ -115,8 +115,11 @@ async def main() -> int:
     print(f"Período de snapshots: {primero.isoformat()} → {ultimo.isoformat()}")
 
     client = BinanceClient()
-    print("\nDescargando historial de income desde Binance testnet ...")
-    todos = await _traer_income(client, start_ms)
+    try:
+        print("\nDescargando historial de income desde Binance testnet ...")
+        todos = await _traer_income(client, start_ms)
+    finally:
+        await client.close_session()
     print(f"  {len(todos)} registros de income.")
     por_tipo, funding_por_simbolo = resumir_income(todos)
     funding_total = por_tipo.get("FUNDING_FEE", 0.0)
@@ -164,8 +167,12 @@ async def main() -> int:
 
     if inicial:
         print(f"\n  Billetera (snapshots): {inicial_f:.2f} → {final_f:.2f} USDT "
-              f"(balance_roi {balance_roi:+.2f} %). La diferencia frente al PnL de")
-        print("  la estrategia se explica por TRANSFER (recargas faucet), FUNDING_FEE y COMMISSION.")
+              f"(balance_roi {balance_roi:+.2f} %).")
+        print("  ⚠️  account_balance es el availableBalance (margen disponible): NO es equity.")
+        print("  El inventario acumulado migra USDT del margen disponible al margen de")
+        print("  posición, así que el balance baja aunque el PnL esté en verde. La brecha")
+        print("  frente al PnL de la estrategia se explica por eso (+ funding + commissions),")
+        print("  no por recargas del faucet (en este período no hubo TRANSFER).")
     print("\nConsulta más en pgAdmin si quieres desglosar por grid_cycles en el período.")
     return 0
 

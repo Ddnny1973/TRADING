@@ -7,7 +7,7 @@ tags: [decisiones, ia, alcance]
 related:
   - "[[_index]]"
   - "[[n8n-sync-y-gotchas]]"
-updated: 2026-09-05
+updated: 2026-09-06
 owner: dueño del repo
 ---
 
@@ -467,3 +467,26 @@ parar el bot entero y limitar la pérdida diaria agregada. Diseño:
   Backup del WF tocado → `backup-workflow3-*.json` (ignorado por git).
 - `/health` expone el estado del kill-switch (para ojos humanos y monitoreo).
 - `CODE_VERSION` → `v1.13.0-t15-kill-switch`.
+
+## T22: el funding NO es material — no se incorpora al pipeline (2026-09-06)
+
+Cierre de la pregunta "¿el funding se come el edge?" (perpetuos, grid neutral).
+Se instrumentó y se midió en testnet:
+
+- **Tooling**: `get_income_history()` en `binance_client.py` (`GET /fapi/v1/income`
+  firmado, paginación por `start_time`, limit 1000) + script
+  `app/scripts/funding_resumen.py` (corre dentro del contenedor).
+- **Medición real** (2026-07-31 → 2026-09-06, 1.090 registros de income):
+  FUNDING_FEE neto = **+0,235 USDT** (recibió más de lo que pagó: BTC +0,27 /
+  DOGE −0,08 / ETH +0,04 / FIL +0,01 / XRP −0,01 / TRUMP +0,00), = **0,3 % del
+  PnL de ciclos** (+75,34 USDT / 416 ciclos). Umbral 5 % → **NO material**.
+- **Decisión**: NO contabilizar funding en `pnl_snapshots` ni en el dashboard
+  (paso 2 de T22 cancelado). La instrumentación queda para re-medir si cambia
+  el régimen (p. ej. posición neta más grande o mainnet).
+- **Hallazgo de paso (vale para T9)**: `pnl_snapshots.account_balance` es el
+  **availableBalance**, no equity — el inventario abierto migra USDT del margen
+  disponible al margen de posición, así que la billetera puede caer con el grid
+  en verde (en el período: −178 USDT). No usar `account_balance` como proxy de
+  rendimiento mientras haya inventario; la diferencia con `strategy_pnl` se
+  explica por eso (+ funding + commissions), no por recargas del faucet
+  (en el período no hubo `TRANSFER`). Ver `04-estrategia-y-portafolio.md` §6.

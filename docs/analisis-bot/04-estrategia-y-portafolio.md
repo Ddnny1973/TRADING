@@ -166,7 +166,7 @@ justificado todavía.
 
 ---
 
-## 6. Hallazgo pendiente de verificar: el funding no está en el P&L
+## 6. Funding verificado: NO es material (2026-09-06)
 
 El bot opera **perpetuos**, y un grid NEUTRAL carga posición neta durante horas.
 El funding se liquida cada 8h.
@@ -176,20 +176,26 @@ El funding se liquida cada 8h.
   **solo descuenta fees de trading. El funding no aparece en ningún cálculo, ni
   en `grid_cycles`, ni en `pnl_snapshots`, ni en el dashboard.**
 
-En una estrategia que gana ~0,43 USD por ciclo, el funding puede consumir el
-edge completo sin dejar rastro en ninguna métrica. **Es una fuga potencialmente
-comparable al closure drag y hoy es invisible.**
+Esta sección documenta por qué decidimos **no** incorporarlo al pipeline.
 
-Verificación sugerida: consultar `GET /fapi/v1/income?incomeType=FUNDING_FEE`
-para el período y compararlo contra el PnL de ciclos del mismo período. Si es
-material, incorporarlo a `pnl_snapshots` y al dashboard.
+**Medición real (T22, 2026-07-31 → 2026-09-06, script `funding_resumen.py`):**
+1.090 registros de income en Binance testnet. **FUNDING_FEE neto = +0,235 USDT**
+(el bot *recibió* más de lo que pagó), lo que es **0,3 % del PnL de ciclos**
+(+75,34 USDT / 416 ciclos) → **no material** (umbral 5 %). Desglose por símbolo:
+BTCUSDT +0,268 / DOGEUSDT −0,082 / ETHUSDT +0,043 / FILUSDT +0,011 / XRPUSDT
+−0,006 / TRUMPUSDT +0,001.
 
-**Tooling (T22 paso 1, 2026-09-06):** `get_income_history()` en
-[binance_client.py](../../backend-python/app/services/binance_client.py) +
-script [funding_resumen.py](../../backend-python/app/scripts/funding_resumen.py)
-que pagina el income desde el primer snapshot, lo agrupa por `incomeType`
-(FUNDING_FEE / TRANSFER / REALIZED_PNL / COMMISSION) y lo compara contra
-`grid_cycles` y `historical_grid_logs`. Correr dentro del contenedor:
+**Hallazgo de paso (eco del T9):** `pnl_snapshots.account_balance` guarda el
+**availableBalance** (margen disponible), que NO es equity: el inventario
+acumulado migra USDT del margen disponible al margen de posición, así que la
+billetera cae (−178 USDT en el período) aunque el PnL esté en verde. Eso explica
+la brecha entre `balance_roi` y `strategy_pnl` mejor que las recargas del faucet
+(en el período no hubo TRANSFER). Conclusión: **no usar `account_balance` como
+proxy de rendimiento mientras haya inventario abierto.**
+
+**Decisión:** NO incorporar el funding a `pnl_snapshots` ni al dashboard (paso 2
+de T22 cancelado). La instrumentación queda disponible para re-medir si cambia
+el régimen. Correr dentro del contenedor:
 `docker compose exec trading-backend python -m app.scripts.funding_resumen`.
 
 ---
@@ -218,7 +224,7 @@ rápido.
 | 4 | Dejar de liquidar en el peor momento | [T2](03-plan-mejoras-rentabilidad.md#t2) | ❌ **siguiente** |
 | 5 | Medir bien (drag, PnL por trigger) | [T6](03-plan-mejoras-rentabilidad.md#t6) | ❌ |
 | 6 | Filtro de régimen **continuo** (ER en cada ciclo de WF2, no solo al lanzar) | T20 | ❌ |
-| 7 | Verificar el impacto del funding | T22 | ❌ |
+| 7 | Verificar el impacto del funding | T22 | ✅ (no material) |
 | 8 | Flip `OUT_OF_RANGE` → breakout | T21 | ❌ (solo tras 4+ semanas de grid positivo) |
 | 9 | Tope de exposición agregada + kill-switch | [T15](03-plan-mejoras-rentabilidad.md#t15) | ❌ (bloqueante para dinero real) |
 | — | HMM y EMA Cross | — | ❌ Descartadas hasta tener backtesting |
