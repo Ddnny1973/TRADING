@@ -117,6 +117,25 @@ def iso(dt):
     return dt.isoformat() if dt is not None else None
 
 
+def compute_roi(strategy_pnl, first_balance, last_balance):
+    """
+    T9: ROI del período = PnL de la estrategia sobre el balance inicial.
+
+    El ROI basado en la variación del balance (billetera) miente: recargas del
+    faucet de testnet y funding la inflan sin ser resultado de la estrategia.
+    Devuelve (roi_period_pct, balance_roi_pct): el ROI honesto (estrategia) y
+    la variación de billetera como diagnóstico (recargas/funding incluidas).
+    """
+    first = num(first_balance)
+    if not first:
+        return None, None
+    roi = num(((num(strategy_pnl) or 0.0) / first * 100))
+    balance_roi = None
+    if last_balance is not None:
+        balance_roi = num(((num(last_balance) - first) / first * 100))
+    return roi, balance_roi
+
+
 def main():
     host, port, user, password, db = get_conn_params()
     print(f"Conectando a postgres://{user}@{host}:{port}/{db} ...")
@@ -243,11 +262,14 @@ def main():
     # (calculate_grid_pnl = realized + unrealized), sumarlos la contaría dos veces.
     strategy_pnl_f = closed_pnl_f + open_pnl_f
 
-    # ROI del período basado en el balance de cuenta de los snapshots
+    # T9: el ROI del período NO mide la variación de la billetera (recargas del
+    # faucet y funding la inflan sin ser resultado de la estrategia). El ROI
+    # honesto = PnL de la estrategia / balance inicial. La variación de la
+    # billetera se expone aparte (balance_roi_pct) como diagnóstico.
     balances = [e["account_balance"] for e in equity if e["account_balance"] is not None]
     first_balance = balances[0] if balances else None
     last_balance = balances[-1] if balances else None
-    roi_period_pct = num(((last_balance - first_balance) / first_balance * 100) if first_balance else None)
+    roi_period_pct, balance_roi_pct = compute_roi(strategy_pnl_f, first_balance, last_balance)
 
     # Retorno promedio por ciclo (%): net_pnl / notional (buy_price * quantity)
     avg_net = num(avg_cycle["avg_net"]) or 0.0
@@ -432,13 +454,14 @@ def main():
         },
         "profitability": {
             "roi_period_pct": roi_period_pct,
+            "balance_roi_pct": balance_roi_pct,
             "cycle_return_pct": cycle_return_pct,
             "cycles_pnl": cycles_pnl_f,
             "closed_pnl": closed_pnl_f,
             "open_pnl": open_pnl_f,
             "strategy_pnl": strategy_pnl_f,
             "combined_pnl": strategy_pnl_f,  # alias retrocompatible (template/WF3)
-            "strategy_roi_pct": num((strategy_pnl_f / num(first_balance) * 100) if first_balance else None),
+            "strategy_roi_pct": roi_period_pct,  # mismo ROI de estrategia (T9)
         },
         "per_grid": per_grid,
         "closing_metrics": {
