@@ -23,7 +23,7 @@ from app.config_auto_params import (
     MAX_DAILY_DRAWDOWN_PCT,
 )
 from app.core.config import settings
-from app.database.connection import get_sqlite_connection, SessionLocal
+from app.database.connection import get_sqlite_connection, SessionLocal, postgres_engine
 from app.database.models import HistoricalGridLog, GridCycle, PnlSnapshot
 from app.services.binance_client import BinanceClient
 from app.services.grid_engine import GridEngine, GridType
@@ -1387,6 +1387,27 @@ class GridService:
         if close_position:
             position = await self.binance.get_position(grid["symbol"])
             position_amt_at_close = str(position.get("positionAmt", "0")) if position else "0"
+            # T17: a residual position after closing is dangerous — today it is
+            # only discovered when creating the *next* grid fails. Surface it
+            # immediately: log CRITICAL + emit a bot_health_events entry.
+            residual = Decimal(position_amt_at_close)
+            if residual != 0:
+                message = (
+                    f"Posición residual {residual} {grid['symbol']} tras el cierre "
+                    f"(grid {grid_id}, trigger={trigger_condition}) — requiere intervención manual"
+                )
+                logger.critical(message)
+                self._log_bot_health_event(
+                    event_type="RESIDUAL_POSITION",
+                    grid_id=grid_id,
+                    symbol=grid["symbol"],
+                    severity="critical",
+                    message=message,
+                    details={
+                        "position_amt": str(residual),
+                        "trigger_condition": trigger_condition,
+                    },
+                )
 
         total_pnl_str = str(final_pnl.get("total_pnl", "0")) if final_pnl else "0"
 
@@ -1473,6 +1494,39 @@ class GridService:
             session.rollback()
         finally:
             session.close()
+
+    def _log_bot_health_event(self, event_type: str, grid_id: str, symbol: str,
+                              severity: str = "warning", message: str = "",
+                              details: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Best-effort write to bot_health_events (Postgres, T8). Never raises —
+        monitoring must not block a cancel/recentering that already happened.
+        """
+        if postgres_engine is None:
+            print("Warning: PostgreSQL not available, skipping bot_health_events write")
+            return
+        try:
+            from sqlalchemy import text
+            from psycopg2.extras import Json
+            with postgres_engine.connect() as conn:
+                conn.execute(
+                    text(
+                        "INSERT INTO bot_health_events "
+                        "(event_type, grid_id, symbol, severity, message, details) "
+                        "VALUES (:event_type, :grid_id, :symbol, :severity, :message, :details)"
+                    ),
+                    {
+                        "event_type": event_type,
+                        "grid_id": grid_id,
+                        "symbol": symbol,
+                        "severity": severity,
+                        "message": message,
+                        "details": Json(details) if details else None,
+                    },
+                )
+                conn.commit()
+        except Exception as e:
+            print(f"Warning: could not write bot_health_events for {grid_id}: {e}")
 
     async def close_grid_if_triggered(self, grid_id: str) -> Optional[Dict[str, Any]]:
         """

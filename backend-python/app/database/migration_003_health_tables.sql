@@ -16,6 +16,7 @@
 --   AUTO_CANCEL            - an order got canceled externally / auto-canceled
 --   REPLENISH_PAUSED       - replenishment paused by MAX_POSITION guard
 --   RECENTERED             - T2 recenter fired on an OUT_OF_RANGE grid
+--   RESIDUAL_POSITION      - position_amt != 0 after cancel_grid closed it (T17)
 -- Filled by the backend (grid_service.py) or by n8n (WF2) as they happen.
 --
 -- Run against the backend's own trading Postgres (postgres-trading, NOT the

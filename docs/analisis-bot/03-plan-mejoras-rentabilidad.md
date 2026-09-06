@@ -214,14 +214,14 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | [T14](#t14) | Investigar `RECONCILIATION_FAILED` | 4 | ✅ (2026-09-03) | Backoff + reconstruct. `_MAX_REFRESH_FAILURES` 3→6, reconstruct vía `GET allOrders` antes de cancelar, columna `failure_reason` en `grid_closures`. Solo backend. Requiere correr migration_004 una vez. |
 | [T15](#t15) | Kill-switch y tope de drawdown diario | 4 | ✅ 2026-09-03 | Rama `feat/t15-kill-switch-20260903` (#11) — `POST/GET /api/v1/kill-switch` (engage/disarm), ENGAGE automático en `/refresh` si el PnL diario < −3 % del balance, tabla SQLite `system_state`, `create_grid` bloqueado si está activo, `/health` expone el estado. WF3: `/pausar` y `/reanudar`. Requiere correr migration_005 una vez (o auto-crea en boot). |
 | [T16](#t16) | Serializar `refresh` + `replenish` por grid | 4 | ✅ 2026-09-03 | `asyncio.Lock` por grid en `GridService.get_refresh_lock()` envuelve refresh+replenish en `/refresh`. Comunity no tiene "1 instancia a la vez" por workflow (solo global) — se resuelve en backend. Solo backend. |
-| [T17](#t17) | Verificar posición residual tras el cierre | 4 | ❌ pendiente | |
+| [T17](#t17) | Verificar posición residual tras el cierre | 4 | ✅ 2026-09-05 | `cancel_grid` relee la posición tras `place_market_close`; si `position_amt != 0` → log CRITICAL + evento `RESIDUAL_POSITION` (severity critical) en `bot_health_events` vía `_log_bot_health_event` (best-effort). Tests `test_residual_position.py`. |
 | [T18](#t18) | CI que corra los tests | 4 | ✅ 2026-09-05 | `.github/workflows/tests.yml` (push main + PRs, pytest 3.11, solo `backend-python/**`) + `deploy.yml` con job `test` y `deploy needs: test` (PRs #13/#14/#15). Suite reparada: 6 causas raíz en `tests/` (mocks `set_leverage`/`ensure_symbol_settings`/`cancel_all_open_orders`/`get_commission_rate`/`get_account_balance`, min_notional 50, `executed_qty`+`avg_fill_price` en fills, fixtures `memory_db` con schema/`row_factory` reales, `_log_grid_closure` con `query`+`add`, fake `selected` en auto-params). Resultado: **102/102 tests en verde**. |
 | T19 | Escalar grids concurrentes | 3 | ✅ 2026-08-31 | `MAX_CONCURRENT_GRIDS` 2 → 4. Multiplica ciclos/día casi linealmente. Subir más exige un tope de exposición agregada (T15). |
 | T20 | Filtro de régimen **continuo** (ER en cada ciclo de WF2) | 3 | ❌ pendiente | Hoy el ER solo se evalúa al lanzar. Ver `04-estrategia-y-portafolio.md` §8. |
 | T21 | Flip `OUT_OF_RANGE` → posición de breakout | — | ❌ pendiente | Cobertura negativamente correlacionada con el grid. **Solo tras 4+ semanas de grid positivo y después de T2.** Ver `04-estrategia-y-portafolio.md` §4. |
 | T22 | Contabilizar el **funding** en el PnL | 2 | ❌ pendiente | Fuga potencialmente material hoy invisible. Ver `04-estrategia-y-portafolio.md` §6. |
 
-**Hecho: 14/22** (T13 paso 1 + T14 + T15 + T16 + T18). Próximo bloque recomendado: **T13 paso 2** (degradar LLM, tras 2–4 sem de datos en `bot_health_events`). T11 queda a la espera de T13 paso 2.
+**Hecho: 15/22** (T13 paso 1 + T14 + T15 + T16 + T17 + T18). Próximo bloque recomendado: **T13 paso 2** (degradar LLM, tras 2–4 sem de datos en `bot_health_events`). T11 queda a la espera de T13 paso 2.
 
 > ⚠️ Hallazgo al validar la Fase 1: la suite `pytest` de `backend-python/` ya
 > tenía **21 fallos preexistentes** en `main` (verificado con un worktree limpio
@@ -651,6 +651,21 @@ En `cancel_grid()`, tras `place_market_close`, releer la posición y si
 `position_amt != 0` loguear a nivel CRITICAL y registrar un evento en
 `bot_health_events` ([T8](#t8)). Hoy el residual solo se descubre cuando falla
 la creación del **siguiente** grid.
+
+**✅ Hecho (2026-09-05)** en rama `feat/t17-residual-position-20260905`:
+- `cancel_grid()` ya releía la posición tras el cierre (para `position_amt_at_close`);
+  ahora, si `residual != 0`, loguea `logger.critical` y dispara
+  `_log_bot_health_event(event_type="RESIDUAL_POSITION", severity="critical",
+  details={position_amt, trigger_condition})`.
+- Nuevo helper `_log_bot_health_event()` en `grid_service.py` (best-effort, con
+  el mismo patrón de `_log_grid_closure`: skip si `postgres_engine is None`,
+  nunca lanza).
+- `event_type` `RESIDUAL_POSITION` documentado en el header de
+  `migration_003_health_tables.sql` (las tablas ya están aplicadas en prod;
+  no requiere re-ejecutar).
+- Tests `tests/test_residual_position.py` (3): evento emitido con residual,
+  no emitido con cierre limpio, y skip sin Postgres.
+- `CODE_VERSION` → `v1.14.0-t17-residual`.
 
 #### T18 — CI que corra los tests (arreglar D11) {#t18}
 
