@@ -184,6 +184,14 @@ Verificación sugerida: consultar `GET /fapi/v1/income?incomeType=FUNDING_FEE`
 para el período y compararlo contra el PnL de ciclos del mismo período. Si es
 material, incorporarlo a `pnl_snapshots` y al dashboard.
 
+**Tooling (T22 paso 1, 2026-09-06):** `get_income_history()` en
+[binance_client.py](../../backend-python/app/services/binance_client.py) +
+script [funding_resumen.py](../../backend-python/app/scripts/funding_resumen.py)
+que pagina el income desde el primer snapshot, lo agrupa por `incomeType`
+(FUNDING_FEE / TRANSFER / REALIZED_PNL / COMMISSION) y lo compara contra
+`grid_cycles` y `historical_grid_logs`. Correr dentro del contenedor:
+`docker compose exec trading-backend python -m app.scripts.funding_resumen`.
+
 ---
 
 ## 7. Expectativa realista (para no perseguir fantasmas)
