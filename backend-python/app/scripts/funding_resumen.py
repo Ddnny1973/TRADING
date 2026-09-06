@@ -25,6 +25,7 @@ No modifica nada: solo lee (income de Binance + SELECTs en Postgres).
 
 import asyncio
 import sys
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
@@ -33,8 +34,15 @@ from app.database.connection import postgres_engine
 from app.services.binance_client import BinanceClient
 
 
-def _ms(valor) -> int:
-    return int(valor * 1000)
+def _a_epoch_ms(dt: datetime) -> int:
+    """datetime naive (UTC, como `datetime.utcnow()` de los snapshots) → epoch ms."""
+    return int(dt.replace(tzinfo=timezone.utc).timestamp() * 1000)
+
+
+def _uno(c, sql):
+    """`SELECT ...` devuelto como dict. SQLAlchemy 2.0: dict(Row) no funciona,
+    hay que pasar por Row._mapping (Row itera solo values)."""
+    return dict(c.execute(text(sql)).one()._mapping)
 
 
 def resumir_income(registros: List[Dict[str, Any]]) -> Tuple[Dict[str, float], Dict[str, float]]:
@@ -85,15 +93,11 @@ def _querys_analitica() -> dict:
     if postgres_engine is None:
         raise RuntimeError("postgres_engine no disponible (¿corres dentro del contenedor?)")
     with postgres_engine.begin() as c:
-        ciclos = dict(c.execute(text(
-            "SELECT COALESCE(SUM(net_pnl), 0) AS pnl, COUNT(*) AS total FROM grid_cycles")).one())
-        cierres = dict(c.execute(text(
-            "SELECT COALESCE(SUM(total_pnl), 0) AS pnl, COUNT(*) AS total FROM historical_grid_logs")).one())
-        rango = dict(c.execute(text(
-            "SELECT MIN(taken_at) AS primero, MAX(taken_at) AS ultimo FROM pnl_snapshots")).one())
-        balances = dict(c.execute(text(
-            "SELECT (SELECT account_balance FROM pnl_snapshots ORDER BY taken_at ASC LIMIT 1) AS inicial, "
-            "(SELECT account_balance FROM pnl_snapshots ORDER BY taken_at DESC LIMIT 1) AS final")).one())
+        ciclos = _uno(c, "SELECT COALESCE(SUM(net_pnl), 0) AS pnl, COUNT(*) AS total FROM grid_cycles")
+        cierres = _uno(c, "SELECT COALESCE(SUM(total_pnl), 0) AS pnl, COUNT(*) AS total FROM historical_grid_logs")
+        rango = _uno(c, "SELECT MIN(taken_at) AS primero, MAX(taken_at) AS ultimo FROM pnl_snapshots")
+        balances = _uno(c, "SELECT (SELECT account_balance FROM pnl_snapshots ORDER BY taken_at ASC LIMIT 1) AS inicial, "
+                           "(SELECT account_balance FROM pnl_snapshots ORDER BY taken_at DESC LIMIT 1) AS final")
     return {"ciclos": ciclos, "cierres": cierres, "rango": rango, "balances": balances}
 
 
@@ -107,7 +111,7 @@ async def main() -> int:
     if primero is None:
         print("No hay pnl_snapshots en postgres-trading: aún no hay período que reconciliar.")
         return 1
-    start_ms = _ms(primero.timestamp())
+    start_ms = _a_epoch_ms(primero)
     print(f"Período de snapshots: {primero.isoformat()} → {ultimo.isoformat()}")
 
     client = BinanceClient()
