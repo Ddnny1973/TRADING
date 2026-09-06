@@ -849,6 +849,40 @@ class BinanceClient:
             print(f"Error fetching all orders: {e}")
         return None
 
+    async def get_income_history(self, income_type: Optional[str] = None,
+                                 start_time: Optional[int] = None,
+                                 end_time: Optional[int] = None,
+                                 limit: int = 1000) -> Optional[List[Dict[str, Any]]]:
+        """
+        GET /fapi/v1/income — historial de ingresos/gastos de la cuenta.
+
+        T22: sirve para cuantificar el funding pagado/recibido (incomeType
+        FUNDING_FEE), que calculate_grid_pnl() no contempla — un grid neutral
+        carga posición neta por horas y el funding se liquida cada 8h, así que
+        puede consumir el edge sin dejar rastro en grid_cycles/pnl_snapshots.
+
+        Args:
+            income_type: 'FUNDING_FEE', 'TRANSFER', 'REALIZED_PNL',
+                         'COMMISSION', ... (None = todos).
+            start_time: epoch ms inclusivo (None = últimos 7 días).
+            end_time: epoch ms inclusivo (None = ahora).
+            limit: máx registros por llamada (Binance capa en 1000).
+
+        Returns:
+            Lista de dicts [{symbol, incomeType, income, asset, time, tranId,
+            traceId, ...}] o None si falla la llamada. El caller debe paginar
+            avanzando start_time cuando la respuesta llene el limit.
+        """
+        params: Dict[str, Any] = {"limit": limit}
+        if income_type:
+            params["incomeType"] = income_type
+        if start_time:
+            params["startTime"] = start_time
+        if end_time:
+            params["endTime"] = end_time
+        result = await self._signed_request("GET", "/fapi/v1/income", params)
+        return result if isinstance(result, list) else None
+
     async def get_open_orders(self, symbol: str) -> Optional[List[Dict[str, Any]]]:
         """
         Get all open orders for a symbol in a single request.

@@ -221,7 +221,7 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | T19 | Escalar grids concurrentes | 3 | ✅ 2026-08-31 | `MAX_CONCURRENT_GRIDS` 2 → 4. Multiplica ciclos/día casi linealmente. Subir más exige un tope de exposición agregada (T15). |
 | T20 | Filtro de régimen **continuo** (ER en cada ciclo de WF2) | 3 | ❌ pendiente | Hoy el ER solo se evalúa al lanzar. Ver `04-estrategia-y-portafolio.md` §8. |
 | T21 | Flip `OUT_OF_RANGE` → posición de breakout | — | ❌ pendiente | Cobertura negativamente correlacionada con el grid. **Solo tras 4+ semanas de grid positivo y después de T2.** Ver `04-estrategia-y-portafolio.md` §4. |
-| T22 | Contabilizar el **funding** en el PnL | 2 | ❌ pendiente | Fuga potencialmente material hoy invisible. Ver `04-estrategia-y-portafolio.md` §6. |
+| T22 | Contabilizar el **funding** en el PnL | 2 | 🟡 paso 1 (tooling) 2026-09-06 | `get_income_history()` en `binance_client.py` + script `app/scripts/funding_resumen.py` (corre dentro del contenedor: `docker compose exec trading-backend python -m app.scripts.funding_resumen`). Cuantifica FUNDING_FEE (por símbolo) e income total vs. PnL de ciclos/cierres y la billetera antes de tocar el pipeline. Paso 2 (columna `cumulative_funding` + dashboard) solo si es material. Ver `04-estrategia-y-portafolio.md` §6. |
 
 **Hecho: 17/22** (T8 + T9 + T13 paso 1 + T14 + T15 + T16 + T17 + T18). Próximo bloque recomendado: **T22** (contabilizar el funding en el PnL, cierra el complemento de T9) o **T13 paso 2** (degradar LLM, tras 2–4 sem de datos en `bot_health_events`). T11 queda a la espera de T13 paso 2.
 
