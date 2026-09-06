@@ -77,9 +77,11 @@ Hay **tres bases Postgres/SQLite distintas**, fácil de confundir:
   validar en Docker/CI antes de desplegar a los servidores reales
   (✅ desde T18/2026-09-05 hay CI: `.github/workflows/tests.yml`
   corre pytest en push/PR y `deploy.yml` despliega solo con tests en verde).
-- ❌ PENDIENTE (fase 2, no diseñado en detalle aún): tablas `bot_executions`
-  (uptime/errores de Workflow 1 y 2) y `bot_health_events` (incidentes de
-  reconciliación, auto-cancelaciones). Ver sección 4 de
+- ✅ 2026-09-03 / aplicado en prod 2026-09-06: tablas `bot_executions`
+  (uptime/errores de Workflow 1 y 2; escritura desde WF1/WF2 sigue pendiente
+  como follow-up) y `bot_health_events` (incidentes: reconciliación,
+  auto-cancelación, pausa de reposición, recentering, posición residual) — T8,
+  `migration_003_health_tables.sql`. Ver sección 4 de
   `docs/analisis-bot/01-estado-actual-vs-futuro.md`.
 - ✅ 2026-08-02 → 2026-08-10: dashboard de performance construido sobre estas
   tablas (`grid_cycles`/`pnl_snapshots`). Primero como script offline

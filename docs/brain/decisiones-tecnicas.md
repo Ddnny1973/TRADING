@@ -320,8 +320,10 @@ en `postgres-trading` (el Postgres de analítica del backend, NO el de n8n):
   `details JSONB`, `occurred_at`.
 
 **Estado:** T8 = solo el script de migración (el dueño del repo lo ejecuta; el
-agente no tiene acceso a Postgres). La escritura real desde backend/n8n a estas
-tablas es un follow-up posterior, no parte de T8. Uso previsto: dashboard de
+agente no tiene acceso a Postgres). **Aplicado en prod (2026-09-06)**:
+`bot_health_events` ya recibe eventos en vivo vía el endpoint de T13 y
+`_log_bot_health_event` (T17). La escritura real de `bot_executions` desde
+WF1/WF2 es un follow-up posterior, no parte de T8. Uso previsto: dashboard de
 uptime (T6 ya muestra drag/drawdown; uptime real quedó pendiente de
 `bot_executions`).
 
