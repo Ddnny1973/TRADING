@@ -207,7 +207,7 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | [T5](#t5) | Restar fee de salida al PnL no realizado | 1 | ✅ 2026-09-02 | Rama `feat/rentabilidad-t1-t5-pnl-20260902` — `unrealized_pnl` descuenta `abs(net_position_qty) × current_price × fee_rate`; `get_grid_pnl` propaga el `maker` real de `get_commission_rate` (fallback 0.0002). Tests actualizados + uno nuevo; suite sin regresiones. |
 | [T6](#t6) | Métricas útiles (closure drag, PnL por trigger…) | 2 | ✅ 2026-09-02 | Ramas `feat/t2-recenter-t6-metrics-20260902` — `dashboard_data.py` + `export_data.py` (espejo) + `dashboard.html`: closure drag agregado y por grid, PnL por trigger_condition, tasa de grids rentables, grids con 0 ciclos, drawdown máximo. Tarjeta "Tasa de grids rentables" reemplaza el win-rate de ciclos. |
 | [T7](#t7) | Eliminar el doble conteo de `combined_pnl` | 2 | ✅ 2026-08-31 | `b315faf` — nuevo `strategy_pnl = cierres + grids vivos`; `combined_pnl` queda como alias. |
-| [T8](#t8) | Tablas `bot_executions` / `bot_health_events` | 2 | 🟡 SQL listo 2026-09-03 | Rama `feat/t8-health-tables-20260903` — `migration_003_health_tables.sql` creado (bot_executions: uptime/errores WF1/WF2; bot_health_events: RECONCILIATION_FAILED / AUTO_CANCEL / REPLENISH_PAUSED / RECENTERED). ⏳ **Pendiente: el dueño del repo ejecuta el script** contra `postgres-trading`. |
+| [T8](#t8) | Tablas `bot_executions` / `bot_health_events` | 2 | ✅ 2026-09-03 | Rama `feat/t8-health-tables-20260903` — `migration_003_health_tables.sql` con `bot_executions` (uptime/errores WF1/WF2) y `bot_health_events` (RECONCILIATION_FAILED / AUTO_CANCEL / REPLENISH_PAUSED / RECENTERED / RESIDUAL_POSITION). Aplicado en prod por el dueño (2026-09-06) — `bot_health_events` ya recibe eventos vía T13/`_log_bot_health_event`. Follow-up fuera de T8: escritura de `bot_executions` desde WF1/WF2. |
 | [T9](#t9) | Reconciliar ROI del período vs. PnL de cierres | 2 | ✅ 2026-09-06 | `compute_roi()` (helper puro en `dashboard_data.py` + espejo en `export_data.py`): `roi_period_pct` = PnL de la estrategia / balance inicial (excluye recargas del faucet y funding); la vieja variación de billetera queda expuesta como `balance_roi_pct` (diagnóstico). `strategy_roi_pct` = mismo ROI. `dashboard.html` actualiza label/hint de la card. Tests `test_dashboard_roi.py` (5). `CODE_VERSION=v1.15.0-t9-roi`. |
 | [T10](#t10) | Relanzar automáticamente al cerrar un grid | 3 | ✅ 2026-09-03 | Rama `feat/continuidad-t10-t12-20260903` — WF2: en la rama `Grid closed = true`, tras `Notify: Grid Closed`, `Execute Sub-workflow` WF1 (`executeWorkflow`, async). El hueco cierre→nuevo grid baja de "hasta 4 h" a ≤ 5 min. |
 | [T11](#t11) | Subir frecuencia del cron de WF1 | 3 | ❌ pendiente | Ver T13 antes, por el costo del LLM. |
@@ -223,7 +223,7 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | T21 | Flip `OUT_OF_RANGE` → posición de breakout | — | ❌ pendiente | Cobertura negativamente correlacionada con el grid. **Solo tras 4+ semanas de grid positivo y después de T2.** Ver `04-estrategia-y-portafolio.md` §4. |
 | T22 | Contabilizar el **funding** en el PnL | 2 | ❌ pendiente | Fuga potencialmente material hoy invisible. Ver `04-estrategia-y-portafolio.md` §6. |
 
-**Hecho: 16/22** (T13 paso 1 + T14 + T15 + T16 + T17 + T18 + T9). Próximo bloque recomendado: **T13 paso 2** (degradar LLM, tras 2–4 sem de datos en `bot_health_events`) o **T22** (contabilizar el funding en el PnL, que cierra el complemento de T9). T11 queda a la espera de T13 paso 2.
+**Hecho: 17/22** (T8 + T9 + T13 paso 1 + T14 + T15 + T16 + T17 + T18). Próximo bloque recomendado: **T22** (contabilizar el funding en el PnL, cierra el complemento de T9) o **T13 paso 2** (degradar LLM, tras 2–4 sem de datos en `bot_health_events`). T11 queda a la espera de T13 paso 2.
 
 > ⚠️ Hallazgo al validar la Fase 1: la suite `pytest` de `backend-python/` ya
 > tenía **21 fallos preexistentes** en `main` (verificado con un worktree limpio
@@ -461,15 +461,18 @@ configurable, con el comportamiento actual como fallback.**
   re-centrados). Script `migration_003_health_tables.sql` con
   `CREATE TABLE IF NOT EXISTS` — **el dueño del repo lo ejecuta**, el agente no
   tiene acceso a Postgres.
-- **🟡 SQL listo 2026-09-03** (rama `feat/t8-health-tables-20260903`):
+- **✅ Hecho 2026-09-03** (rama `feat/t8-health-tables-20260903`):
   `migration_003_health_tables.sql` creado con `bot_executions` y
   `bot_health_events` + índices. `bot_executions`: una fila por ejecución de
   WF1/WF2 (`workflow_id`, `status`, `started_at`, `finished_at`, `duration_ms`,
   `error_message`) para uptime real y tasa de error. `bot_health_events`:
   eventos de negocio con `event_type` tipado (`RECONCILIATION_FAILED`,
   `AUTO_CANCEL`, `REPLENISH_PAUSED`, `RECENTERED`), `severity`, `grid_id`,
-  `details JSONB`. **Pendiente: el dueño del repo ejecuta el script.** (La
-  escritura real en el backend/n8n es un follow-up, no parte de T8.)
+  `details JSONB`. **Aplicado en prod por el dueño del repo (2026-09-06)** — el
+  script ya se ejecutó contra `postgres-trading` y `bot_health_events` recibe
+  eventos en vivo vía el endpoint de T13 y `_log_bot_health_event` (T17).
+  **Follow-up fuera del alcance de T8:** la escritura de `bot_executions`
+  desde WF1/WF2 (uptime real del orquestador).
 
 #### T9 — Reconciliar el ROI del período contra el P&L de cierres {#t9}
 
