@@ -23,10 +23,10 @@ def test_income_history_devuelve_lista_y_parametros():
     )
 
     assert result == esperado
-    args, kwargs = signed.call_args
+    args, _ = signed.call_args
     assert args[0] == "GET"
     assert args[1] == "/fapi/v1/income"
-    params = kwargs["params"]
+    params = args[2]
     assert params["incomeType"] == "FUNDING_FEE"
     assert params["startTime"] == 123
     assert params["limit"] == 1000
@@ -39,7 +39,7 @@ def test_income_history_sin_filtros_no_envia_income_type():
 
     asyncio.run(client.get_income_history())
 
-    params = signed.call_args.kwargs["params"]
+    params = signed.call_args.args[2]
     assert "incomeType" not in params
     assert "startTime" not in params
 
