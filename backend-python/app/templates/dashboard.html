@@ -46,7 +46,7 @@
   <div class="card"><div class="label">Ciclos completados</div><div class="value" id="cCycles">—</div><div class="hint"><span id="cWinRate">—</span> win rate de ciclos (estructural: siempre 100%)</div></div>
   <div class="card"><div class="label">Tasa de grids rentables</div><div class="value" id="cGridsRent">—</div><div class="hint"><span id="cGridsRentCount">—</span> grids cerrados con PnL &gt; 0 — <b>la métrica que importa</b></div></div>
   <div class="card"><div class="label">Fees pagadas</div><div class="value" id="cFees">—</div><div class="hint"><span id="cFeesPct">—</span> % de ganancia bruta</div></div>
-  <div class="card"><div class="label">ROI del período</div><div class="value" id="cRoi">—</div><div class="hint">balance 1er → último snapshot</div></div>
+  <div class="card"><div class="label">ROI del período</div><div class="value" id="cRoi">—</div><div class="hint" id="cRoiHint">PnL de la estrategia / balance inicial — excluye recargas del faucet y funding</div></div>
   <div class="card"><div class="label">Retorno por ciclo</div><div class="value" id="cCycleRet">—</div><div class="hint">neto / nocional promedio</div></div>
 </div>
 
@@ -153,6 +153,9 @@ if (pf.strategy_roi_pct !== null) {
 }
 document.getElementById('cStrategyHint').innerHTML = strHint;
 setVal('cRoi', pf.roi_period_pct === null ? '—' : (pf.roi_period_pct >= 0 ? '+' : '') + pf.roi_period_pct.toFixed(2) + '%', pf.roi_period_pct >= 0 ? 'pos' : 'neg');
+if (pf.balance_roi_pct !== null && pf.balance_roi_pct !== undefined && pf.balance_roi_pct !== pf.roi_period_pct) {
+  document.getElementById('cRoiHint').innerHTML += ' · variación billetera (incluye recargas y funding): <span class="' + (pf.balance_roi_pct >= 0 ? 'pos' : 'neg') + '">' + (pf.balance_roi_pct >= 0 ? '+' : '') + pf.balance_roi_pct.toFixed(2) + '%</span>';
+}
 setVal('cCycleRet', pf.cycle_return_pct === null ? '—' : (pf.cycle_return_pct >= 0 ? '+' : '') + pf.cycle_return_pct.toFixed(2) + '%', pf.cycle_return_pct >= 0 ? 'pos' : 'neg');
 setVal('cCombined', money(pf.strategy_pnl), pnlClass(pf.strategy_pnl));
 setVal('cOpenPnl', money(pf.open_pnl), pnlClass(pf.open_pnl));

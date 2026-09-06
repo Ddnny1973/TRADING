@@ -131,10 +131,12 @@ debe usarse para decidir el paso a dinero real.**
 
 ### 1.5 Inconsistencia adicional a investigar
 
-El dashboard muestra `ROI DEL PERÍODO +0,45 %` (balance del primer snapshot vs.
+El dashboard mostraba `ROI DEL PERÍODO +0,45 %` (balance del primer snapshot vs.
 el último), lo cual contradice los −7,98 USD de cierres. Posibles causas:
-recargas del faucet de testnet, funding, o una operación manual. Debe
-reconciliarse antes de usar el ROI como criterio ([T9](#t9)).
+recargas del faucet de testnet, funding, o una operación manual. **Resuelto en
+[T9](#t9)** (2026-09-06, `v1.15.0-t9-roi`): el ROI ahora se calcula sobre el PnL
+de la estrategia / balance inicial y la variación de billetera (recargas/funding
+incluidas) queda expuesta aparte como diagnóstico (`balance_roi_pct`).
 
 ---
 
@@ -206,7 +208,7 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | [T6](#t6) | Métricas útiles (closure drag, PnL por trigger…) | 2 | ✅ 2026-09-02 | Ramas `feat/t2-recenter-t6-metrics-20260902` — `dashboard_data.py` + `export_data.py` (espejo) + `dashboard.html`: closure drag agregado y por grid, PnL por trigger_condition, tasa de grids rentables, grids con 0 ciclos, drawdown máximo. Tarjeta "Tasa de grids rentables" reemplaza el win-rate de ciclos. |
 | [T7](#t7) | Eliminar el doble conteo de `combined_pnl` | 2 | ✅ 2026-08-31 | `b315faf` — nuevo `strategy_pnl = cierres + grids vivos`; `combined_pnl` queda como alias. |
 | [T8](#t8) | Tablas `bot_executions` / `bot_health_events` | 2 | 🟡 SQL listo 2026-09-03 | Rama `feat/t8-health-tables-20260903` — `migration_003_health_tables.sql` creado (bot_executions: uptime/errores WF1/WF2; bot_health_events: RECONCILIATION_FAILED / AUTO_CANCEL / REPLENISH_PAUSED / RECENTERED). ⏳ **Pendiente: el dueño del repo ejecuta el script** contra `postgres-trading`. |
-| [T9](#t9) | Reconciliar ROI del período vs. PnL de cierres | 2 | ❌ pendiente | |
+| [T9](#t9) | Reconciliar ROI del período vs. PnL de cierres | 2 | ✅ 2026-09-06 | `compute_roi()` (helper puro en `dashboard_data.py` + espejo en `export_data.py`): `roi_period_pct` = PnL de la estrategia / balance inicial (excluye recargas del faucet y funding); la vieja variación de billetera queda expuesta como `balance_roi_pct` (diagnóstico). `strategy_roi_pct` = mismo ROI. `dashboard.html` actualiza label/hint de la card. Tests `test_dashboard_roi.py` (5). `CODE_VERSION=v1.15.0-t9-roi`. |
 | [T10](#t10) | Relanzar automáticamente al cerrar un grid | 3 | ✅ 2026-09-03 | Rama `feat/continuidad-t10-t12-20260903` — WF2: en la rama `Grid closed = true`, tras `Notify: Grid Closed`, `Execute Sub-workflow` WF1 (`executeWorkflow`, async). El hueco cierre→nuevo grid baja de "hasta 4 h" a ≤ 5 min. |
 | [T11](#t11) | Subir frecuencia del cron de WF1 | 3 | ❌ pendiente | Ver T13 antes, por el costo del LLM. |
 | [T12](#t12) | Watchdog de "bot inactivo" | 3 | ✅ 2026-09-03 | WF2 — contador `noGridsCount` en staticData: 3 ciclos (15 min) consecutivos con 0 grids → alerta Telegram "⚠️ Bot sin grids 15 min" + `Execute Sub-workflow` WF1. Se resetea cuando hay grids. |
@@ -221,7 +223,7 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | T21 | Flip `OUT_OF_RANGE` → posición de breakout | — | ❌ pendiente | Cobertura negativamente correlacionada con el grid. **Solo tras 4+ semanas de grid positivo y después de T2.** Ver `04-estrategia-y-portafolio.md` §4. |
 | T22 | Contabilizar el **funding** en el PnL | 2 | ❌ pendiente | Fuga potencialmente material hoy invisible. Ver `04-estrategia-y-portafolio.md` §6. |
 
-**Hecho: 15/22** (T13 paso 1 + T14 + T15 + T16 + T17 + T18). Próximo bloque recomendado: **T13 paso 2** (degradar LLM, tras 2–4 sem de datos en `bot_health_events`). T11 queda a la espera de T13 paso 2.
+**Hecho: 16/22** (T13 paso 1 + T14 + T15 + T16 + T17 + T18 + T9). Próximo bloque recomendado: **T13 paso 2** (degradar LLM, tras 2–4 sem de datos en `bot_health_events`) o **T22** (contabilizar el funding en el PnL, que cierra el complemento de T9). T11 queda a la espera de T13 paso 2.
 
 > ⚠️ Hallazgo al validar la Fase 1: la suite `pytest` de `backend-python/` ya
 > tenía **21 fallos preexistentes** en `main` (verificado con un worktree limpio
@@ -475,6 +477,39 @@ configurable, con el comportamiento actual como fallback.**
   −7,98 USD. Revisar si `account_balance` en `pnl_snapshots` incluye recargas
   del faucet de testnet o funding. Si es así, el ROI debe calcularse sobre
   `realized_strategy_pnl / balance_inicial`, no sobre la variación del balance.
+- **✅ Hecho 2026-09-06** (`v1.15.0-t9-roi`, CI al merge a main):
+  - **Causa raíz confirmada:** `account_balance` en `pnl_snapshots` es el
+    `availableBalance` USDT de la billetera de futuros
+    ([grid_service.py](../../backend-python/app/services/grid_service.py#L660-L696)).
+    Ese balance incluye recargas del faucet de testnet y pagos de funding, así
+    que `(último − primer balance) / primer balance` mide la billetera, no la
+    estrategia.
+  - **Fix:** nuevo helper `compute_roi(strategy_pnl, first_balance, last_balance)`
+    en `dashboard_data.py` (y espejo en `export_data.py`):
+    `roi_period_pct = strategy_pnl / balance_inicial × 100` (PnL de la
+    estrategia: cierres + grids vivos, sin doble conteo). La variación de
+    billetera queda expuesta aparte como `balance_roi_pct` (diagnóstico:
+    recargas/funding incluidas). `strategy_roi_pct` ahora es alias del mismo
+    ROI (antes ya lo era del cálculo correcto).
+  - `dashboard.html`: la card "ROI del período" actualiza label/hint
+    ("PnL de la estrategia / balance inicial — excluye recargas del faucet y
+    funding") y añade en el hint la variación de billetera cuando difiere.
+  - Tests: `test_dashboard_roi.py` (5 casos, helper puro sin DB ni red).
+  - **Para confirmar la top-up en pgAdmin:**
+    ```sql
+    SELECT DATE(taken_at) AS dia, MIN(account_balance) AS min_bal,
+           MAX(account_balance) AS max_bal,
+           MAX(account_balance) - MIN(account_balance) AS variacion_billetera,
+           SUM(realized_pnl) AS realized_diario
+    FROM pnl_snapshots GROUP BY 1 ORDER BY 1;
+    -- y el salto puntual más grande:
+    SELECT s.taken_at, s.account_balance, s.realized_pnl
+    FROM pnl_snapshots s JOIN pnl_snapshots p
+      ON p.taken_at = (SELECT MAX(t2.taken_at) FROM pnl_snapshots t2
+                       WHERE t2.taken_at < s.taken_at)
+    WHERE ABS(s.account_balance - p.account_balance) > 20
+    ORDER BY 1;
+    ```
 
 ---
 
