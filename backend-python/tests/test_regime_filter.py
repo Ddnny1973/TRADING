@@ -25,7 +25,6 @@ from app.config_auto_params import (
     REGIME_FILTER_STRIKES_TO_ALERT,
 )
 from app.database import connection
-from app.main import grid_service as main_grid_service
 from app.services.grid_service import GridService
 from app.services.indicators import calculate_efficiency_ratio
 
@@ -182,37 +181,13 @@ def test_regime_expone_modo_y_umbral():
     assert r["threshold"] == float(REGIME_FILTER_ER_THRESHOLD)
 
 
-def test_regime_en_endpoint_refresh():
-    """/refresh de un grid RUNNING (fuera de gracia) corre el filtro de régimen
-    sin romper el flujo (best-effort) y sin red real."""
+def test_regime_en_endpoint_refresh(client, mock_binance):
+    """POST /refresh de un grid RUNNING (fuera de gracia) responde con el
+    estado del filtro de régimen (grid["regime"]) sin romper el flujo."""
     _insert_grid()
-    # El servicio singleton (main_grid_service) ya tiene todos los binance
-    # mockeados por la fixture `mock_binance`; refresh_order_status devuelve
-    # "ok" (get_open_orders -> []). Solo garantizamos ordenes vacías y la
-    # portuguesa del grid lista.
-    svc = main_grid_service
-    conn = connection.get_sqlite_connection()
-    try:
-        cursor = conn.cursor()
-        for column_def in ("replenished INTEGER DEFAULT 0", "executed_qty NUMERIC DEFAULT 0",
-                           "avg_fill_price NUMERIC", "cycle INTEGER DEFAULT 0"):
-            try:
-                cursor.execute(f"ALTER TABLE grid_orders ADD COLUMN {column_def}")
-            except Exception:
-                pass
-    finally:
-        conn.close()
-
-    async def _refresh():
-        async with svc.get_refresh_lock(GRID_ID):
-            grid = await svc.refresh_order_status(GRID_ID)
-            await svc.replenish_filled_orders(GRID_ID)
-            regime = await svc.evaluate_regime_filter(GRID_ID)
-            if regime:
-                grid["regime"] = regime
-            return grid
-
-    grid = asyncio.run(_refresh())
-    assert grid is not None
-    assert "regime" in grid
-    assert grid["regime"]["mode"] == REGIME_FILTER_MODE
+    resp = client.post(f"/api/v1/grids/{GRID_ID}/refresh")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert "regime" in payload
+    assert payload["regime"]["mode"] == REGIME_FILTER_MODE
+    assert "er" in payload["regime"]
