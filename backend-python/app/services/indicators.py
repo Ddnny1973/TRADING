@@ -205,6 +205,44 @@ def calculate_grid_pnl(orders: List[Dict[str, Any]], current_price: Decimal, fee
     }
 
 
+def calculate_efficiency_ratio(
+    klines: List[Dict[str, Any]],
+    lookback: Optional[int] = None,
+) -> Decimal:
+    """
+    Efficiency Ratio de Kaufman sobre los cierres: qué fracción del
+    movimiento total es "neto" (direccional) en vez de acumulado (oscilación).
+
+        ER = abs(close[-1] - close[0]) / sum(|close[i] - close[i-1]|)
+
+    ER -> 1 : tendencia limpia. ER -> 0 : ruido lateral (ideal para grid).
+    Espejo de la fórmula inline de derive_interval() en auto_params.py.
+
+    Args:
+        klines: Ordered oldest->newest list of klines (Decimal values).
+        lookback: Usar solo los últimos lookback+1 cierres. None usa todos.
+
+    Returns:
+        ER como Decimal en [0, 1] (1.0 si no hay movimiento neto de
+        oscilación, p. ej. series planas).
+
+    Raises:
+        ValueError: si hay menos de 2 velas
+        TypeError: si las velas no traen cierres Decimal/comparables
+    """
+    if not klines:
+        raise ValueError("Se requieren al menos 2 velas")
+    window = klines[-(lookback + 1):] if lookback else klines
+    if len(window) < 2:
+        raise ValueError("Se requieren al menos 2 velas")
+
+    closes = [k["close"] for k in window]
+    total_change = sum(abs(closes[i] - closes[i - 1]) for i in range(1, len(closes)))
+    if total_change == 0:
+        return Decimal("1.0")
+    return abs(closes[-1] - closes[0]) / total_change
+
+
 def check_sl_tp(
     total_pnl: Decimal,
     stop_loss: Optional[Decimal],

@@ -374,6 +374,16 @@ async def refresh_grid_orders(grid_id: str):
         # Replenish filled orders to create continuous grid cycles
         replenish = await grid_service.replenish_filled_orders(grid_id)
 
+        # T20 (paso 1, OBSERVE): régimen continuo. Reevalúa el ER del símbolo
+        # en cada ciclo de WF2; si la tendencia persiste, loguea TREND_REGIME
+        # y lo expone en la respuesta (sin tocar el grid). Best-effort: un
+        # fallo del filtro nunca debe romper el refresh.
+        try:
+            regime = await grid_service.evaluate_regime_filter(grid_id)
+        except Exception as e:
+            logger.warning(f"Regime filter error for grid {grid_id}: {e}")
+            regime = None
+
     if replenish.get("replenish_placed", 0) > 0:
         # get_grid() returns a fresh dict without the transient reconciliation
         # fields refresh_order_status() attached above — carry them over so
@@ -391,6 +401,11 @@ async def refresh_grid_orders(grid_id: str):
     # refresh, even when no new order was placed this cycle, so WF2 can notify
     # and the dashboard leaves a trace.
     grid.update(replenish)
+
+    # T20: exponer el estado del filtro de régimen (ER del símbolo, tendencia,
+    # conteo de ciclos en tendencia) para telemetría / notificación de WF2.
+    if regime:
+        grid["regime"] = regime
 
     return grid
 

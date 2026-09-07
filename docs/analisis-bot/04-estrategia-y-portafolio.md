@@ -223,7 +223,7 @@ rápido.
 | 3 | Escalar símbolos en paralelo | T19 | ✅ (`MAX_CONCURRENT_GRIDS = 4`) |
 | 4 | Dejar de liquidar en el peor momento | [T2](03-plan-mejoras-rentabilidad.md#t2) | ❌ **siguiente** |
 | 5 | Medir bien (drag, PnL por trigger) | [T6](03-plan-mejoras-rentabilidad.md#t6) | ❌ |
-| 6 | Filtro de régimen **continuo** (ER en cada ciclo de WF2, no solo al lanzar) | T20 | ❌ |
+| 6 | Filtro de régimen **continuo** (ER en cada ciclo de WF2, no solo al lanzar) | T20 | 🟡 paso 1 (OBSERVE) |
 | 7 | Verificar el impacto del funding | T22 | ✅ (no material) |
 | 8 | Flip `OUT_OF_RANGE` → breakout | T21 | ❌ (solo tras 4+ semanas de grid positivo) |
 | 9 | Tope de exposición agregada + kill-switch | [T15](03-plan-mejoras-rentabilidad.md#t15) | ❌ (bloqueante para dinero real) |

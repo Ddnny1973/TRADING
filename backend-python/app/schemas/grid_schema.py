@@ -128,6 +128,9 @@ class GridDetailResponse(GridResponse):
     replenish_position_amt: Optional[float] = None
     replenish_tolerance: Optional[float] = None
     replenish_reason: Optional[str] = None
+    # T20 (paso 1, OBSERVE): estado del filtro de régimen continuo, calculado
+    # en cada POST /grids/{id}/refresh. No columna persistida.
+    regime: Optional[dict] = None
 
 
 class GridPnlResponse(BaseModel):

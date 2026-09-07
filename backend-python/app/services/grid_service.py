@@ -21,13 +21,24 @@ from app.config_auto_params import (
     OUT_OF_RANGE_ATR_BUFFER,
     OUT_OF_RANGE_STRIKES_TO_TRIGGER,
     MAX_DAILY_DRAWDOWN_PCT,
+    ER_LOOKBACK,
+    REGIME_FILTER_MODE,
+    REGIME_FILTER_ER_THRESHOLD,
+    REGIME_FILTER_STRIKES_TO_ALERT,
 )
 from app.core.config import settings
 from app.database.connection import get_sqlite_connection, SessionLocal, postgres_engine
 from app.database.models import HistoricalGridLog, GridCycle, PnlSnapshot
 from app.services.binance_client import BinanceClient
 from app.services.grid_engine import GridEngine, GridType
-from app.services.indicators import calculate_atr, calculate_grid_bounds, calculate_grid_pnl, check_sl_tp, validate_grid_step
+from app.services.indicators import (
+    calculate_atr,
+    calculate_efficiency_ratio,
+    calculate_grid_bounds,
+    calculate_grid_pnl,
+    check_sl_tp,
+    validate_grid_step,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1527,6 +1538,97 @@ class GridService:
                 conn.commit()
         except Exception as e:
             print(f"Warning: could not write bot_health_events for {grid_id}: {e}")
+
+    async def evaluate_regime_filter(self, grid_id: str) -> Optional[Dict[str, Any]]:
+        """
+        T20 filtro de régimen continuo (paso 1, MODE="OBSERVE").
+
+        El ER se calculaba solo al lanzar (derive_interval en /auto-params);
+        aquí se reevalúa en cada ciclo de WF2. Si el mercado pasa a tendencia
+        persistente (ER > REGIME_FILTER_ER_THRESHOLD durante
+        REGIME_FILTER_STRIKES_TO_ALERT ciclos), un grid NEUTRAL deja de
+        cosechar y acumula inventario de un solo lado.
+
+        MODE OBSERVE: loguea el evento TREND_REGIME en bot_health_events y
+        devuelve el estado para exponerlo en /refresh — NO toca el grid.
+        (Decisión de producto abierta: qué hacer si nadie responde al aviso;
+        ver 03-plan T20. Modos futuros: RECENTER / CLOSE reusando la política.)
+
+        Columna de bloqueo: grids.er_trend_strikes (conteo consecutivo),
+        grids.er_last (último ER). El aviso se emite por transición (el ciclo
+        exacto que cruza el umbral) para no spamear mientras la tendencia
+        sigue; al volver a plano el contador se reinicia.
+
+        Returns:
+            {"mode", "er", "trend", "strikes", "interval", "alerted",
+             "threshold"} o None si el grid no existe / no RUNNING / dentro
+             del período de gracia / fallo de datos.
+        """
+        grid = self.get_grid(grid_id)
+        if not grid or grid["status"] != "RUNNING":
+            return None
+
+        age_hours = self._grid_age_hours(grid)
+        if age_hours is None or age_hours * 60 < CHECK_CLOSE_GRACE_MINUTES:
+            return None
+
+        interval = grid.get("klines_interval") or "4h"
+        try:
+            klines = await self.binance.get_klines(
+                grid["symbol"], interval=interval, limit=ER_LOOKBACK + 1
+            )
+        except Exception as e:
+            logger.warning(f"Grid {grid_id}: could not fetch klines for regime filter: {e}")
+            return None
+        if not klines or len(klines) < 2:
+            logger.warning(f"Grid {grid_id}: not enough klines for regime filter")
+            return None
+
+        try:
+            er = calculate_efficiency_ratio(klines)
+        except Exception as e:
+            logger.warning(f"Grid {grid_id}: regime filter ER error: {e}")
+            return None
+
+        self._set_grid_column(grid_id, "er_last", float(er))
+
+        trend = er > REGIME_FILTER_ER_THRESHOLD
+        strikes = int(grid.get("er_trend_strikes") or 0)
+        strikes = (strikes + 1) if trend else 0
+        self._set_grid_column(grid_id, "er_trend_strikes", strikes)
+
+        alerted = False
+        if trend and strikes == REGIME_FILTER_STRIKES_TO_ALERT:
+            alerted = True
+            self._log_bot_health_event(
+                event_type="TREND_REGIME",
+                grid_id=grid_id,
+                symbol=grid["symbol"],
+                severity="warning",
+                message=(
+                    f"Régimen: tendencia persistente en {interval} "
+                    f"(ER {float(er):.3f} > {float(REGIME_FILTER_ER_THRESHOLD):.2f}, "
+                    f"{strikes} ciclos seguidos). Modo {REGIME_FILTER_MODE}: no se "
+                    f"tocó el grid. Pendiente de decisión: qué accionar si nadie responde."
+                ),
+                details={
+                    "er": float(er),
+                    "threshold": float(REGIME_FILTER_ER_THRESHOLD),
+                    "strikes": strikes,
+                    "interval": interval,
+                    "mode": REGIME_FILTER_MODE,
+                },
+            )
+
+        return {
+            "mode": REGIME_FILTER_MODE,
+            "er": float(er),
+            "trend": trend,
+            "strikes": strikes,
+            "interval": interval,
+            "alerted": alerted,
+            "threshold": float(REGIME_FILTER_ER_THRESHOLD),
+        }
 
     async def close_grid_if_triggered(self, grid_id: str) -> Optional[Dict[str, Any]]:
         """

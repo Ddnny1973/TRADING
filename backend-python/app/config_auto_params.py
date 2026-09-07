@@ -102,3 +102,15 @@ OUT_OF_RANGE_ATR_BUFFER = Decimal("0.5")
 # Nº de ciclos consecutivos de WF2 en los que el precio debe mantenerse fuera
 # del rango (con buffer) antes de disparar RECENTER/CLOSE.
 OUT_OF_RANGE_STRIKES_TO_TRIGGER = 2
+
+# T20: filtro de régimen continuo. El ER se evalúa al lanzar (derive_interval,
+# ER_MAX_TRADEABLE) y también, con T20, en cada ciclo de WF2 mientras el grid
+# corre: si el mercado pasa a tendencia, un grid neutral deja de cosechar y se
+# vuelve inventario de un solo lado.
+# MODE "OBSERVE" (paso 1, 2026-09-06): detecta la tendencia persistente, loguea
+# el evento TREND_REGIME en bot_health_events y lo expone en /refresh — NO toca
+# el grid. Decisión de producto abierta: qué hacer si nadie responde al aviso
+# (escalar a RECENTER/CLOSE automático o dejar de notificar). Ver plan T20.
+REGIME_FILTER_MODE = "OBSERVE"               # OBSERVE | RECENTER | CLOSE (futuro)
+REGIME_FILTER_ER_THRESHOLD = ER_MAX_TRADEABLE  # 0.35, mismo criterio que al lanzar
+REGIME_FILTER_STRIKES_TO_ALERT = 2           # ciclos consecutivos antes de avisar
