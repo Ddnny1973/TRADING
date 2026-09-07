@@ -469,7 +469,6 @@ parar el bot entero y limitar la pérdida diaria agregada. Diseño:
 - `CODE_VERSION` → `v1.13.0-t15-kill-switch`.
 
 ## T22: el funding NO es material — no se incorpora al pipeline (2026-09-06)
-
 Cierre de la pregunta "¿el funding se come el edge?" (perpetuos, grid neutral).
 Se instrumentó y se midió en testnet:
 
@@ -490,3 +489,33 @@ Se instrumentó y se midió en testnet:
   rendimiento mientras haya inventario; la diferencia con `strategy_pnl` se
   explica por eso (+ funding + commissions), no por recargas del faucet
   (en el período no hubo `TRANSFER`). Ver `04-estrategia-y-portafolio.md` §6.
+
+## T20: filtro de régimen continuo — paso 1 OBSERVE (2026-09-06, rama `feat/t20-regime-continuo-20260906`)
+
+D11 o la causa de que un grid deje de cosechar sin que el OUT_OF_RANGE lo
+detecte: el mercado pasa a tendencia **dentro** del rango. El ER solo se
+evaluaba al lanzar (`derive_interval`, umbral `ER_MAX_TRADEABLE=0.35`). Cambio:
+
+- **`/refresh` reevalúa el ER de cada grid RUNNING en cada ciclo de WF2**
+  (mismo plazo `klines_interval` del grid, lookback `ER_LOOKBACK`).
+- Helper puro `calculate_efficiency_ratio()` en `indicators.py` (espejo de la
+  fórmula inline de `auto_params.py`): `|close[-1]-close[0]| / Σ|Δclose|`.
+- Columnas auto-migradas en SQLite: `er_last` y `er_trend_strikes` (conteo de
+  ciclos consecutivos en tendencia, se reinicia al volver a plano).
+- **`REGIME_FILTER_MODE = "OBSERVE"`** (config): al cruzar 2 ciclos
+  (`REGIME_FILTER_STRIKES_TO_ALERT`) sobre el umbral, loguea el evento
+  `TREND_REGIME` en `bot_health_events` y devuelve `grid["regime"]` en la
+  respuesta de `/refresh`. **No toca el grid.**
+- El aviso es por transición (solo el ciclo exacto que cruza el umbral) para
+  no spamear mientras la tendencia continúa.
+- **Estado:** T20 paso 1 → 🟡. Tablero en **19/22** (T20 cuenta como ✅ paso 1
+  por patrón T13).
+
+**🔴 Decisión de producto abierta (quedó pendiente de análisis, no resuelta):**
+*si nadie responde al aviso TREND_REGIME, ¿qué es lo mejor para el sistema?*
+Opción A: escalar automático a RECENTER/CLOSE (reusar `OUT_OF_RANGE_POLICY`)
+tras `REGIME_FILTER_MODE` = "RECENTER"/"CLOSE"; Opción B: solo notificar y
+dejar que el grid siga (el OUT_OF_RANGE y MAX_POSITION ya son backstops);
+Opción C: dejar de avisar y volver a OBSERVE silente. Hay que decidirlo tras
+observar episodios reales (falsos positivos vs. tendencias reales) — anotado
+para revisar y analizar en una sesión posterior. Ver `03-plan` T20 paso 2.
