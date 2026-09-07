@@ -120,6 +120,15 @@ def init_sqlite_tables():
         except sqlite3.OperationalError:
             pass
 
+    # T20 filtro de régimen continuo: último ER calculado por ciclo y cuántos
+    # ciclos consecutivos lleva en tendencia (ER > umbral). Auto-migración
+    # idempotente como las demás columnas de grids.
+    for column_def in ("er_last NUMERIC", "er_trend_strikes INTEGER DEFAULT 0"):
+        try:
+            cursor.execute(f"ALTER TABLE grids ADD COLUMN {column_def}")
+        except sqlite3.OperationalError:
+            pass
+
     # Anti-race index: enforce one RUNNING grid per symbol (Paso 13)
     try:
         cursor.execute(
