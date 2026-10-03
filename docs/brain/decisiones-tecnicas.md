@@ -7,7 +7,7 @@ tags: [decisiones, ia, alcance]
 related:
   - "[[_index]]"
   - "[[n8n-sync-y-gotchas]]"
-updated: 2026-09-06
+updated: 2026-10-03
 owner: dueño del repo
 ---
 
@@ -25,6 +25,17 @@ owner: dueño del repo
 migrado a `deepseek-ai/deepseek-v4-flash-0731` (modelo vigente hoy). Si
 vuelve a fallar con "model not found"/deprecation, revisar el catálogo de
 modelos disponibles en NVIDIA NIM antes de asumir que es un bug del workflow.
+
+**2026-10-03**: `deepseek-v4-flash-0731` también fue retirado (HTTP **410** en el
+nodo "Gemini: AI Decision", sin cuerpo). WF1 falló en cada corrida: WF2 mostraba
+"Sin grids en ejecución" y el watchdog T12 relanzaba WF1 cada 15 min sin éxito.
+Migrado a `deepseek-ai/deepseek-v4.1-flash` (nodo "OpenAI Chat Model1", mismo
+credential `DeepSeek`); primera ejecución posterior en `success`. Cómo
+diagnosticarlo: `search_workflow_executions` + `get_workflow_execution`
+(`includeData: true`) por el MCP de n8n. Para ver el catálogo vigente de NVIDIA:
+`GET https://integrate.api.nvidia.com/v1/models` (público). Es la segunda vez en
+~2 meses que un modelo desaparece y deja al bot sin operar, lo que refuerza
+T13 paso 2 (sacar el LLM del camino crítico).
 
 Se loguea a Postgres (`public.metricas_personalizadas`) el consumo de
 tokens de cada ejecución. Nota heredada de la época Gemini: si se vuelve a
