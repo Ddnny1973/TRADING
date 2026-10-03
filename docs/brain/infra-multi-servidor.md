@@ -7,7 +7,7 @@ tags: [infra, deploy, nginx, docker, red]
 related:
   - "[[_index]]"
   - "[[n8n-sync-y-gotchas]]"
-updated: 2026-08-26
+updated: 2026-10-03
 owner: dueño del repo
 ---
 
@@ -115,3 +115,13 @@ en 300s. Sin `client_max_body_size` explícito (default 1MB). SELinux en modo
 `Permissive`. Ver [[n8n-sync-y-gotchas]] para el debugging de un 500 que
 parecía ser del proxy pero en realidad era un bug de encoding del lado cliente
 (PowerShell).
+
+**Acceso desde fuera (verificado 2026-10-03):** el vhost público del backend
+(`https://trading.gestorconsultoria.com.co/...`) está tras **autenticación
+básica de nginx**: cualquier GET (`/health`, `/api/v1/grids`,
+`/api/v1/kill-switch`) devuelve `401 Authorization Required` sin credenciales.
+El backend en sí no tiene auth propia (n8n lo llama por la IP privada
+`10.0.0.6:8043`, que **no es alcanzable** desde la máquina de desarrollo). Un
+agente sin esas credenciales no puede consultar el backend: para diagnosticar,
+usar el MCP de n8n (ver [[n8n-sync-y-gotchas]]) o pedir al dueño la salida de
+`GET /api/v1/kill-switch` y `GET /auto-params?balance=3000`.

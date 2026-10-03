@@ -8,7 +8,7 @@ related:
   - "[[infra-multi-servidor]]"
   - "[[n8n-sync-y-gotchas]]"
   - "[[decisiones-tecnicas]]"
-updated: 2026-09-06
+updated: 2026-10-03
 owner: dueño del repo
 ---
 
@@ -49,9 +49,16 @@ memoria de sesiones de IA y no estaba escrito en ningún archivo del repo.
 - [[n8n-sync-y-gotchas]] — cómo se sincronizan los `.json` de `n8n-workflows/`
   hacia la instancia real de n8n (pipeline automático + método manual), y
   gotchas de la API de n8n (payload aceptado, encoding UTF-8 en PowerShell,
-  Community Edition sin `$vars`).
+  Community Edition sin `$vars`). Incluye el **acceso por MCP** para que un
+  agente diagnostique ejecuciones y compare repo↔desplegado, y la receta
+  "el bot no crea grids".
 - [[decisiones-tecnicas]] — decisiones de producto/arquitectura tomadas y su
   razón (proveedor de IA, límites de seguridad, alcance de la fase actual).
+  ⚠️ Última incidencia (2026-10-03): el modelo del LLM de WF1 fue retirado
+  (HTTP 410) y el bot estuvo sin crear grids; migrado a `deepseek-v4.1-flash`.
+  Segunda vez en ~2 meses → prioriza T13 paso 2 (sacar el LLM del camino
+  crítico). También documenta la convención de merge por squash y la higiene
+  de ramas.
 - [[analisis-bot-monitoreo]] — línea de trabajo en curso: diseño de tablas
   de monitoreo en Postgres (`grid_cycles`, `pnl_snapshots`) para poder medir
   rentabilidad real del bot antes de decidir el paso a dinero real, más el

@@ -7,7 +7,7 @@ tags: [n8n, ci-cd, api, powershell]
 related:
   - "[[_index]]"
   - "[[infra-multi-servidor]]"
-updated: 2026-07-29
+updated: 2026-10-03
 owner: dueño del repo
 ---
 
@@ -62,6 +62,49 @@ Si se necesita hacer el PUT a mano desde Windows (documentado también en
 - Un solo webhook de Telegram por bot: por eso comandos como `/monitorear`
   no usan un 2do Telegram Trigger, sino **Execute Sub-workflow** desde el
   mismo Trigger del Workflow 1.
+
+## Acceso de agentes por MCP (2026-10-03)
+
+n8n expone un servidor MCP que permite a un agente **diagnosticar** WF1/WF2/WF3
+sin entrar a la UI:
+
+- **URL**: `https://n8n.gestorconsultoria.com.co/mcp-server/http` (HTTP
+  streamable), cabecera `Authorization: Bearer <token>`.
+- **Token**: la variable de entorno de usuario de Windows `N8N_API_KEY` (la
+  misma que usan opencode y Gemini; no copiarla a ningún archivo). ⚠️ Es el
+  token del **servidor MCP**: contra la API REST pública
+  (`/api/v1/executions`) da **401**.
+- **Habilitar por workflow**: cada workflow debe tener "Disponible en MCP"
+  (tarjeta de la lista o ajustes del workflow). "Published" (activo) **no**
+  basta: sin eso las herramientas devuelven *"Workflow is not available in MCP"*.
+  WF1/WF2/WF3 ya lo tienen.
+- **Registro en Claude Code** (una vez, a nivel de usuario; requiere el CLI
+  `claude`, instalable con `npm install -g @anthropic-ai/claude-code`):
+
+  ```
+  claude mcp add --transport http --scope user n8n https://n8n.gestorconsultoria.com.co/mcp-server/http --header 'Authorization: Bearer ${N8N_API_KEY}'
+  ```
+
+  Comillas **simples**: así Claude Code expande `${N8N_API_KEY}` al arrancar.
+  Con comillas dobles en bash la clave real queda escrita en `~/.claude.json`,
+  y en PowerShell `${...}` se lee como variable de PowerShell (queda vacía).
+  Verificar con `claude mcp list` y `/mcp` en una sesión nueva.
+- **Herramientas de lectura útiles**: `search_workflows`, `get_workflow_details`
+  (nodos y conexiones, para comparar con el JSON del repo),
+  `search_workflow_executions` (últimas corridas y su estado) y
+  `get_workflow_execution` con `includeData: true` (+ `nodeNames` y
+  `truncateData` para no traerse todo) para ver el error de un nodo.
+- **Escrituras** (`update_workflow`, `publish_workflow`, …) cambian producción en
+  vivo: el repo es la fuente de verdad, así que tras cualquier cambio hecho en
+  n8n hay que reflejarlo en `n8n-workflows/*.json` (si no, el siguiente sync
+  lo revierte). Receta de comparación repo↔desplegado: comparar por nombre de
+  nodo `type`, `typeVersion`, `parameters`, ids de credenciales y `connections`.
+
+**Receta "el bot no crea grids"** (caso real 2026-10-03, ver
+[[decisiones-tecnicas]]): `search_workflow_executions` de WF1 → si todas están
+en `error` y duran 5–10 s, `get_workflow_execution` de la última con
+`includeData: true` y leer `resultData.error` (nodo + mensaje). Un 410 en el
+nodo del LLM = modelo retirado.
 
 ## CI/CD y `docs/`
 

@@ -376,6 +376,25 @@ pinneadas).
 LLM nunca discrepa (o discrepa peor), degradarlo a solo-notificación y quitarlo
 del camino crítico.
 
+## Higiene de ramas y convención de merge (2026-10-03)
+
+El repo se mergea **por squash** (PRs #5 en adelante). Consecuencias:
+
+- `git branch -d` dice "not fully merged" aunque la rama ya esté en `main`
+  (el squash crea un commit nuevo). Para decidir si es seguro borrarla, no
+  fiarse de `--merged`: comparar el asunto del commit contra `git log main`
+  (el squash conserva el título y añade `(#N)`) o el contenido de los archivos
+  tocados contra `main`.
+- Una rama local cuyo upstream sale como `[gone]` ya se borró en el origen
+  (PR mergeado + "delete branch"): revisar y borrar con `git branch -D`.
+- 2026-10-03: se limpiaron 10 ramas locales ya integradas; el origen quedó
+  solo con `main`. Los workflows reescriben producción al mergear a `main`
+  (`n8n-sync.yml`), por eso todo cambio de `n8n-workflows/*.json` va por rama
+  + PR. Los cambios solo de `docs/**` y `*.md` no despliegan nada y el dueño
+  autorizó commitearlos directo a `main` cuando son actualizaciones del cerebro.
+- Un cambio hecho a mano en n8n (como el del modelo del LLM) debe reflejarse en
+  el JSON del repo en el mismo día; ver [[n8n-sync-y-gotchas]].
+
 ## Estado de la suite de tests
 
 > **Actualización 2026-09-05 (T18)**: la suite ya no tiene fallos. Se creó

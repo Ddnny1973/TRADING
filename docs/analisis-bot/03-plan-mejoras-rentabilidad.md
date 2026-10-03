@@ -7,7 +7,7 @@ tags: [rentabilidad, grid-trading, plan, backlog, n8n, backend]
 related:
   - "[[analisis-bot-monitoreo]]"
   - "[[decisiones-tecnicas]]"
-updated: 2026-09-03
+updated: 2026-10-03
 owner: dueño del repo
 audiencia: agente de IA que va a implementar los cambios
 ---
@@ -224,6 +224,13 @@ Tablero de control del plan. **Mantenerlo actualizado es parte de cada PR.**
 | T22 | Contabilizar el **funding** en el PnL | 2 | ✅ 2026-09-06 | **Medición real (2026-07-31 → 2026-09-06): FUNDING_FEE neto = +0,235 USDT = 0,3 % del PnL de ciclos (+75,34 USDT / 416 ciclos) → NO material** (umbral 5 %). El paso 2 (columna `cumulative_funding` + dashboard) **no procede**. Queda la instrumentación: `get_income_history()` en `binance_client.py` + script `app/scripts/funding_resumen.py` (corre dentro del contenedor: `docker compose exec trading-backend python -m app.scripts.funding_resumen`) para re-medir si cambia el régimen. Hallazgo de paso: `availableBalance` **no es equity** (el inventario migra margen), no usar `account_balance` como proxy de rendimiento. Ver `04-estrategia-y-portafolio.md` §6. |
 
 **Hecho: 19/22** (T8 + T9 + T13 paso 1 + T14 + T15 + T16 + T17 + T18 + T22 + T20 paso 1). Próximo bloque recomendado: **T13 paso 2** (degradar LLM, tras 2–4 sem de datos en `bot_health_events`). T11 queda a la espera de T13 paso 2.
+
+> ⚠️ **2026-10-03 — sube la prioridad de T13 paso 2.** `deepseek-v4-flash-0731`
+> fue retirado (HTTP 410) y WF1 falló en cada corrida: el bot quedó sin crear
+> grids hasta migrar a `deepseek-v4.1-flash` (ver [[decisiones-tecnicas]]). Es la
+> segunda vez en ~2 meses que un modelo desaparece y detiene la operación. Un LLM
+> en el camino crítico es un punto único de falla para el objetivo 7/24; una vez
+> haya datos suficientes en `bot_health_events`, degradarlo a solo-notificación.
 
 > ⚠️ Hallazgo al validar la Fase 1: la suite `pytest` de `backend-python/` ya
 > tenía **21 fallos preexistentes** en `main` (verificado con un worktree limpio
