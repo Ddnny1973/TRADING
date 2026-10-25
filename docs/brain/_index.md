@@ -8,7 +8,7 @@ related:
   - "[[infra-multi-servidor]]"
   - "[[n8n-sync-y-gotchas]]"
   - "[[decisiones-tecnicas]]"
-updated: 2026-10-03
+updated: 2026-10-25
 owner: dueño del repo
 ---
 
@@ -71,6 +71,11 @@ memoria de sesiones de IA y no estaba escrito en ningún archivo del repo.
   `04-estrategia-y-portafolio.md` — por qué el grid es short-vol, qué
   estrategias añadir (y cuáles descartar) y por qué no se pueden correr dos
   estrategias sobre el mismo símbolo.
+  `05-arranque-capital-real-100usd.md` (2026-10-25) — plan para pasar a
+  dinero real con ~100 USD: viabilidad con capital chico (BTC/ETH quedan
+  fuera por nocional mínimo), escenarios de rendimiento, cripto vs bolsa,
+  pertinencia de las 22 tareas y tareas nuevas N1–N6 (GTX, stop en exchange,
+  switch de entorno, backtester).
 
 ## Puntos de entrada existentes (no duplicar, solo enlazar)
 
