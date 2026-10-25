@@ -146,6 +146,26 @@ streamable HTTP con sesión (`initialize` → header `mcp-session-id` →
 `notifications/initialized` → `tools/call`); sin sesión responde "Server not
 initialized".
 
+**Tablas sensibles bloqueadas (2026-10-25).** El alias `n8n_metrics` se conecta
+a la base **interna** de n8n con su usuario dueño, así que el guard tiene una lista
+`SENSITIVE.n8n_metrics` (regex de nombres): credenciales (`credentials_entity`,
+`credentials_backup`, `shared_credentials`, `dynamic_credential_*`…), `user`,
+`user_api_keys`, `oauth_*`, `auth_identity`, secretos, `settings`, `variables`,
+`execution_data`, `binary_data` e historiales de chat. Se rechaza cualquier
+consulta que **mencione** esos nombres (incluso dentro de un texto: es
+conservador a propósito) y `describe_db` los oculta (152 → 111 tablas). En
+todas las bases también se bloquean `pg_authid`/`pg_shadow` y las funciones
+`*_to_xml` (permitirían SQL dinámico armando el nombre de la tabla por partes).
+Verificado: `user_api_keys`, `"credentials_entity"`, `"user"`, `query_to_xml(...)`
+y `pg_authid` quedan rechazados; `metricas_personalizadas` y las tablas del bot
+siguen respondiendo. Riesgo que queda: `workflow_entity`/`workflow_history`
+(parámetros de nodos, que pueden traer secretos escritos a mano) y tablas de
+memoria de agentes siguen legibles. La solución definitiva es `claude_ro` con
+`SELECT` solo sobre las tablas de métricas.
+
+⚠️ Gotcha: el nodo Postgres de n8n **se come el `$`** de las regex del SQL (p. ej.
+`'^(a|b)$'` llega sin el `$'` y rompe la consulta). Usar `\Z` como fin de cadena.
+
 Registro en Claude Code (token en la variable de usuario de Windows
 `N8N_DB_MCP_TOKEN`, nunca en archivos):
 `claude mcp add --scope user --transport http n8n-db https://n8n.gestorconsultoria.com.co/mcp/db-query --header 'Authorization: Bearer ${N8N_DB_MCP_TOKEN}'` (ya registrado a nivel usuario). Si sale `403 Authorization data is wrong`, la app se abrió antes de crear la variable con `setx`: cerrarla del todo (también desde la bandeja) y abrirla de nuevo.
