@@ -200,3 +200,39 @@ Lo que **sí** aporta, en orden de valor:
 3. N4 (stop en el exchange) + N2 (perfil microcapital) + recalibrar T4.
 4. Piloto real de 100 USD (Fase B), con el demo en paralelo.
 5. En paralelo al piloto: N6 backtester → T20 paso 2 → selección por desempeño.
+
+> ⚠️ El orden de esta sección queda reemplazado por la §9.
+
+## 9. Decisión 2026-10-25: nada de dinero real hasta validar en demo
+
+El dueño decidió **no poner los 100 USD** hasta que la operación esté clara y se
+vea que gana algo de forma sostenida, aunque sea poco. Por eso la Fase A pasa a
+ser **validación en demo con el mismo perfil que tendría la cuenta real**.
+
+Problema de fondo: hoy el demo opera ~5.000 USD con grids de BTC/ETH que en
+real no existirían. Lo que gane ese demo no predice lo que ganarían 100 USD.
+
+| # | Tarea | Resultado esperado |
+|---|---|---|
+| A0 | **Acceso de lectura a los datos** (dashboard vía nginx + rol Postgres solo lectura) | El agente puede medir sin pedirle consultas al dueño. |
+| A1 | **Línea base** desde 2026-09-06: `strategy_pnl`, PnL por trigger, PnL/día por símbolo y por USD de margen, LLM vs determinista (`bot_health_events`) | Saber si la base post-fixes ya es rentable en demo. |
+| A2 | **Perfil microcapital en demo**: `BALANCE_CAP_USDT=100` (auto-params usa `min(balance real, cap)`), 2 grids concurrentes y `min_notional` tomado de mainnet (en testnet BTC pide 50, en real 100) | El demo se comporta exactamente como la cuenta real de 100 USD. |
+| A3 | **T13 paso 2**: puerta determinista decide, LLM solo notifica | Sin punto único de falla. |
+| A4 | **N3 órdenes post-only (GTX)** + medir % de fills taker | Fees reales garantizados. |
+| A5 | **Recalibrar SL/TP (T4)** al margen/rango del grid + **N4 stop de emergencia en el exchange** | Pérdida acotada aun con el backend caído. |
+| A6 | **T20 paso 2**: ante `TREND_REGIME`, pausar el lado que acumula | Menos daño en tendencia. |
+| A7 | **N6 backtester** con velas de mainnet (en paralelo) | Validar parámetros contra 6–12 meses, no solo contra el régimen del mes. |
+
+**Criterio para desbloquear los 100 USD reales** (4 semanas seguidas con el
+perfil A2 activo):
+
+- `strategy_pnl` > 0 **incluyendo grids cerrados**, con ≥ 3 de 4 semanas positivas.
+- ROI ≥ 2 %/mes sobre el capital simulado. Así queda margen para absorber la
+  brecha demo→real (se asume que el real logra ~50 % del demo).
+- Drawdown máximo < 10 % del capital simulado.
+- 0 periodos > 15 min sin grids por fallas propias, y 0 inventarios sin protección.
+
+**Escalado "seguro" después**: piloto real de 100 USD con el demo en paralelo
+(Fase B). Luego escalones 100 → 300 → 1.000, cada uno con 4 semanas cumpliendo el
+mismo criterio. Nunca se reponen pérdidas para "recuperar". Si un escalón falla,
+se vuelve al anterior.
