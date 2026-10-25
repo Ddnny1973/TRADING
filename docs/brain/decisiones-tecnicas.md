@@ -7,7 +7,7 @@ tags: [decisiones, ia, alcance]
 related:
   - "[[_index]]"
   - "[[n8n-sync-y-gotchas]]"
-updated: 2026-10-03
+updated: 2026-10-25
 owner: dueño del repo
 ---
 
@@ -375,6 +375,13 @@ pinneadas).
 **Pendiente: paso 2** — tras 2–4 semanas de datos en `bot_health_events`, si el
 LLM nunca discrepa (o discrepa peor), degradarlo a solo-notificación y quitarlo
 del camino crítico.
+
+**Evidencia para el paso 2 (2026-10-25, vía MCP `n8n-db`):** 195 eventos
+`DETERMINISTIC_VS_LLM_DECISION` entre 2026-09-05 y 2026-10-25 → **195/195
+`BOTH_GO`**. El LLM nunca vetó ni discrepó de la puerta determinista. El
+criterio del paso 2 se cumple. Ojo: `details` se guarda como *string* JSON
+dentro de `jsonb` (consultar con `(details#>>'{}')::jsonb->>'alignment'`), y
+`llm_reasoning` llega con mojibake (tildes rotas) desde WF1.
 
 ## Higiene de ramas y convención de merge (2026-10-03)
 

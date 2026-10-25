@@ -135,9 +135,20 @@ estos workflows asignó `Postgres aserprem` a los 3 nodos PG y `Google Workspace
 Gateway MCP` al trigger. Siempre revisar `autoAssignedCredentials` en la
 respuesta y reemplazarlas a mano antes de publicar.
 
+**Estado (2026-10-25): operativo y verificado.** Credenciales asignadas en el
+guard: `Postgres trading` (host `10.0.0.6`, puerto `9043`, base
+`trading_history`, user `trading_user` — **no** `db`, que es el Postgres de
+n8n), `Postgres n8n` y `Postgres aserprem`. Pruebas: `describe_db("trading")` →
+5 tablas; `DELETE` y `SELECT 1; DROP ...` rechazados por el guard; sin token →
+403. ⚠️ Hoy las 3 credenciales son de usuarios con permiso de escritura: el
+guard es la única barrera hasta migrar a `claude_ro`. El transporte es MCP
+streamable HTTP con sesión (`initialize` → header `mcp-session-id` →
+`notifications/initialized` → `tools/call`); sin sesión responde "Server not
+initialized".
+
 Registro en Claude Code (token en la variable de usuario de Windows
 `N8N_DB_MCP_TOKEN`, nunca en archivos):
-`claude mcp add --scope user --transport http n8n-db https://n8n.gestorconsultoria.com.co/mcp/db-query --header 'Authorization: Bearer ${N8N_DB_MCP_TOKEN}'`.
+`claude mcp add --scope user --transport http n8n-db https://n8n.gestorconsultoria.com.co/mcp/db-query --header 'Authorization: Bearer ${N8N_DB_MCP_TOKEN}'` (ya registrado a nivel usuario). Si sale `403 Authorization data is wrong`, la app se abrió antes de crear la variable con `setx`: cerrarla del todo (también desde la bandeja) y abrirla de nuevo.
 
 ## CI/CD y `docs/`
 
