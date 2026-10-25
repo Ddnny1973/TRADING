@@ -236,3 +236,57 @@ perfil A2 activo):
 (Fase B). Luego escalones 100 → 300 → 1.000, cada uno con 4 semanas cumpliendo el
 mismo criterio. Nunca se reponen pérdidas para "recuperar". Si un escalón falla,
 se vuelve al anterior.
+
+## 10. Línea base A1 (dashboard en vivo, 2026-10-25)
+
+Primera lectura directa de `/api/v1/dashboard/data`, con datos del 2026-08-02 al 2026-10-25:
+
+| Métrica | Valor | Lectura |
+|---|---|---|
+| Ciclos completados | 2.045 | El motor cosecha: ~35–65 USD/semana en las semanas normales |
+| PnL neto de ciclos | **+290,6 USD** (fees 6,8 % del bruto) | ≈ 3–5 %/mes sobre ~4.900 USD **antes** de las pérdidas de inventario |
+| `strategy_pnl` del dashboard | **−49,6 USD** | Ciclos ganados menos inventario perdido. **No fiable**, ver abajo |
+| Closure drag (51 grids cerrados) | −54,3 USD | Peor trigger: `MAX_POSITION` (11, −8,6). `EXPIRED` es el mejor (4, +21) |
+| Grids cerrados rentables | 27 % (14/51) | Objetivo del plan 03: > 60 % |
+| Grids con 0 ciclos | 36 % (37/103) | Objetivo: < 10 % |
+| Drawdown máximo | 15,7 USD (07→15 sep) | 0,3 % del balance |
+| Por símbolo (ciclos) | BTC +126,7 · ETH +119,8 · FIL +27,1 · HYPE +8,4 · SOL +5,5 · DOGE +2,6 | El 85 % sale de BTC/ETH, que **no se pueden operar con 100 USD** |
+
+Semanas 40–41 (29 sep–12 oct): 63 y 12 ciclos. Fue la caída del modelo LLM
+(HTTP 410), que costó ~2 semanas de cosecha. Es evidencia directa del valor
+económico de T13 paso 2.
+
+### Hallazgo: el dashboard no sabe contar los grids re-centrados
+
+- 48 grids aparecen como "RUNNING" en el dashboard, pero **solo 4 lo están**.
+  Son grids re-centrados (T2): `recenter_grid()` los marca CANCELED en SQLite,
+  pero **no escribe `historical_grid_logs`** en Postgres. El dashboard toma su
+  último `pnl_snapshot` como PnL "vivo" para siempre.
+- Esos 48 suman realizado **+145,3** y no realizado **−219,0** en su último
+  snapshot. Ese inventario **pasó al grid hijo**, así que no es una pérdida
+  cristalizada. Pero la contabilidad no lo sigue: el `open_pnl` (−67,8) es
+  un fantasma, y no se sabe cuánto de ese inventario se recuperó después.
+- El `account_balance` (4.912 → 4.628) es `availableBalance`: descuenta el margen
+  de las órdenes abiertas (~345 USD hoy). Una corrección gruesa ubica el
+  resultado real de los 3 meses **entre ≈ −100 y +60 USD, o sea cerca de cero**.
+
+**Conclusión de la línea base:** el motor de ciclos gana (+290), pero el
+inventario acumulado en movimientos direccionales se come casi todo. Es lo
+que predice la tesis short-vol del doc 04. **La prioridad no es cosechar más,
+es manejar mejor el inventario (T20 paso 2, A5) y medirlo bien.**
+
+### Tareas que salen de aquí (se suman a la Fase A)
+
+- **A1a — Fix del dashboard:** los grids re-centrados deben salir del PnL
+  "vivo" (escribir su cierre `RECENTERED` en `historical_grid_logs`, o excluir
+  los CANCELED de SQLite), y la cadena padre→hijo debe sumarse como una sola
+  operación.
+- **A1b — Verdad desde Binance:** endpoint de solo lectura que resuma
+  `GET /fapi/v1/income` (`REALIZED_PNL` + `COMMISSION` + `FUNDING_FEE`) por
+  período, más el PnL no realizado de las posiciones abiertas. Así se obtiene un
+  resultado neto que no depende de la contabilidad del bot. Reusa
+  `get_income_history()` (T22).
+- **Ajuste a A2:** como BTC/ETH generan el 85 % de la cosecha y quedan fuera con
+  100 USD, el demo con perfil de 100 USD es aún más necesario. Puede que la
+  conclusión sea que hacen falta ~300 USD (nocional mínimo de ETH: 20 USD) para
+  que la estrategia tenga los pares que realmente le rinden.

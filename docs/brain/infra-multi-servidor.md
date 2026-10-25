@@ -7,7 +7,7 @@ tags: [infra, deploy, nginx, docker, red]
 related:
   - "[[_index]]"
   - "[[n8n-sync-y-gotchas]]"
-updated: 2026-10-03
+updated: 2026-10-25
 owner: dueño del repo
 ---
 
@@ -125,3 +125,12 @@ El backend en sí no tiene auth propia (n8n lo llama por la IP privada
 agente sin esas credenciales no puede consultar el backend: para diagnosticar,
 usar el MCP de n8n (ver [[n8n-sync-y-gotchas]]) o pedir al dueño la salida de
 `GET /api/v1/kill-switch` y `GET /auto-params?balance=3000`.
+
+**Acceso del agente al backend (2026-10-25):** el dueño guardó las credenciales
+de nginx como variables de usuario de Windows `TRADING_DASH_USER` /
+`TRADING_DASH_PASS` (nunca en archivos ni impresas). Con ellas el agente lee
+`GET https://trading.gestorconsultoria.com.co/api/v1/dashboard/data` (~6,5 MB,
+JSON de Postgres + SQLite) desde PowerShell con header `Authorization: Basic`.
+⚠️ Esas credenciales también habilitan los POST (kill-switch, crear grids): el
+agente solo hace GET. Pendiente sugerido: usuario nginx de solo lectura
+(`limit_except GET`).
