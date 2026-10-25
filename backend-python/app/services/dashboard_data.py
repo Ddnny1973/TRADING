@@ -78,6 +78,21 @@ def compute_roi(strategy_pnl, first_balance, last_balance):
     return roi, balance_roi
 
 
+def split_live_snapshots(latest_snapshot, running_ids):
+    """
+    A1a: separa los últimos snapshots en vivos (grid RUNNING en SQLite) y
+    huérfanos (grid ya terminado pero sin fila en historical_grid_logs — los
+    re-centrados anteriores al fix, que quedaban contando su último snapshot
+    como PnL "vivo" para siempre). running_ids=None (SQLite no disponible)
+    conserva el comportamiento anterior: todo cuenta como vivo.
+    """
+    if running_ids is None:
+        return list(latest_snapshot), []
+    live = [r for r in latest_snapshot if r["grid_id"] in running_ids]
+    orphans = [r for r in latest_snapshot if r["grid_id"] not in running_ids]
+    return live, orphans
+
+
 def _compute(engine):
     with engine.connect() as conn:
         overview = fetch(conn, """
@@ -217,6 +232,7 @@ def _compute(engine):
     # --- Active operations from SQLite (real-time) ---
     active_ops = {"count": 0, "grids": []}
     current_map = {r["grid_id"]: r for r in latest_snapshot}
+    running_ids = None
     try:
         sqlite_conn = get_sqlite_connection()
         try:
@@ -225,6 +241,7 @@ def _compute(engine):
                 "leverage, quantity_per_order, grid_mode, created_at "
                 "FROM grids WHERE status = 'RUNNING'"
             ).fetchall()
+            running_ids = {g["id"] for g in running_grids}
             for g in running_grids:
                 gid = g["id"]
                 orders = sqlite_conn.execute(
@@ -272,7 +289,10 @@ def _compute(engine):
     cycles_pnl_f = num(overview["net_pnl"]) or 0.0
     closed_pnl_f = num(closed["pnl"]) or 0.0
     # PnL vivo de los grids todavía abiertos (último snapshot de cada uno).
-    open_pnl_f = sum((r["total_pnl"] or 0.0) for r in latest_snapshot)
+    # A1a: solo los RUNNING en SQLite; los huérfanos se exponen aparte.
+    live_snapshot, orphan_snapshot = split_live_snapshots(latest_snapshot, running_ids)
+    open_pnl_f = sum((r["total_pnl"] or 0.0) for r in live_snapshot)
+    orphan_pnl_f = sum((r["total_pnl"] or 0.0) for r in orphan_snapshot)
     # Resultado real de la estrategia. NO se suman los grid_cycles: su parte
     # realizada ya está incluida dentro del total_pnl de cada grid cerrado
     # (calculate_grid_pnl = realized + unrealized), sumarlos la contaría dos veces.
@@ -372,10 +392,16 @@ def _compute(engine):
         cu = current_map.get(gid, {})
         dg = drag_map.get(gid, {})
         is_closed = gid in closed_map
+        if is_closed:
+            status = "CERRADO"
+        elif running_ids is None or gid in running_ids:
+            status = "RUNNING"
+        else:
+            status = "SIN_CIERRE"  # A1a: terminado sin fila en historical_grid_logs
         per_grid.append({
             "grid_id": gid,
             "symbol": cu.get("symbol") or c.get("symbol") or cl.get("symbol"),
-            "status": "CERRADO" if is_closed else "RUNNING",
+            "status": status,
             "cycles": c.get("cycles", 0),
             "wins": c.get("wins", 0),
             "net_cycles_pnl": num(c.get("net_pnl", 0)),
@@ -415,7 +441,7 @@ def _compute(engine):
                 "account_balance": num(r["account_balance"]),
                 "open_orders_count": r["open_orders_count"],
             }
-            for r in latest_snapshot
+            for r in live_snapshot
         ],
         "equity": [
             {
@@ -480,6 +506,12 @@ def _compute(engine):
             "cycles_pnl": cycles_pnl_f,
             "closed_pnl": closed_pnl_f,
             "open_pnl": open_pnl_f,
+            # A1a: grids terminados sin cierre registrado (re-centrados antes
+            # del fix). NO entran en strategy_pnl: su inventario pasó al grid
+            # hijo y su resultado final real no quedó registrado. La cifra
+            # neta fiable es /api/v1/account/income-summary (A1b).
+            "unlogged_terminal_pnl": orphan_pnl_f,
+            "unlogged_terminal_grids": len(orphan_snapshot),
             "strategy_pnl": strategy_pnl_f,
             "combined_pnl": strategy_pnl_f,  # alias retrocompatible (template/WF3)
             "strategy_roi_pct": roi_period_pct,  # mismo ROI de estrategia (T9)

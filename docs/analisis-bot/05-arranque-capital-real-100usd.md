@@ -277,11 +277,11 @@ es manejar mejor el inventario (T20 paso 2, A5) y medirlo bien.**
 
 ### Tareas que salen de aquí (se suman a la Fase A)
 
-- **A1a — Fix del dashboard:** los grids re-centrados deben salir del PnL
+- **A1a — Fix del dashboard** (🟡 PR 2026-10-25, rama `feat/a1-recenter-dashboard-income-20261025`; además corrige el costo base heredado del grid hijo, ver `decisiones-tecnicas.md`): los grids re-centrados deben salir del PnL
   "vivo" (escribir su cierre `RECENTERED` en `historical_grid_logs`, o excluir
   los CANCELED de SQLite), y la cadena padre→hijo debe sumarse como una sola
   operación.
-- **A1b — Verdad desde Binance:** endpoint de solo lectura que resuma
+- **A1b — Verdad desde Binance** (🟡 mismo PR, `GET /api/v1/account/income-summary`): endpoint de solo lectura que resuma
   `GET /fapi/v1/income` (`REALIZED_PNL` + `COMMISSION` + `FUNDING_FEE`) por
   período, más el PnL no realizado de las posiciones abiertas. Así se obtiene un
   resultado neto que no depende de la contabilidad del bot. Reusa

@@ -192,7 +192,9 @@ class GridService:
                            leverage: Optional[int] = None,
                            grid_mode: str = "NEUTRAL",
                            parent_grid_id: Optional[str] = None,
-                           recenter_count: int = 0) -> Dict[str, Any]:
+                           recenter_count: int = 0,
+                           inherited_qty: Optional[Decimal] = None,
+                           inherited_price: Optional[Decimal] = None) -> Dict[str, Any]:
         """
         Calculate grid levels, place LIMIT orders on Binance and persist the grid.
 
@@ -394,20 +396,24 @@ class GridService:
                 "leverage INTEGER DEFAULT 3",
                 "quantity_per_order NUMERIC",
                 "grid_mode TEXT DEFAULT 'NEUTRAL'",
+                "inherited_qty TEXT",
+                "inherited_price TEXT",
             ):
                 try:
                     cursor.execute(f"ALTER TABLE grids ADD COLUMN {column_def}")
                 except Exception:
                     pass  # column already exists
             cursor.execute(
-                """INSERT INTO grids (id, symbol, lower_price, upper_price, levels, grid_type, status, stop_loss, take_profit, max_duration_hours, leverage, quantity_per_order, grid_mode, parent_grid_id, recenter_count)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO grids (id, symbol, lower_price, upper_price, levels, grid_type, status, stop_loss, take_profit, max_duration_hours, leverage, quantity_per_order, grid_mode, parent_grid_id, recenter_count, inherited_qty, inherited_price)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (grid_id, symbol, str(engine.lower_price), str(engine.upper_price), levels, grid_type, "RUNNING",
                  str(stop_loss) if stop_loss is not None else None,
                  str(take_profit) if take_profit is not None else None,
                  str(max_duration_hours) if max_duration_hours is not None else None,
                  effective_leverage, str(quantized_qty), grid_mode,
-                 parent_grid_id, recenter_count)
+                 parent_grid_id, recenter_count,
+                 str(inherited_qty) if inherited_qty else None,
+                 str(inherited_price) if inherited_qty and inherited_price is not None else None)
             )
             orders_placed = 0
             for spec, order in order_results:
@@ -1040,6 +1046,38 @@ class GridService:
             logger.warning(f"Could not fetch commission rate for {symbol}: {e}")
         return Decimal("0.0002")
 
+    @staticmethod
+    def _orders_for_pnl(grid: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Orders that calculate_grid_pnl() must see for this grid (A1a).
+
+        A re-centred grid inherits its parent's inventory without placing an
+        order for it. Without a cost basis, the child books the sells that
+        unwind that inventory as a fresh short and values it against the
+        current price, so parent + child stop adding up. The inherited
+        position enters as a synthetic fill at the re-centre mark price — the
+        same price the parent's closing PnL was marked at, so the chain sums
+        exactly (up to one maker fee on the inherited notional).
+        """
+        orders = list(grid.get("orders") or [])
+        raw_qty = grid.get("inherited_qty")
+        raw_price = grid.get("inherited_price")
+        if not raw_qty or not raw_price:
+            return orders
+        qty = Decimal(str(raw_qty))
+        if qty == 0:
+            return orders
+        price = Decimal(str(raw_price))
+        orders.insert(0, {
+            "side": "BUY" if qty > 0 else "SELL",
+            "price": price,
+            "quantity": abs(qty),
+            "executed_qty": abs(qty),
+            "avg_fill_price": price,
+            "status": "FILLED",
+        })
+        return orders
+
     async def get_grid_pnl(self, grid_id: str, current_price: Optional[Decimal] = None) -> Optional[Dict[str, Any]]:
         """
         Fetch a grid's current orders + mark price and compute PnL via the
@@ -1064,7 +1102,8 @@ class GridService:
                 raise ValueError(f"Could not fetch current price for {grid['symbol']}")
             current_price = Decimal(str(price_data["price"]))
 
-        pnl = calculate_grid_pnl(grid["orders"], current_price, fee_rate=await self._effective_fee_rate(grid["symbol"]))
+        pnl = calculate_grid_pnl(self._orders_for_pnl(grid), current_price,
+                                 fee_rate=await self._effective_fee_rate(grid["symbol"]))
         return {
             "grid_id": grid_id,
             "symbol": grid["symbol"],
@@ -1272,6 +1311,16 @@ class GridService:
         recenter_count = int(grid.get("recenter_count") or 0)
         symbol = grid["symbol"]
 
+        # A1a: mark the parent to market BEFORE touching anything. Its total_pnl
+        # at the re-centre price is its final result; the child inherits the
+        # inventory at that same price (cost basis), so the chain adds up.
+        parent_pnl = None
+        try:
+            parent_pnl = await self.get_grid_pnl(grid_id)
+        except ValueError:
+            pass  # mark price unavailable: log the closure without PnL rather than abort
+        recenter_price = parent_pnl["current_price"] if parent_pnl else None
+
         # 1) Cancel open orders, keep inventory (no market close).
         ok = await self.binance.cancel_all_open_orders(symbol)
         if not ok:
@@ -1314,10 +1363,15 @@ class GridService:
             grid_mode=mode,
             parent_grid_id=grid_id,
             recenter_count=recenter_count + 1,
+            inherited_qty=position_amt if recenter_price is not None else None,
+            inherited_price=recenter_price,
         )
 
-        # 5) Record RECENTERED in grid_closures once the new grid exists.
+        # 5) Record RECENTERED in grid_closures once the new grid exists, with
+        # the parent's real marked PnL (it used to be a hard-coded "0", which
+        # made the inventory loss/gain vanish from every aggregate).
         new_grid_id = new_grid["id"]
+        total_pnl_str = str(parent_pnl.get("total_pnl", "0")) if parent_pnl else "0"
         try:
             conn = get_sqlite_connection()
             try:
@@ -1326,13 +1380,17 @@ class GridService:
                     """INSERT INTO grid_closures
                        (grid_id, symbol, trigger_condition, total_pnl, position_amt_at_close, parent_grid_id)
                        VALUES (?, ?, ?, ?, ?, ?)""",
-                    (grid_id, symbol, "RECENTERED", "0", str(position_amt), new_grid_id)
+                    (grid_id, symbol, "RECENTERED", total_pnl_str, str(position_amt), new_grid_id)
                 )
                 conn.commit()
             finally:
                 conn.close()
         except Exception as e:
             print(f"Warning: could not insert RECENTERED grid_closure for {grid_id}: {e}")
+
+        # A1a: the parent is terminal — log it to historical_grid_logs so the
+        # dashboard stops treating its last pnl_snapshot as live PnL forever.
+        self._log_grid_closure(self.get_grid(grid_id), parent_pnl, "RECENTERED")
 
         return {
             "old_grid_id": grid_id,

@@ -883,6 +883,18 @@ class BinanceClient:
         result = await self._signed_request("GET", "/fapi/v1/income", params)
         return result if isinstance(result, list) else None
 
+    async def get_account_info(self) -> Optional[Dict[str, Any]]:
+        """
+        GET /fapi/v2/account — totales de la cuenta de futuros.
+
+        A1b: a diferencia de /fapi/v2/balance (availableBalance, que descuenta
+        el margen de órdenes y posiciones), aquí vienen totalWalletBalance,
+        totalUnrealizedProfit (incluye posiciones ISOLATED) y totalMarginBalance
+        (= equity). Devuelve el dict crudo de Binance o None si falla.
+        """
+        result = await self._signed_request("GET", "/fapi/v2/account", {})
+        return result if isinstance(result, dict) else None
+
     async def get_open_orders(self, symbol: str) -> Optional[List[Dict[str, Any]]]:
         """
         Get all open orders for a symbol in a single request.
