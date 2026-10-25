@@ -7,7 +7,7 @@ tags: [n8n, ci-cd, api, powershell]
 related:
   - "[[_index]]"
   - "[[infra-multi-servidor]]"
-updated: 2026-10-03
+updated: 2026-10-25
 owner: dueño del repo
 ---
 
@@ -105,6 +105,39 @@ sin entrar a la UI:
 en `error` y duran 5–10 s, `get_workflow_execution` de la última con
 `includeData: true` y leer `resultData.error` (nodo + mensaje). Un 410 en el
 nodo del LLM = modelo retirado.
+
+## MCP de consultas Postgres de solo lectura (2026-10-25)
+
+Para que un agente lea bases Postgres sin túneles ni accesos directos, se
+crearon dos workflows en n8n (proyecto personal del dueño, **no** viven en
+`n8n-workflows/` ni los sincroniza CI):
+
+- **`DB Query MCP (solo lectura)`** (`NQ5ZhRQN1ApFBUTs`): nodo MCP Server Trigger
+  con path `db-query`, auth **Bearer** (credencial propia `DB Query MCP - Bearer`)
+  y dos herramientas: `describe_db(db)` y `query_db(db, sql, limit)`.
+- **`DB Query Guard (solo lectura)`** (`VLrYCl8fkTEy6VWu`): sub-workflow que
+  valida (alias permitido; una sola sentencia `SELECT`/`WITH`/`EXPLAIN`; lista
+  negra de palabras como `insert`, `copy`, `into`, `pg_read_file`, `dblink`;
+  `LIMIT` ≤ 500; respuesta ≤ ~150 KB), enruta por alias con un Switch a un nodo
+  Postgres por base y formatea la salida.
+
+Alias: `trading` (`postgres-trading`), `n8n_metrics` (Postgres de n8n),
+`aserprem` (solo las tablas autorizadas). **La barrera real es el rol
+`claude_ro` de cada base** (`default_transaction_read_only = on`,
+`statement_timeout = 30s`, solo `SELECT`). El filtro del guard es una defensa
+extra. Agregar una base = alias en "Validar consulta" + rama en "Enrutar por
+base" + nodo Postgres con su credencial `claude_ro`. La auditoría es el
+historial de ejecuciones del guard (SQL + alias + resultado).
+
+⚠️ **Gotcha de `create_workflow_from_code`:** n8n **auto-asigna credenciales
+existentes del mismo tipo** cuando el código usa `newCredential(...)`. Al crear
+estos workflows asignó `Postgres aserprem` a los 3 nodos PG y `Google Workspace
+Gateway MCP` al trigger. Siempre revisar `autoAssignedCredentials` en la
+respuesta y reemplazarlas a mano antes de publicar.
+
+Registro en Claude Code (token en la variable de usuario de Windows
+`N8N_DB_MCP_TOKEN`, nunca en archivos):
+`claude mcp add --scope user --transport http n8n-db https://n8n.gestorconsultoria.com.co/mcp/db-query --header 'Authorization: Bearer ${N8N_DB_MCP_TOKEN}'`.
 
 ## CI/CD y `docs/`
 
