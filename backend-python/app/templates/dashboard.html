@@ -303,7 +303,7 @@ pg.innerHTML = DATA.per_grid.length
       pnlSpan(g.net_cycles_pnl),
       money(g.fees),
       g.closed_pnl !== null ? pnlSpan(g.closed_pnl) : '<span class="zero">' + (g.current_pnl !== null && g.current_pnl !== undefined ? money(g.current_pnl) : '—') + '</span>',
-      g.trigger || (g.status === 'RUNNING' ? 'en curso' : '—')
+      g.trigger || (g.status === 'RUNNING' ? 'en curso' : g.status === 'SIN_CIERRE' ? 'sin cierre registrado' : '—')
     ])).join('')
   : '<div class="empty">Sin grids aún.</div>';
 

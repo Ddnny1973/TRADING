@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from app.core.config import settings
 from app.database.connection import init_db, postgres_engine
 from app.services.dashboard_data import build_dashboard_data, render_dashboard_html
+from app.services.account_summary import build_income_summary, MAX_LOOKBACK_DAYS as MAX_INCOME_LOOKBACK_DAYS
 from app.schemas.grid_schema import GridRequest, GridResponse, GridDetailResponse, GridPnlResponse, GridCloseCheckResponse, MarketAnalysisResponse, AutoParamsResponse, AutoParamsParams
 from app.auto_params import auto_derive_params
 from app.config_auto_params import MAX_RISK_PCT, LEVELS_BOUNDS, LEVERAGE_BOUNDS, SYMBOL_CACHE_TTL_SECONDS
@@ -59,7 +60,7 @@ grid_service = GridService()
 
 # Marcador de versión del código: visible en /health y /auto-params para
 # verificar remotamente qué build está corriendo (sin acceso a logs)
-CODE_VERSION = "v1.16.0-t20-regime"
+CODE_VERSION = "v1.17.0-a1-recenter-income"
 
 # Cache de respuestas completas de /auto-params: (balance_bucket, symbol) → (ts, result)
 _auto_params_cache: dict = {}
@@ -153,6 +154,29 @@ async def dashboard_data():
     if postgres_engine is None:
         raise HTTPException(status_code=503, detail="PostgreSQL no disponible")
     return build_dashboard_data(postgres_engine)
+
+
+_INCOME_SUMMARY_TTL_SECONDS = 300
+_income_summary_cache: Dict[int, Any] = {}
+
+
+@app.get("/api/v1/account/income-summary", tags=["Dashboard"])
+async def account_income_summary(days: int = 30):
+    """
+    A1b: resultado neto real desde Binance (/fapi/v1/income + /fapi/v2/account),
+    independiente de la contabilidad interna del bot. net_trading = PnL
+    realizado + comisiones + funding del período; net_with_open suma el PnL no
+    realizado actual. Las transferencias se reportan aparte. days ≤ 90 (límite
+    de Binance). Cache de 5 min por valor de days.
+    """
+    if days < 1 or days > MAX_INCOME_LOOKBACK_DAYS:
+        raise HTTPException(status_code=422, detail=f"days debe estar entre 1 y {MAX_INCOME_LOOKBACK_DAYS}")
+    cached = _income_summary_cache.get(days)
+    if cached and time.time() - cached[0] < _INCOME_SUMMARY_TTL_SECONDS:
+        return cached[1]
+    summary = await build_income_summary(grid_service.binance, days)
+    _income_summary_cache[days] = (time.time(), summary)
+    return summary
 
 
 # ==========================================

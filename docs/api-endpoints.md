@@ -215,6 +215,23 @@ Dataset completo en JSON (mismo esquema que el template espera). Útil para cons
 
 **Respuesta:** `200` JSON. `503` si Postgres no está disponible.
 
+Desde A1a (`v1.17.0`): `current` y `profitability.open_pnl` solo cuentan los grids RUNNING en SQLite. Los grids terminados sin fila en `historical_grid_logs` (re-centrados antes del fix) salen en `profitability.unlogged_terminal_pnl` / `unlogged_terminal_grids` y aparecen en `per_grid` con `status = "SIN_CIERRE"`.
+
+### Resultado neto real desde Binance (A1b)
+```
+GET /api/v1/account/income-summary?days=30
+```
+Resultado de la cuenta leído de Binance (`/fapi/v1/income` + `/fapi/v2/account`), independiente de la contabilidad interna del bot.
+
+- `net_trading` = `realized_pnl` + `commission` + `funding` del período.
+- `net_with_open` = `net_trading` + PnL no realizado actual (`account.unrealized_pnl`).
+- `transfers` (recargas del faucet, etc.) se reporta aparte y **no** cuenta como resultado.
+- `by_symbol`, `per_day`, `by_type` (todos los tipos de income) y `account` (`wallet_balance`, `unrealized_pnl`, `margin_balance`, `available_balance`).
+
+`days` entre 1 y 90 (Binance conserva ~3 meses de income). Cache de 5 min por valor de `days`.
+
+**Respuesta:** `200` JSON. `422` si `days` está fuera de rango.
+
 ---
 
 ## Documentación

@@ -383,6 +383,53 @@ criterio del paso 2 se cumple. Ojo: `details` se guarda como *string* JSON
 dentro de `jsonb` (consultar con `(details#>>'{}')::jsonb->>'alignment'`), y
 `llm_reasoning` llega con mojibake (tildes rotas) desde WF1.
 
+## A1a + A1b: contabilidad de re-centrados y resultado real desde Binance (2026-10-25, rama `feat/a1-recenter-dashboard-income-20261025`)
+
+Origen: la línea base del 2026-10-25 (`docs/analisis-bot/05` §10) encontró que
+el dashboard mostraba 48 grids "RUNNING" cuando solo había 4, y que el
+`strategy_pnl` no era fiable.
+
+**A1a — dos errores contables en la cadena de re-centrado (T2):**
+
+1. `recenter_grid()` marcaba el padre CANCELED en SQLite pero **no escribía
+   `historical_grid_logs`** y dejaba `total_pnl = "0"` en `grid_closures`. El
+   dashboard tomaba su último `pnl_snapshot` como PnL vivo para siempre, y la
+   pérdida o ganancia del inventario desaparecía de `_daily_closed_pnl_usdt`
+   (kill-switch).
+2. **El hijo no tenía costo base del inventario heredado.**
+   `calculate_grid_pnl` solo ve las órdenes del grid, así que las ventas que
+   descargan lo heredado se contaban como un short nuevo valorado contra el
+   precio actual. Padre + hijo quedaba desviado en `Q × (P_recentrado − P_actual)`.
+
+Fix: `recenter_grid` marca el padre a mercado **antes** de cancelar
+(`get_grid_pnl`) y registra ese `total_pnl` en `grid_closures` y en
+`historical_grid_logs` (trigger `RECENTERED`). El hijo recibe
+`inherited_qty`/`inherited_price` (columnas nuevas en `grids`, auto-migradas), y
+`GridService._orders_for_pnl()` inserta una orden sintética con ese costo antes
+de `calculate_grid_pnl`. Error residual: una fee maker (~0,02 %) sobre el
+nocional heredado. Efecto colateral buscado: `_daily_closed_pnl_usdt` ahora ve
+la pérdida marcada de un re-centrado (antes era 0), así que el kill-switch es
+más fiel. El dashboard solo cuenta como vivo el snapshot de grids RUNNING en
+SQLite (`split_live_snapshots`). Los huérfanos históricos se exponen como
+`unlogged_terminal_*` y **no** se suman a `strategy_pnl`. No se rellenó la
+historia: esos 48 grids se contabilizaron sin costo base heredado, así que su
+cifra no es reconstruible desde el bot. La verdad histórica sale de A1b.
+`scripts/dashboard/export_data.py` (offline, sin SQLite) conserva el
+comportamiento anterior.
+
+**A1b — `GET /api/v1/account/income-summary?days=N`** (`app/services/account_summary.py`):
+suma `REALIZED_PNL + COMMISSION + FUNDING_FEE` de `/fapi/v1/income` (paginado,
+≤ 90 días) y le agrega `totalUnrealizedProfit` de `/fapi/v2/account`
+(`get_account_info()`, nuevo). Las transferencias se reportan aparte. Es la
+cifra neta que **no depende de la contabilidad del bot**: usarla como verdad
+para el criterio de la Fase A. `funding_resumen.py` reutiliza
+`fetch_all_income`.
+
+`CODE_VERSION` → `v1.17.0-a1-recenter-income`. Tests:
+`tests/test_a1_recenter_accounting.py` (6) y `tests/test_account_summary.py`
+(4). Suite local: 139/139 con dependencias recientes en Python 3.14; CI usa las
+versiones fijadas.
+
 ## Higiene de ramas y convención de merge (2026-10-03)
 
 El repo se mergea **por squash** (PRs #5 en adelante). Consecuencias:

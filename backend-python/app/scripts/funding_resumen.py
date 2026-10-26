@@ -31,6 +31,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import text
 
 from app.database.connection import postgres_engine
+from app.services.account_summary import fetch_all_income
 from app.services.binance_client import BinanceClient
 
 
@@ -66,25 +67,8 @@ def resumir_income(registros: List[Dict[str, Any]]) -> Tuple[Dict[str, float], D
 
 async def _traer_income(client: BinanceClient, start_ms: int,
                         income_type: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Página todo el historial de income desde start_ms (limit 1000 por call,
-    avanza start_time al último registro recibido para no perder registros
-    contiguos de mismo timestamp)."""
-    todos: List[Dict[str, Any]] = []
-    start = start_ms
-    for _ in range(60):  # tope de seguridad; ~60 páginas cubren muy de sobra
-        batch = await client.get_income_history(
-            income_type=income_type, start_time=start, limit=1000)
-        if not batch:
-            break
-        todos.extend(batch)
-        if len(batch) < 1000:
-            break
-        last_time = max(int(r.get("time") or start) for r in batch)
-        if last_time <= start:
-            # No avanzó (timestamps repetidos): evitar loop infinito.
-            break
-        start = last_time + 1
-    return todos
+    """Página todo el historial de income desde start_ms (ver fetch_all_income)."""
+    return await fetch_all_income(client, start_ms, income_type)
 
 
 def _querys_analitica() -> dict:

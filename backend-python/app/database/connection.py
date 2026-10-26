@@ -129,6 +129,15 @@ def init_sqlite_tables():
         except sqlite3.OperationalError:
             pass
 
+    # A1a: inventario heredado al re-centrar (cantidad con signo + precio de
+    # marca del re-centrado). El grid hijo lo usa como costo base para que la
+    # cadena padre→hijo no pierda ni duplique el PnL del inventario.
+    for column_def in ("inherited_qty TEXT", "inherited_price TEXT"):
+        try:
+            cursor.execute(f"ALTER TABLE grids ADD COLUMN {column_def}")
+        except sqlite3.OperationalError:
+            pass
+
     # Anti-race index: enforce one RUNNING grid per symbol (Paso 13)
     try:
         cursor.execute(
