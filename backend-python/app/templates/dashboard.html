@@ -63,7 +63,7 @@
 </section>
 
 <section>
-  <h2>Curva de equity (pnl_snapshots por refresh)</h2>
+  <h2>Curva de equity (por hora)</h2>
   <div id="equityChart"></div>
 </section>
 
@@ -168,39 +168,67 @@ function setVal(id, text, cls) {
 
 // ---- Gráficas SVG ----
 const SVG_NS = 'http://www.w3.org/2000/svg';
-function svgLine(containerId, points, opts) {
+// Curva de equity: eje X proporcional al tiempo, sin un círculo por punto (con
+// miles de puntos se volvían una banda sólida) y lectura del valor al pasar el mouse.
+function svgEquity(containerId, points, opts) {
   const el = document.getElementById(containerId);
   if (!points.length) { el.innerHTML = '<div class="empty">Sin datos aún — aparecerá tras el primer refresh con grid activo.</div>'; return; }
-  const W = 900, H = 260, PAD = { t: 16, r: 12, b: 30, l: 62 };
-  const vals = points.map(p => p.value);
+  const W = 900, H = 280, PAD = { t: 16, r: 12, b: 30, l: 62 };
+  const ts = points.map(p => new Date(p.t).getTime());
+  const vals = points.flatMap(p => [p.total, p.closed]).concat([0]);
   let min = Math.min(...vals), max = Math.max(...vals);
   if (min === max) { min -= 1; max += 1; }
   const span = max - min;
-  min -= span * 0.1; max += span * 0.1;
+  min -= span * 0.08; max += span * 0.08;
+  const t0 = ts[0], t1 = ts[ts.length - 1] === t0 ? t0 + 1 : ts[ts.length - 1];
   const iw = W - PAD.l - PAD.r, ih = H - PAD.t - PAD.b;
-  const x = i => PAD.l + (points.length === 1 ? iw / 2 : iw * i / (points.length - 1));
+  const x = t => PAD.l + iw * (t - t0) / (t1 - t0);
   const y = v => PAD.t + ih - (v - min) / (max - min) * ih;
   let grid = '', labels = '';
-  const ticks = 4;
-  for (let t = 0; t <= ticks; t++) {
-    const v = min + (max - min) * t / ticks;
-    const yy = y(v);
+  for (let k = 0; k <= 4; k++) {
+    const v = min + (max - min) * k / 4, yy = y(v);
     grid += `<line x1="${PAD.l}" y1="${yy}" x2="${W-PAD.r}" y2="${yy}" stroke="#2a3440" stroke-width="1"/>`;
     labels += `<text x="${PAD.l-8}" y="${yy+4}" fill="#8b98a5" font-size="11" text-anchor="end">${FMT_NUM.format(v)}</text>`;
   }
-  const path = points.map((p,i) => `${i===0?'M':'L'}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ');
-  const area = `${path} L${x(points.length-1).toFixed(1)},${y(min)} L${x(0).toFixed(1)},${y(min)} Z`;
-  const circles = points.map((p,i) =>
-    `<circle cx="${x(i)}" cy="${y(p.value)}" r="3" fill="#58a6ff"><title>${p.label || (i+1)} · ${money(p.value)}</title></circle>`).join('');
-  const xi = idx => points.length === 1 ? PAD.l + iw/2 : PAD.l + iw * idx / (points.length - 1);
-  const ticksX = [0, Math.floor((points.length-1)/2), points.length-1];
-  const xl = ticksX.map(i => `<text x="${xi(i)}" y="${H-10}" fill="#8b98a5" font-size="11" text-anchor="${i===0?'start':i===points.length-1?'end':'middle'}">${points[i].xlabel || ''}</text>`).join('');
-  const svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="${SVG_NS}">
-    ${grid}${labels}${xl}
-    <path d="${area}" fill="#58a6ff" opacity="0.12"/>
-    <path d="${path}" fill="none" stroke="#58a6ff" stroke-width="2"/>
-    ${circles}</svg>`;
+  const zero = `<line x1="${PAD.l}" y1="${y(0)}" x2="${W-PAD.r}" y2="${y(0)}" stroke="#8b98a5" stroke-width="1" stroke-dasharray="4 4"/>`;
+  let xl = '';
+  for (let k = 0; k <= 5; k++) {
+    const t = t0 + (t1 - t0) * k / 5;
+    xl += `<text x="${x(t)}" y="${H-10}" fill="#8b98a5" font-size="11" text-anchor="${k===0?'start':k===5?'end':'middle'}">${new Date(t).toLocaleDateString('es-CO', { day:'numeric', month:'short' })}</text>`;
+  }
+  const line = key => points.map((p,i) => `${i===0?'M':'L'}${x(ts[i]).toFixed(1)},${y(p[key]).toFixed(1)}`).join(' ');
+  const total = line('total');
+  const area = `${total} L${x(ts[ts.length-1]).toFixed(1)},${y(0)} L${x(ts[0]).toFixed(1)},${y(0)} Z`;
+  const svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="${SVG_NS}" style="cursor:crosshair">
+    ${grid}${labels}${xl}${zero}
+    <path d="${area}" fill="#58a6ff" opacity="0.10"/>
+    <path d="${line('closed')}" fill="none" stroke="#d29922" stroke-width="1.5" stroke-dasharray="5 3"/>
+    <path d="${total}" fill="none" stroke="#58a6ff" stroke-width="1.8" stroke-linejoin="round"/>
+    <g class="hover" style="display:none">
+      <line class="hl" y1="${PAD.t}" y2="${PAD.t+ih}" stroke="#8b98a5" stroke-width="1"/>
+      <circle class="hc" r="4" fill="#58a6ff" stroke="#0f1419" stroke-width="2"/>
+      <text class="ht" y="${PAD.t+12}" fill="#e6edf3" font-size="12"></text>
+    </g></svg>`;
   el.innerHTML = (opts && opts.legend ? `<div class="legend">${opts.legend}</div>` : '') + svg;
+
+  const svgEl = el.querySelector('svg'), hover = svgEl.querySelector('.hover');
+  const hl = hover.querySelector('.hl'), hc = hover.querySelector('.hc'), ht = hover.querySelector('.ht');
+  svgEl.addEventListener('mousemove', ev => {
+    const r = svgEl.getBoundingClientRect();
+    const t = t0 + ((ev.clientX - r.left) * W / r.width - PAD.l) / iw * (t1 - t0);
+    let i = ts.findIndex(v => v >= t);
+    if (i < 0) i = ts.length - 1;
+    if (i > 0 && t - ts[i-1] < ts[i] - t) i--;
+    const p = points[i], px = x(ts[i]);
+    hl.setAttribute('x1', px); hl.setAttribute('x2', px);
+    hc.setAttribute('cx', px); hc.setAttribute('cy', y(p.total));
+    ht.textContent = `${iso2str(p.t)} · total ${money(p.total)} (cierres ${money(p.closed)} + abiertos ${money(p.open)})`;
+    const right = px > W / 2;
+    ht.setAttribute('x', right ? px - 8 : px + 8);
+    ht.setAttribute('text-anchor', right ? 'end' : 'start');
+    hover.style.display = '';
+  });
+  svgEl.addEventListener('mouseleave', () => { hover.style.display = 'none'; });
 }
 
 function svgBar(containerId, items, opts) {
@@ -234,12 +262,13 @@ function svgBar(containerId, items, opts) {
   el.innerHTML = (opts && opts.legend ? `<div class="legend">${opts.legend}</div>` : '') + svg;
 }
 
-// Equity: total_pnl agregado por taken_at
-svgLine('equityChart', DATA.equity.map(p => ({
-  value: p.total_pnl || 0,
-  label: iso2str(p.taken_at),
-  xlabel: iso2str(p.taken_at).split(',')[0]
-})), { legend: 'PnL total (realizado + no realizado), sumado entre grids por cada refresh.' });
+// Equity horaria: cierres acumulados + último PnL de cada grid abierto
+svgEquity('equityChart', DATA.equity.map(p => ({
+  t: p.taken_at,
+  total: p.total_pnl || 0,
+  closed: p.closed_pnl || 0,
+  open: p.open_pnl || 0
+})), { legend: '<span style="color:#58a6ff">━ PnL de la estrategia</span> (cierres + grids abiertos) · <span style="color:#d29922">╍ solo cierres acumulados</span> · la distancia entre ambas es lo que está en juego en los grids abiertos.' });
 
 // Ciclos por día: net_pnl (barra)
 svgBar('dayChart', DATA.per_day.map(d => ({ label: iso2day(d.day), value: d.net_pnl })), { legend: 'PnL neto del día (verde=positivo, rojo=negativo).' });

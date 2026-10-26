@@ -7,7 +7,7 @@ tags: [decisiones, ia, alcance]
 related:
   - "[[_index]]"
   - "[[n8n-sync-y-gotchas]]"
-updated: 2026-10-25
+updated: 2026-10-26
 owner: dueño del repo
 ---
 
@@ -294,6 +294,20 @@ default RECENTER):
 rentables** (`closed_pnl > 0` / total cerrados, reemplaza el win-rate de ciclos),
 **grids con 0 ciclos** y **drawdown máximo** con fechas. Permite verificar si T2
 (no liquidar) y T3 (no gatillar cierre) funcionaron de verdad.
+
+**Fix de la curva de equity (2026-10-26, rama `fix/dashboard-equity-curve-20261026`):**
+la curva agrupaba `pnl_snapshots` por `taken_at`, pero cada grid escribe su
+snapshot con su propio timestamp (40.621 snapshots = 40.621 timestamps
+distintos). Cada punto era **un solo grid**: la línea saltaba entre grids en
+cada refresh (la "banda gruesa") y el **drawdown máximo salía de esa serie, o
+sea era falso**. Ahora `build_equity_curve()` arma una serie horaria: cierres
+acumulados (`historical_grid_logs`) + último PnL de cada grid abierto
+(arrastrado hasta que cierra). Un grid terminado sin cierre (re-centrado antes de
+A1a) sale tras su último snapshot, igual que en `strategy_pnl`, así que la curva
+termina en el mismo valor que esa tarjeta. El gráfico usa eje X proporcional al
+tiempo, dibuja aparte la línea de solo cierres y muestra el valor al pasar el
+mouse (antes había un `<circle>` por snapshot). `scripts/dashboard/export_data.py`
+(offline) no se cambió. Tests: `tests/test_dashboard_equity.py` (8).
 
 ## T10: relanzar WF1 al cerrar un grid (2026-09-03, rama `feat/continuidad-t10-t12-20260903`)
 

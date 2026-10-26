@@ -249,7 +249,7 @@ Primera lectura directa de `/api/v1/dashboard/data`, con datos del 2026-08-02 al
 | Closure drag (51 grids cerrados) | −54,3 USD | Peor trigger: `MAX_POSITION` (11, −8,6). `EXPIRED` es el mejor (4, +21) |
 | Grids cerrados rentables | 27 % (14/51) | Objetivo del plan 03: > 60 % |
 | Grids con 0 ciclos | 36 % (37/103) | Objetivo: < 10 % |
-| Drawdown máximo | 15,7 USD (07→15 sep) | 0,3 % del balance |
+| Drawdown máximo | ~~15,7 USD (07→15 sep)~~ **≈ 23 USD (2→15 sep)** | 0,5 % del balance. El 15,7 salía de una curva mal armada (cada punto era un solo grid). Valor recalculado el 2026-10-26 con la curva corregida, a resolución de 6 h |
 | Por símbolo (ciclos) | BTC +126,7 · ETH +119,8 · FIL +27,1 · HYPE +8,4 · SOL +5,5 · DOGE +2,6 | El 85 % sale de BTC/ETH, que **no se pueden operar con 100 USD** |
 
 Semanas 40–41 (29 sep–12 oct): 63 y 12 ciclos. Fue la caída del modelo LLM

@@ -48,6 +48,11 @@ def iso(dt):
     return dt.isoformat()
 
 
+def _raw(v):
+    """Sin conversión (datetimes que se comparan en Python)."""
+    return v
+
+
 def cast_row(row, fields):
     """row: SQLAlchemy Row; fields: lista de (columna, función de cast)."""
     m = row._mapping
@@ -91,6 +96,83 @@ def split_live_snapshots(latest_snapshot, running_ids):
     live = [r for r in latest_snapshot if r["grid_id"] in running_ids]
     orphans = [r for r in latest_snapshot if r["grid_id"] not in running_ids]
     return live, orphans
+
+
+def build_equity_curve(hourly_snapshots, closures, running_ids):
+    """
+    Curva de equity horaria de la estrategia: PnL de cierres acumulado + último
+    PnL conocido de cada grid abierto (se arrastra hasta que el grid cierra).
+
+    Antes se agrupaba pnl_snapshots por taken_at, pero cada grid escribe su
+    snapshot con su propio timestamp: cada "punto" era UN solo grid y la línea
+    saltaba de grid en grid en cada refresh (la banda gruesa del gráfico).
+
+    hourly_snapshots: [{hour, grid_id, total_pnl, account_balance}] — último
+        snapshot de cada grid en cada hora (datetimes).
+    closures: [{grid_id, closed_at, total_pnl}] de historical_grid_logs.
+    running_ids: grids RUNNING en SQLite, o None si no se pudo leer. Un grid que
+        no cerró ni sigue RUNNING (re-centrado antes de A1a) sale de la curva
+        tras su último snapshot, igual que sale de strategy_pnl.
+    """
+    closures = sorted(closures, key=lambda c: c["closed_at"])
+    closed_ids = {c["grid_id"] for c in closures}
+    last_hour = {}
+    for s in hourly_snapshots:
+        last_hour[s["grid_id"]] = s["hour"]
+
+    snaps = sorted(hourly_snapshots, key=lambda s: s["hour"])
+    open_pnl = {}
+    closed_done = set()
+    closed_cum = 0.0
+    ci = 0
+    balance = None
+    points = []
+    i = 0
+    while i < len(snaps):
+        hour = snaps[i]["hour"]
+        # Cierres hasta el inicio de esta hora: entran al acumulado y el grid sale de lo abierto
+        while ci < len(closures) and closures[ci]["closed_at"] < hour:
+            c = closures[ci]
+            closed_cum += c["total_pnl"] or 0.0
+            closed_done.add(c["grid_id"])
+            open_pnl.pop(c["grid_id"], None)
+            ci += 1
+        while i < len(snaps) and snaps[i]["hour"] == hour:
+            s = snaps[i]
+            if s["grid_id"] not in closed_done:
+                open_pnl[s["grid_id"]] = s["total_pnl"] or 0.0
+            if s["account_balance"] is not None:
+                balance = s["account_balance"]
+            i += 1
+        open_sum = sum(open_pnl.values())
+        points.append({
+            "taken_at": iso(hour),
+            "total_pnl": num(closed_cum + open_sum),
+            "closed_pnl": num(closed_cum),
+            "open_pnl": num(open_sum),
+            "account_balance": num(balance),
+        })
+        if running_ids is not None:
+            for gid in [g for g in open_pnl if g not in closed_ids
+                        and g not in running_ids and last_hour[g] == hour]:
+                del open_pnl[gid]
+
+    # Cierres posteriores al último snapshot: un punto final para que la curva
+    # termine en el mismo resultado que strategy_pnl.
+    if ci < len(closures):
+        last_close = closures[-1]["closed_at"]
+        for c in closures[ci:]:
+            closed_cum += c["total_pnl"] or 0.0
+            open_pnl.pop(c["grid_id"], None)
+        open_sum = sum(open_pnl.values())
+        points.append({
+            "taken_at": iso(last_close),
+            "total_pnl": num(closed_cum + open_sum),
+            "closed_pnl": num(closed_cum),
+            "open_pnl": num(open_sum),
+            "account_balance": num(balance),
+        })
+    return points
 
 
 def _compute(engine):
@@ -152,19 +234,21 @@ def _compute(engine):
             ("total_pnl", num), ("account_balance", num), ("open_orders_count", int),
         ])
 
-        equity = fetch(conn, """
-            SELECT taken_at,
-                   SUM(total_pnl)      AS total_pnl,
-                   SUM(realized_pnl)   AS realized_pnl,
-                   SUM(unrealized_pnl) AS unrealized_pnl,
-                   MAX(account_balance) AS account_balance
+        # Último snapshot de cada grid por hora; build_equity_curve arma la curva.
+        hourly_snapshots = fetch(conn, """
+            SELECT DISTINCT ON (grid_id, date_trunc('hour', taken_at))
+                   grid_id, date_trunc('hour', taken_at) AS hour,
+                   total_pnl, account_balance
             FROM pnl_snapshots
-            GROUP BY taken_at
-            ORDER BY taken_at
+            ORDER BY grid_id, date_trunc('hour', taken_at), taken_at DESC
         """, [
-            ("taken_at", iso), ("total_pnl", num), ("realized_pnl", num),
-            ("unrealized_pnl", num), ("account_balance", num),
+            ("grid_id", str), ("hour", _raw), ("total_pnl", num), ("account_balance", num),
         ])
+
+        closures_for_equity = fetch(conn, """
+            SELECT grid_id, COALESCE(closed_at, created_at) AS closed_at, total_pnl
+            FROM historical_grid_logs
+        """, [("grid_id", str), ("closed_at", _raw), ("total_pnl", num)])
 
         per_day = fetch(conn, """
             SELECT DATE(completed_at) AS day, COUNT(*) AS total,
@@ -292,6 +376,7 @@ def _compute(engine):
     # A1a: solo los RUNNING en SQLite; los huérfanos se exponen aparte.
     live_snapshot, orphan_snapshot = split_live_snapshots(latest_snapshot, running_ids)
     open_pnl_f = sum((r["total_pnl"] or 0.0) for r in live_snapshot)
+    equity = build_equity_curve(hourly_snapshots, closures_for_equity, running_ids)
     orphan_pnl_f = sum((r["total_pnl"] or 0.0) for r in orphan_snapshot)
     # Resultado real de la estrategia. NO se suman los grid_cycles: su parte
     # realizada ya está incluida dentro del total_pnl de cada grid cerrado
@@ -339,7 +424,7 @@ def _compute(engine):
     zero_cycle_grids = sum(1 for gid in grid_ids_total if grid_cycle_count.get(gid, 0) == 0)
     zero_cycle_rate = (zero_cycle_grids / len(grid_ids_total)) if grid_ids_total else None
 
-    # Drawdown máximo sobre la curva de equity (total_pnl agregado por snapshot).
+    # Drawdown máximo sobre la curva de equity horaria (build_equity_curve).
     peak = None
     max_dd = 0.0
     dd_start = dd_end = None
@@ -443,16 +528,7 @@ def _compute(engine):
             }
             for r in live_snapshot
         ],
-        "equity": [
-            {
-                "taken_at": iso(r["taken_at"]),
-                "total_pnl": num(r["total_pnl"]),
-                "realized_pnl": num(r["realized_pnl"]),
-                "unrealized_pnl": num(r["unrealized_pnl"]),
-                "account_balance": num(r["account_balance"]),
-            }
-            for r in equity
-        ],
+        "equity": equity,
         "per_day": [
             {"day": iso(r["day"]), "total": r["total"], "net_pnl": num(r["net_pnl"])}
             for r in per_day
