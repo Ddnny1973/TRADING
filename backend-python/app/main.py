@@ -20,7 +20,7 @@ from app.services.dashboard_data import build_dashboard_data, render_dashboard_h
 from app.services.account_summary import build_income_summary, MAX_LOOKBACK_DAYS as MAX_INCOME_LOOKBACK_DAYS
 from app.schemas.grid_schema import GridRequest, GridResponse, GridDetailResponse, GridPnlResponse, GridCloseCheckResponse, MarketAnalysisResponse, AutoParamsResponse, AutoParamsParams
 from app.auto_params import auto_derive_params
-from app.config_auto_params import MAX_RISK_PCT, LEVELS_BOUNDS, LEVERAGE_BOUNDS, SYMBOL_CACHE_TTL_SECONDS
+from app.config_auto_params import MAX_RISK_PCT, LEVELS_BOUNDS, LEVERAGE_BOUNDS, SYMBOL_CACHE_TTL_SECONDS, capped_balance
 from app.pair_selector import pick_best_pair, _balance_bucket
 from app.services.grid_service import GridService
 from app.services.indicators import calculate_atr, calculate_grid_bounds, calculate_position_size
@@ -60,7 +60,7 @@ grid_service = GridService()
 
 # Marcador de versión del código: visible en /health y /auto-params para
 # verificar remotamente qué build está corriendo (sin acceso a logs)
-CODE_VERSION = "v1.17.0-a1-recenter-income"
+CODE_VERSION = "v1.18.0-a2-microcapital"
 
 # Cache de respuestas completas de /auto-params: (balance_bucket, symbol) → (ts, result)
 _auto_params_cache: dict = {}
@@ -81,7 +81,9 @@ async def lifespan(app: FastAPI):
         logger.warning("⚠️  Could not sync time with Binance. Using local clock.")
     logger.info(f"Config: MAX_CONCURRENT_GRIDS={settings.MAX_CONCURRENT_GRIDS}, "
                 f"DEFAULT_RISK_PCT={settings.DEFAULT_RISK_PCT}, "
-                f"DEFAULT_LEVERAGE={settings.DEFAULT_LEVERAGE}")
+                f"DEFAULT_LEVERAGE={settings.DEFAULT_LEVERAGE}, "
+                f"BALANCE_CAP_USDT={settings.BALANCE_CAP_USDT}, MAX_RISK_PCT={settings.MAX_RISK_PCT}, "
+                f"MIN_NOTIONAL_FROM_MAINNET={settings.MIN_NOTIONAL_FROM_MAINNET}")
     yield
     # Shutdown
     logger.info("🛑 Shutting down Grid Trading Backend...")
@@ -131,6 +133,8 @@ async def root():
         "docs": "/api/docs",
         "running_grids": len(running_grids),
         "max_concurrent_grids": settings.MAX_CONCURRENT_GRIDS,
+        "balance_cap_usdt": settings.BALANCE_CAP_USDT,
+        "max_risk_pct": settings.MAX_RISK_PCT,
         "default_risk_pct": settings.DEFAULT_RISK_PCT,
         "default_leverage": settings.DEFAULT_LEVERAGE,
     }
@@ -496,6 +500,11 @@ async def get_auto_params(balance: float, symbol: Optional[str] = None):
         raise HTTPException(status_code=422, detail=f"balance máximo es 1,000,000 USDT (recibido: {balance})")
 
     warnings = []
+    # A2: el demo dimensiona como la cuenta real (min(balance, BALANCE_CAP_USDT))
+    balance_cap = capped_balance(balance)
+    if balance_cap < balance:
+        warnings.append(f"Perfil microcapital (A2): balance {balance:g} limitado a {balance_cap:g} USDT")
+        balance = balance_cap
     if balance < 500:
         warnings.append("Balance < 500 USDT: pares viables pueden ser limitados")
 

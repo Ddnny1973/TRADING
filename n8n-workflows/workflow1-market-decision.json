@@ -88,7 +88,7 @@
       "typeVersion": 2,
       "position": [
         -1280,
-        64
+        240
       ]
     },
     {
@@ -100,8 +100,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -688,
-        64
+        -780,
+        240
       ]
     },
     {
@@ -134,8 +134,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -480,
-        64
+        -1040,
+        -96
       ]
     },
     {
@@ -165,7 +165,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const resp = $json;\nconst statusCode = resp.statusCode;\nconst body = resp.body || {};\nconst decisionCtx = $('Parse AI Decision').item.json;\nconst autoParams = $('Get Auto Params (FIX 4)').item.json;\n\nif (statusCode === 200) {\n  return { json: { isError: false, alreadyExists: false, grid: body, reasoning: decisionCtx.reasoning, autoParams: autoParams } };\n}\n\nconst detailRaw = body.detail !== undefined ? body.detail : body;\nconst detail = typeof detailRaw === 'string' ? detailRaw : JSON.stringify(detailRaw);\n\nif (statusCode === 400 && detail.toLowerCase().includes('already exists')) {\n  return { json: { isError: false, alreadyExists: true, grid: null, reasoning: decisionCtx.reasoning, autoParams: autoParams, detail } };\n}\n\nif (statusCode === 400 && detail.toLowerCase().includes('max concurrent grids')) {\n  return { json: { isError: false, alreadyExists: false, maxConcurrent: true, grid: null, reasoning: decisionCtx.reasoning, autoParams: autoParams, detail } };\n}\n\nreturn { json: { isError: true, alreadyExists: false, grid: null, reasoning: decisionCtx.reasoning, autoParams: autoParams, statusCode, detail } };"
+        "jsCode": "const resp = $json;\nconst statusCode = resp.statusCode;\nconst body = resp.body || {};\nconst decisionCtx = $('Decisión determinista (T13)').item.json;\nconst autoParams = $('Get Auto Params (FIX 4)').item.json;\n\nif (statusCode === 200) {\n  return { json: { isError: false, alreadyExists: false, grid: body, reasoning: decisionCtx.reasoning, autoParams: autoParams } };\n}\n\nconst detailRaw = body.detail !== undefined ? body.detail : body;\nconst detail = typeof detailRaw === 'string' ? detailRaw : JSON.stringify(detailRaw);\n\nif (statusCode === 400 && detail.toLowerCase().includes('already exists')) {\n  return { json: { isError: false, alreadyExists: true, grid: null, reasoning: decisionCtx.reasoning, autoParams: autoParams, detail } };\n}\n\nif (statusCode === 400 && detail.toLowerCase().includes('max concurrent grids')) {\n  return { json: { isError: false, alreadyExists: false, maxConcurrent: true, grid: null, reasoning: decisionCtx.reasoning, autoParams: autoParams, detail } };\n}\n\nreturn { json: { isError: true, alreadyExists: false, grid: null, reasoning: decisionCtx.reasoning, autoParams: autoParams, statusCode, detail } };"
       },
       "id": "f81ed401-d9e9-4609-9e38-7b9a581d4d0f",
       "name": "Interpret Grid Result",
@@ -257,7 +257,7 @@
     {
       "parameters": {
         "chatId": "={{ $if($('WF-Trigger-Externo').isExecuted, $('WF-Trigger-Externo').item.json.chatId, '1060878323') }}",
-        "text": "={{ '⚠️ Grid NO LANZADO\\n━━━━━━━━━━━━━━━━━━━━\\n📍 Razón (IA): ' + $json.reasoning }}",
+        "text": "={{ '⚠️ Grid NO LANZADO\\n━━━━━━━━━━━━━━━━━━━━\\n📍 Razón: ' + $json.reasoning }}",
         "additionalFields": {}
       },
       "id": "8e3f4a5b-6c7d-8e9f-0a1b-2c3d4e5f6a7b",
@@ -265,8 +265,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -240,
-        240
+        -780,
+        48
       ],
       "webhookId": "727fc471-ab72-4de1-a6fc-55af4d24a700",
       "credentials": {
@@ -358,9 +358,9 @@
       "parameters": {
         "model": {
           "__rl": true,
-          "value": "deepseek-ai/deepseek-v4.1-flash",
+          "value": "gpt-4o-mini",
           "mode": "list",
-          "cachedResultName": "deepseek-ai/deepseek-v4.1-flash"
+          "cachedResultName": "gpt-4o-mini"
         },
         "responsesApiEnabled": false,
         "options": {
@@ -373,14 +373,14 @@
       "typeVersion": 1.3,
       "position": [
         -1088,
-        336
+        480
       ],
       "id": "d8cf6428-f2c8-4a04-9f54-b0fe69284bec",
       "name": "OpenAI Chat Model1",
       "credentials": {
         "openAiApi": {
-          "id": "THcslCwcwDaKT3tD",
-          "name": "DeepSeek"
+          "id": "AFoXvjgEZTMnpfPp",
+          "name": "OpenAi ddnny73"
         }
       }
     },
@@ -400,11 +400,13 @@
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
       "typeVersion": 1.9,
       "position": [
-        -1024,
-        64
+        -1040,
+        240
       ],
       "id": "79db1cbf-8cec-4fea-9f7b-dc13ca3bdce0",
-      "name": "Gemini: AI Decision"
+      "name": "Gemini: AI Decision",
+      "retryOnFail": true,
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
@@ -426,7 +428,8 @@
       "position": [
         296,
         -256
-      ]
+      ],
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
@@ -436,8 +439,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -584,
-        64
+        -600,
+        240
       ],
       "id": "b3c4d5e6-f7a8-9b0c-d1e2-f3a4b5c6d7e8"
     },
@@ -482,10 +485,78 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -532,
-        64
+        -420,
+        240
       ],
       "id": "c4d5e6f7-a8b9-0c1d-e2f3-a4b5c6d7e8f9"
+    },
+    {
+      "parameters": {
+        "jsCode": "// A3 / T13 paso 2: la puerta determinista del backend decide.\n// El LLM corre aparte, solo registra su opinion y avisa si discrepa.\nconst autoParams = $json;\nconst vetoReasons = autoParams.veto_reasons || [];\nconst launch = vetoReasons.length === 0;\nconst reasoning = launch\n  ? 'Puerta determinista: sin vetos'\n  : 'Puerta determinista: ' + vetoReasons.join(' | ');\nreturn { json: { launch, reasoning, veto_reasons: vetoReasons, symbol: autoParams.symbol } };"
+      },
+      "id": "5d1e7a3c-9b2f-4c8e-a6d0-3f1b2c4d5e6a",
+      "name": "Decisión determinista (T13)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1280,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond_llm_disagrees",
+              "leftValue": "={{ $('Log: veto vs LLM').item.json.details.alignment }}",
+              "rightValue": "BOTH_GO",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6e2f8b4d-0c3a-4d9f-b7e1-4a2c3d5e6f7b",
+      "name": "IF: LLM discrepa?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $if($('WF-Trigger-Externo').isExecuted, $('WF-Trigger-Externo').item.json.chatId, '1060878323') }}",
+        "text": "={{ '🧠 El LLM no coincide con la puerta determinista\\n━━━━━━━━━━━━━━━━━━━━\\n📊 ' + $('Log: veto vs LLM').item.json.symbol + '\\n🔎 ' + $('Log: veto vs LLM').item.json.message + '\\n\\n💭 LLM: ' + ($('Log: veto vs LLM').item.json.details.llm_reasoning || 'sin respuesta') + '\\n\\nℹ️ Solo informativo: decide la puerta determinista.' }}",
+        "additionalFields": {}
+      },
+      "id": "7f3a9c5e-1d4b-4e0a-c8f2-5b3d4e6f7a8c",
+      "name": "Notify: LLM discrepa",
+      "webhookId": "0b8d2e4f-6a1c-4f3e-9d5b-7c2a1e3f4d6b",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        240
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "zurDfqIC4Qy17sUA",
+          "name": "TRADING"
+        }
+      }
     }
   ],
   "pinData": {
@@ -595,6 +666,11 @@
     "IF: Grid Viable? (FIX 4)": {
       "main": [
         [
+          {
+            "node": "Decisión determinista (T13)",
+            "type": "main",
+            "index": 0
+          },
           {
             "node": "Build Gemini Request (with derived params)",
             "type": "main",
@@ -765,11 +841,34 @@
       "main": [
         [
           {
+            "node": "IF: LLM discrepa?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decisión determinista (T13)": {
+      "main": [
+        [
+          {
             "node": "IF: Launch = true?",
             "type": "main",
             "index": 0
           }
         ]
+      ]
+    },
+    "IF: LLM discrepa?": {
+      "main": [
+        [
+          {
+            "node": "Notify: LLM discrepa",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     }
   },

@@ -25,6 +25,7 @@ from app.config_auto_params import (
     REGIME_FILTER_MODE,
     REGIME_FILTER_ER_THRESHOLD,
     REGIME_FILTER_STRIKES_TO_ALERT,
+    capped_balance,
 )
 from app.core.config import settings
 from app.database.connection import get_sqlite_connection, SessionLocal, postgres_engine
@@ -1237,6 +1238,8 @@ class GridService:
                     if entry.get("asset") == "USDT":
                         balance = float(entry.get("balance") or 0)
                         break
+            # A2: el umbral sale del mismo capital con el que se dimensionan los grids
+            balance = capped_balance(balance)
 
             daily_pnl = self._daily_closed_pnl_usdt()
             for grid in self.list_grids(status="RUNNING"):

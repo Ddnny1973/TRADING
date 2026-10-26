@@ -5,13 +5,27 @@ All constants and bounds are defined here for easy tuning.
 
 from decimal import Decimal
 
+from app.core.config import settings
+
 # Fee parameters (Binance Futures maker/taker ~0.02% each)
 FEE_ROUNDTRIP = Decimal("0.002")        # 0.1% (0.02% maker + 0.02% taker per side)
 FEE_MARGIN_FACTOR = Decimal("2.5")      # step must cover 2.5x round-trip fees
 
 # Risk and viability constraints
-MAX_RISK_PCT = Decimal("0.15")          # Never commit more than 15% of balance per grid
+MAX_RISK_PCT = Decimal(str(settings.MAX_RISK_PCT))  # Margen máximo por grid (15% por defecto; A2 lo sube)
 CAPITAL_BUFFER = Decimal("1.1")         # 10% margin above min_notional
+
+
+def capped_balance(balance: float) -> float:
+    """
+    A2: balance con el que se dimensiona (min(balance real, BALANCE_CAP_USDT)).
+    Así el demo de ~5.000 USD se comporta como la cuenta real de 100 USD:
+    tamaño de órdenes, SL/TP y kill-switch salen del mismo capital.
+    """
+    cap = settings.BALANCE_CAP_USDT
+    if cap and cap > 0:
+        return min(balance, cap)
+    return balance
 
 # Tope de pérdida / objetivo de ganancia por grid, como fracción del balance.
 # auto_derive_params() los traduce a stop_loss/take_profit en USDT para que
