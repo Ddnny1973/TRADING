@@ -7,7 +7,7 @@ tags: [decisiones, ia, alcance]
 related:
   - "[[_index]]"
   - "[[n8n-sync-y-gotchas]]"
-updated: 2026-10-25
+updated: 2026-10-26
 owner: dueño del repo
 ---
 
@@ -36,6 +36,10 @@ diagnosticarlo: `search_workflow_executions` + `get_workflow_execution`
 `GET https://integrate.api.nvidia.com/v1/models` (público). Es la segunda vez en
 ~2 meses que un modelo desaparece y deja al bot sin operar, lo que refuerza
 T13 paso 2 (sacar el LLM del camino crítico).
+
+**2026-10-13 (en la UI, sin commit):** producción pasó a `gpt-4o-mini` con la
+credencial `OpenAi ddnny73`. El repo lo recogió el 2026-10-26 (A3). Desde A3
+el LLM ya no decide: si su modelo desaparece, solo llega un aviso por Telegram.
 
 Se loguea a Postgres (`public.metricas_personalizadas`) el consumo de
 tokens de cada ejecución. Nota heredada de la época Gemini: si se vuelve a
@@ -382,6 +386,46 @@ del camino crítico.
 criterio del paso 2 se cumple. Ojo: `details` se guarda como *string* JSON
 dentro de `jsonb` (consultar con `(details#>>'{}')::jsonb->>'alignment'`), y
 `llm_reasoning` llega con mojibake (tildes rotas) desde WF1.
+
+**Paso 2 aplicado (2026-10-26, A3, rama `feat/a2-a3-microcapital-llm-notify-20261026`):**
+el nodo **"Decisión determinista (T13)"** decide (`launch = veto_reasons.length === 0`)
+y alimenta "IF: Launch = true?". Desde "IF: Grid Viable?" sale una segunda rama,
+**debajo** en el lienzo (con `executionOrder: v1` se ejecuta después):
+Build → LLM → Parse → Log veto vs LLM → Log Decision to Postgres → "IF: LLM
+discrepa?" → Telegram "Notify: LLM discrepa". El nodo LLM y "Diagnose Grid
+Error" tienen `onError: continueRegularOutput`: un modelo retirado ya **no**
+deja al bot sin grids, solo genera un aviso (alineamiento
+`DETERMINISTIC_GO_BUT_LLAM_VETO` con `llm_reasoning = "AI error..."`).
+
+⚠️ **Deriva repo ↔ producción encontrada (2026-10-26):** el 2026-10-13 alguien
+editó WF1 en la UI de n8n: modelo `gpt-4o-mini` con la credencial `OpenAi
+ddnny73` (no DeepSeek/NVIDIA), `retryOnFail` en el LLM, y el "IF: Launch"
+evaluaba `$json.ok` (la respuesta del log a Postgres), no la decisión del LLM.
+El JSON del repo seguía con `deepseek-v4.1-flash`. A3 partió de la versión de
+producción. **Antes de editar un workflow, comparar el JSON del repo con
+`get_workflow_details` del MCP de n8n**: el sync de CI sobrescribe lo que haya
+en producción.
+
+## A2: perfil microcapital en el demo (2026-10-26, rama `feat/a2-a3-microcapital-llm-notify-20261026`)
+
+El demo opera ~4.600 USD, pero la cuenta real arrancaría con 100: lo que gana el
+demo no predice lo que ganaría la real. Settings nuevos (defaults = perfil
+histórico; `docker-compose.yml` activa el microcapital y se pueden cambiar en el
+`.env` raíz):
+
+| Variable | Compose | Efecto |
+|---|---|---|
+| `BALANCE_CAP_USDT` | 100 | `capped_balance()` = `min(balance, tope)`. Lo usan `/auto-params` (selección de par, tamaño, SL/TP) y el kill-switch. `0` lo apaga |
+| `MAX_CONCURRENT_GRIDS` | 2 | Tope de grids RUNNING |
+| `MAX_RISK_PCT` | 0,25 | Margen máximo por grid (antes fijo en 0,15). Con 0,15 y 100 USD casi ningún par pasaba |
+| `MIN_NOTIONAL_FROM_MAINNET` | true | `fetch_min_notional` usa `max(testnet, mainnet)`; mainnet sale de `pair_selector.mainnet_min_notionals()` (cache 15 min). Si mainnet falla, se sigue con testnet |
+
+Lo que **no** cambia: `pnl_snapshots.account_balance` sigue guardando el
+`availableBalance` real (~4.600), así que el ROI del dashboard se calcula sobre
+esa base. Para el criterio de la §9 del doc 05 (ROI ≥ 2 %/mes) medir sobre 100.
+El SL (1 %) y el kill-switch (3 %) escalan con el balance limitado: 1 y 3 USD.
+
+`CODE_VERSION` → `v1.18.0-a2-microcapital`. Tests: `tests/test_a2_microcapital.py` (8).
 
 ## A1a + A1b: contabilidad de re-centrados y resultado real desde Binance (2026-10-25, rama `feat/a1-recenter-dashboard-income-20261025`)
 

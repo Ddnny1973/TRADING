@@ -61,7 +61,17 @@ class Settings(BaseSettings):
     MIN_STEP_FEE_MULTIPLE: float = 5.0  # Grid step must be >= 5x round-trip fees to be profitable
     MAX_CONCURRENT_GRIDS: int = 4  # Maximum number of RUNNING grids at the same time
     MAX_NET_POSITION_LEVELS: int = 3  # Floor for the net position cap, in multiples of quantity_per_order
-    
+
+    # ==========================================
+    # A2: PERFIL MICROCAPITAL EN DEMO (docs/analisis-bot/05 §9)
+    # ==========================================
+    # El demo opera ~5.000 USD pero la cuenta real arrancará con 100. Estos
+    # valores hacen que el demo dimensione como la cuenta real. Los defaults
+    # conservan el perfil histórico; docker-compose.yml activa el microcapital.
+    BALANCE_CAP_USDT: float = 0.0  # Tope del balance para dimensionar (min(balance real, tope)). 0 = sin tope
+    MAX_RISK_PCT: float = 0.15  # Margen máximo por grid como fracción del balance (ya con el tope)
+    MIN_NOTIONAL_FROM_MAINNET: bool = False  # Usar max(min_notional testnet, mainnet): en testnet BTC pide 50, en real 100
+
     # ==========================================
     # NOTIFICATION CONFIGURATION
     # ==========================================

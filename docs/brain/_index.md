@@ -8,7 +8,7 @@ related:
   - "[[infra-multi-servidor]]"
   - "[[n8n-sync-y-gotchas]]"
   - "[[decisiones-tecnicas]]"
-updated: 2026-10-25
+updated: 2026-10-26
 owner: dueño del repo
 ---
 
@@ -54,11 +54,11 @@ memoria de sesiones de IA y no estaba escrito en ningún archivo del repo.
   "el bot no crea grids".
 - [[decisiones-tecnicas]] — decisiones de producto/arquitectura tomadas y su
   razón (proveedor de IA, límites de seguridad, alcance de la fase actual).
-  ⚠️ Última incidencia (2026-10-03): el modelo del LLM de WF1 fue retirado
-  (HTTP 410) y el bot estuvo sin crear grids; migrado a `deepseek-v4.1-flash`.
-  Segunda vez en ~2 meses → prioriza T13 paso 2 (sacar el LLM del camino
-  crítico). También documenta la convención de merge por squash y la higiene
-  de ramas.
+  Desde 2026-10-26 (A3) la puerta determinista decide y el LLM de WF1
+  (`gpt-4o-mini`) solo registra y avisa si discrepa: un modelo retirado ya no
+  deja al bot sin grids. También documenta A2 (perfil microcapital de 100 USD
+  en el demo), la deriva repo↔producción de WF1, la convención de merge por
+  squash y la higiene de ramas.
 - [[analisis-bot-monitoreo]] — línea de trabajo en curso: diseño de tablas
   de monitoreo en Postgres (`grid_cycles`, `pnl_snapshots`) para poder medir
   rentabilidad real del bot antes de decidir el paso a dinero real, más el

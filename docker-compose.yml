@@ -10,6 +10,12 @@ services:
       - REDIS_HOST=redis-trading
       - POSTGRES_HOST=postgres-trading
       - SQLITE_DATA_DIR=/app/data
+      # A2: perfil microcapital en demo (docs/analisis-bot/05 §9). Se puede
+      # cambiar en el .env raíz sin tocar este archivo; BALANCE_CAP_USDT=0 lo apaga.
+      - BALANCE_CAP_USDT=${BALANCE_CAP_USDT:-100}
+      - MAX_CONCURRENT_GRIDS=${MAX_CONCURRENT_GRIDS:-2}
+      - MAX_RISK_PCT=${MAX_RISK_PCT:-0.25}
+      - MIN_NOTIONAL_FROM_MAINNET=${MIN_NOTIONAL_FROM_MAINNET:-true}
     ports:
       - "8043:8000"
     volumes:

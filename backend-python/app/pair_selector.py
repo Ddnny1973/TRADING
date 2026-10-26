@@ -112,6 +112,24 @@ def _min_notional_from_filters(filters: List[Dict[str, Any]]) -> float:
     return float(MIN_NOTIONAL_FALLBACK)
 
 
+_mainnet_min_notional_cache: dict = {"ts": 0.0, "data": {}}
+
+
+async def mainnet_min_notionals() -> Dict[str, float]:
+    """
+    A2: min_notional de mainnet por símbolo (cacheado SYMBOL_CACHE_TTL_SECONDS).
+    El universo ya sale de fapi.binance.com, así que es el mínimo que exigiría
+    la cuenta real; testnet suele pedir menos (BTC: 50 vs 100).
+    """
+    cache = _mainnet_min_notional_cache
+    if cache["data"] and time.time() - cache["ts"] < SYMBOL_CACHE_TTL_SECONDS:
+        return cache["data"]
+    universe = await fetch_universe()
+    cache["data"] = {p["symbol"]: _min_notional_from_filters(p["filters"]) for p in universe}
+    cache["ts"] = time.time()
+    return cache["data"]
+
+
 def filter_by_capital(
     universe: List[Dict[str, Any]],
     tickers: Dict[str, Dict[str, float]],

@@ -216,8 +216,8 @@ real no existirían. Lo que gane ese demo no predice lo que ganarían 100 USD.
 |---|---|---|
 | A0 | **Acceso de lectura a los datos** (dashboard vía nginx + rol Postgres solo lectura) | El agente puede medir sin pedirle consultas al dueño. |
 | A1 | **Línea base** desde 2026-09-06: `strategy_pnl`, PnL por trigger, PnL/día por símbolo y por USD de margen, LLM vs determinista (`bot_health_events`) | Saber si la base post-fixes ya es rentable en demo. |
-| A2 | **Perfil microcapital en demo**: `BALANCE_CAP_USDT=100` (auto-params usa `min(balance real, cap)`), 2 grids concurrentes y `min_notional` tomado de mainnet (en testnet BTC pide 50, en real 100) | El demo se comporta exactamente como la cuenta real de 100 USD. |
-| A3 | **T13 paso 2**: puerta determinista decide, LLM solo notifica | Sin punto único de falla. |
+| A2 | 🟡 **Perfil microcapital en demo**: `BALANCE_CAP_USDT=100` (auto-params usa `min(balance real, cap)`), 2 grids concurrentes, `MAX_RISK_PCT=0,25` y `min_notional` tomado de mainnet (en testnet BTC pide 50, en real 100). PR 2026-10-26 | El demo se comporta exactamente como la cuenta real de 100 USD. |
+| A3 | 🟡 **T13 paso 2**: puerta determinista decide, LLM solo notifica. PR 2026-10-26 | Sin punto único de falla. |
 | A4 | **N3 órdenes post-only (GTX)** + medir % de fills taker | Fees reales garantizados. |
 | A5 | **Recalibrar SL/TP (T4)** al margen/rango del grid + **N4 stop de emergencia en el exchange** | Pérdida acotada aun con el backend caído. |
 | A6 | **T20 paso 2**: ante `TREND_REGIME`, pausar el lado que acumula | Menos daño en tendencia. |

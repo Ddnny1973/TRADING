@@ -14,6 +14,7 @@ from app.config_auto_params import (
     MIN_NOTIONAL_FALLBACK, LEVERAGE_BY_VOLATILITY, LEVERAGE_BOUNDS,
     GRID_STOP_LOSS_PCT_OF_BALANCE, GRID_TAKE_PROFIT_PCT_OF_BALANCE
 )
+from app.core.config import settings
 from app.services.binance_client import BinanceClient
 from app.services.indicators import calculate_atr
 
@@ -64,15 +65,31 @@ async def fetch_min_notional(
     Returns:
         Minimum notional as Decimal (USDT)
     """
+    min_notional = None
     try:
         filters = await client.get_symbol_filters(symbol)
         if filters and "min_notional" in filters:
-            return filters["min_notional"]
+            min_notional = filters["min_notional"]
     except Exception as e:
         logger.warning(f"fetch_min_notional exception for {symbol}: {e}")
 
-    logger.info(f"Using fallback min_notional for {symbol}: {MIN_NOTIONAL_FALLBACK}")
-    return MIN_NOTIONAL_FALLBACK
+    if min_notional is None:
+        logger.info(f"Using fallback min_notional for {symbol}: {MIN_NOTIONAL_FALLBACK}")
+        min_notional = MIN_NOTIONAL_FALLBACK
+
+    # A2: dimensionar con el mínimo que exigiría la cuenta real. Si mainnet no
+    # responde se sigue con el de testnet (el grid se crea igual en el demo).
+    if settings.MIN_NOTIONAL_FROM_MAINNET:
+        from app.pair_selector import mainnet_min_notionals  # local import: avoid cycle
+        try:
+            mainnet = (await mainnet_min_notionals()).get(symbol)
+            if mainnet is not None and Decimal(str(mainnet)) > min_notional:
+                logger.info(f"min_notional {symbol}: testnet {min_notional} -> mainnet {mainnet}")
+                min_notional = Decimal(str(mainnet))
+        except Exception as e:
+            logger.warning(f"mainnet min_notional no disponible para {symbol}: {e}")
+
+    return min_notional
 
 
 async def derive_interval(
