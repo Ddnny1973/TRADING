@@ -7,7 +7,7 @@ tags: [decisiones, ia, alcance]
 related:
   - "[[_index]]"
   - "[[n8n-sync-y-gotchas]]"
-updated: 2026-10-26
+updated: 2026-10-28
 owner: dueño del repo
 ---
 
@@ -59,6 +59,18 @@ Telegram (default de `chatId` cuando no hay trigger externo: `1060878323`).
 Aplica el mismo patrón si se agregan nuevos triggers de entrada a WF1 en el
 futuro — cualquier expresión que dependa de un nodo trigger opcional debe
 chequear `isExecuted` primero.
+
+**2026-10-28: `isExecuted` no basta.** WF2 también dispara WF1 ("Execute WF1:
+Relanzar grid" / watchdog) por `WF-Trigger-Externo`, pero pasa su propio item,
+sin `chatId`. El nodo sí se ejecutó, así que el `$if` devolvía `undefined` y
+Telegram fallaba con `Bad Request: chat_id is empty`. Pasó con el grid de ZEC
+(26-oct 18:55): el grid se creó, pero la ejecución terminó en error y se
+perdieron el aviso y el registro de la opinión del LLM en
+`bot_health_events`. Fix en los 5 nodos Telegram de WF1:
+`($('WF-Trigger-Externo').isExecuted && $('WF-Trigger-Externo').item.json.chatId) || '1060878323'`,
+más `onError: continueRegularOutput` para que un aviso caído no corte el resto
+de la ejecución. Regla: el default debe cubrir "trigger no ejecutado" **y**
+"trigger ejecutado sin el campo".
 
 ## Tope de seguridad: `gridCount` vs `levels`
 
