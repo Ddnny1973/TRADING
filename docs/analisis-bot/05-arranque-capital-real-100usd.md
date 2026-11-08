@@ -290,3 +290,94 @@ es manejar mejor el inventario (T20 paso 2, A5) y medirlo bien.**
   100 USD, el demo con perfil de 100 USD es aún más necesario. Puede que la
   conclusión sea que hacen falta ~300 USD (nocional mínimo de ETH: 20 USD) para
   que la estrategia tenga los pares que realmente le rinden.
+
+## 11. Corte de mitad de ventana del perfil A2 (2026-11-08)
+
+Ventana: desde el 2026-10-26 18:43 Bogotá (cierre manual de los 4 grids
+heredados) hasta ~2026-11-24. Este corte es del **día 12 de 28**. Fuentes:
+Postgres `trading` (`historical_grid_logs`, `grid_cycles`, `pnl_snapshots`,
+`bot_health_events`), ejecuciones n8n por MCP y `GET /api/v1/account/income-summary`
+(A1b). Hay que recordar que las columnas de Postgres van +5 h desplazadas.
+
+### Operación: funciona
+
+- **WF1:** 0 errores desde el 27-oct. La puerta determinista decide sola.
+  Hubo 3 discrepancias con el LLM (veto a NEARUSDT, 5 y 7 de noviembre), que
+  quedaron solo registradas. A3 cumple: un modelo retirado ya no deja al bot
+  sin grids.
+- **WF2:** 10 errores en ~3.400 ejecuciones (0,3 %). El caso revisado fue
+  `ECONNREFUSED 10.0.0.6:8043` en `check-close`, 9 s después de un refresh OK.
+  Parece un reinicio pasajero del backend. Dejó 11 huecos > 20 min en
+  `pnl_snapshots` (máximo 40 min). Son huecos de monitoreo, no periodos sin grids.
+- ⚠️ **Inventario sin dueño:** el 2026-11-04, al cerrar por `STOP_LOSS` el grid
+  `d2ad45ac` de ETH, quedó una posición residual de −0,020 ETH (`RESIDUAL_POSITION`,
+  critical, "requiere intervención manual"). **Probablemente sigue abierta**:
+  Binance reporta +1,72 USD de PnL no realizado en la cuenta, pero los 2 grids
+  vivos (ZEC, SUI) solo explican −0,14. Hay ~1,9 USD de no realizado que el bot
+  no rastrea. Mientras no se cierre, incumple el criterio "0 inventarios sin
+  protección" y además ensucia la medición.
+
+### Rendimiento: ligeramente negativo según el bot, ligeramente positivo según Binance
+
+| Medida | USD | % s/100 |
+|---|---|---|
+| 13 grids cerrados (bot, `total_pnl`): 3 ganan, 10 pierden | −2,32 | |
+| + 2 grids abiertos (ZEC +0,78, SUI +0,30) | +1,08 | |
+| **Estrategia según la contabilidad del bot** | **≈ −1,24** | **−1,2 %** |
+| Binance `net_trading` (realizado + comisiones + funding, desde 27-oct 06:09 Bogotá) | −0,34 | |
+| Binance `net_with_open` (+ no realizado de la cuenta, incluye el residual ETH) | **+1,38** | **+1,4 %** |
+
+- Por símbolo, el bot y Binance coinciden (±0,2) en SOL, ZEC, HYPE, AIN, ENA y
+  SUI. **La diferencia está en ETH** (bot −1,10, Binance −0,20) y en el no
+  realizado del residual. La cifra "limpia" de la estrategia, sin el residual,
+  queda entre −1,2 y −0,3 USD.
+- Por semana (grids cerrados): semana 1 (27-oct a 2-nov) **+3,40**; semana 2
+  (3-nov a hoy) **−5,72**. En Binance por día: el 5-nov (−3,63) y el 6-nov
+  (−1,20) explican toda la caída.
+- **La cosecha funciona:** los ciclos dejaron ≈ +17 USD netos en 12 días
+  (≈ 1,4 USD/día), y las comisiones totales fueron 0,43 USD.
+- **Los cierres devuelven todo lo cosechado:** en los 13 grids cerrados, los
+  ciclos sumaron +15,3 y el resultado fue −2,3. Hay ≈ −17,7 USD de inventario
+  cristalizado. Es el mismo patrón short-vol de la §10 y del doc 04.
+- **Asimetría SL/TP:** el SL está en −1 USD y el TP en +3 USD (break-even con
+  25 % de aciertos). El resultado fue 2 TP contra 6 SL (25 %, justo el
+  break-even), más 5 `RECENTERED` que sumaron −1,1. Eso es lo que inclina
+  el saldo. AIN (−1,89) y HYPE (−1,26) se pasaron del SL por slippage.
+- **Entradas en tendencia:** 4 grids cayeron al SL con 0 ciclos, y HYPE, ETH y
+  AIN duraron entre 1,2 y 7,5 h. Es el daño que atacan A6 (T20 paso 2) y A5.
+
+### ¿Alcanza la muestra? No
+
+13 grids con una dispersión de ≈ 1,6 USD por grid dan una media de −0,18 ± 0,45
+USD (1 error estándar): **no se distingue de cero**. Una sola mala racha (4 SL y
+3 re-centrados del 3 al 6 de noviembre) dio vuelta al resultado. Para una lectura con algo de
+confianza hacen falta la ventana completa y, como referencia, 40–60 grids cerrados.
+
+### Criterio §9 a mitad de ventana
+
+| Criterio | Estado |
+|---|---|
+| Resultado > 0 con ≥ 3 de 4 semanas positivas | ❌/≈ bot −1,2, Binance +1,4 (con residual); 1 de 2 semanas positiva |
+| ROI ≥ 2 %/mes | ❌ hoy por debajo con cualquiera de las dos medidas |
+| Drawdown < 10 % | ✅ 6,7 % sobre la curva de grids cerrados (pico +4,4 el 1-nov → valle −2,3 el 6-nov) |
+| 0 caídas operativas / 0 inventarios sin protección | ⚠️ residual ETH probablemente abierto |
+
+### Notas de medición
+
+- `pnl_snapshots.account_balance` es `availableBalance`: salta ±10–20 USD al
+  abrir o cerrar grids por el margen bloqueado. **No sirve como curva de capital
+  ni para drawdown.** La verdad de cuenta es `income-summary` (`wallet_balance`
+  5.030,50, `margin_balance` 5.032,22 al corte).
+- Al cierre de la ventana conviene usar `income-summary?days=28` como cifra
+  principal y la contabilidad del bot como desglose. Antes hay que cerrar el
+  residual ETH o descontar su efecto.
+
+### Qué se hace con esto
+
+- No tocar parámetros hasta el fin de la ventana, para no mezclar regímenes en
+  la medición.
+- Acción operativa inmediata (dueño): verificar en Binance demo la posición
+  ETHUSDT y cerrarla si sigue abierta.
+- Pendiente de código detectado: que `RESIDUAL_POSITION` no dependa de
+  intervención manual (cierre reduce-only automático o alerta repetida hasta
+  resolverse).

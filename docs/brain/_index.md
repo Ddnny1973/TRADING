@@ -8,7 +8,7 @@ related:
   - "[[infra-multi-servidor]]"
   - "[[n8n-sync-y-gotchas]]"
   - "[[decisiones-tecnicas]]"
-updated: 2026-10-26
+updated: 2026-11-08
 owner: dueño del repo
 ---
 
@@ -76,6 +76,9 @@ memoria de sesiones de IA y no estaba escrito en ningún archivo del repo.
   fuera por nocional mínimo), escenarios de rendimiento, cripto vs bolsa,
   pertinencia de las 22 tareas y tareas nuevas N1–N6 (GTX, stop en exchange,
   switch de entorno, backtester).
+  Su §11 (2026-11-08) es el corte de mitad de ventana del perfil A2: operación
+  sana, rendimiento ≈ 0 (bot −1,2 / Binance +1,4 USD), muestra insuficiente y
+  un residual ETH sin cerrar.
 
 ## Puntos de entrada existentes (no duplicar, solo enlazar)
 
