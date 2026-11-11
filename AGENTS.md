@@ -20,6 +20,7 @@ Grid trading bot para Binance Futures (testnet). Un único backend FastAPI de ap
 - Tests (desde `backend-python/`): `pytest -v`. `pytest.ini` fija `pythonpath=.` y `testpaths=tests`.
   - ⚠️ El `.venv` local está vacío (sin pytest ni deps): para correr tests localmente primero `pip install -r backend-python/requirements.txt`, o correrlos en Docker. No hay workflow de CI que corra tests.
   - La suite nunca toca red real: Binance mockeado, SQLite descartable por test, Postgres salteado (`SessionLocal=None`). `conftest.py` setea las env vars `BINANCE_*`/`POSTGRES_*` ANTES de importar `app.core.config` (pydantic valida al importar) — respeta ese orden si agregas fixtures.
+- Backtester offline (desde `backend-python/`): `python -m app.backtest --days 180`. Solo usa velas públicas de mainnet (caché en `backend-python/backtest_data/`, ignorada por git); no toca Binance demo, SQLite ni Postgres. Reusa `auto_derive_params` y replica WF1/WF2: si cambias la lógica de `grid_service.py`, revisa el espejo en `app/backtest/grid_sim.py` y sus tests. Detalle y límites en `docs/analisis-bot/06-backtester.md`.
 - Docker: `docker compose up -d` desde la raíz. Puertos: backend `8043→8000`, postgres `9043→5432`. `docker-compose.yml` sustituye `${REDIS_PASSWORD}`/`${POSTGRES_*}` desde el `.env` raíz y requiere la red externa `infra_shared`.
 
 ## Deploy y sync n8n (GitHub Actions, rama `main`)
