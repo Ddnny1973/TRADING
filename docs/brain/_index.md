@@ -8,7 +8,7 @@ related:
   - "[[infra-multi-servidor]]"
   - "[[n8n-sync-y-gotchas]]"
   - "[[decisiones-tecnicas]]"
-updated: 2026-11-08
+updated: 2026-11-11
 owner: dueño del repo
 ---
 
@@ -79,6 +79,12 @@ memoria de sesiones de IA y no estaba escrito en ningún archivo del repo.
   Su §11 (2026-11-08) es el corte de mitad de ventana del perfil A2: operación
   sana, rendimiento ≈ 0 (bot −1,2 / Binance +1,4 USD), muestra insuficiente y
   un residual ETH sin cerrar.
+  `06-backtester.md` (2026-11-11) — backtester offline (N6) en
+  `backend-python/app/backtest/` (`python -m app.backtest`): reusa
+  `auto_derive_params` con velas de mainnet y replica WF1/WF2. Validado contra
+  la ventana A2; hallazgos: el demo tiene mechas que mainnet no tuvo (sobrestima
+  la cosecha), 180 días en mainnet dan ≈ 0 (cosecha +160 / arrastre −164 USD) y
+  ningún ajuste de SL/TP/ER crea ventaja.
 
 ## Puntos de entrada existentes (no duplicar, solo enlazar)
 

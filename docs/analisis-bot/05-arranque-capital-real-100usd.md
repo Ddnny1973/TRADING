@@ -221,7 +221,7 @@ real no existirían. Lo que gane ese demo no predice lo que ganarían 100 USD.
 | A4 | **N3 órdenes post-only (GTX)** + medir % de fills taker | Fees reales garantizados. |
 | A5 | **Recalibrar SL/TP (T4)** al margen/rango del grid + **N4 stop de emergencia en el exchange** | Pérdida acotada aun con el backend caído. |
 | A6 | **T20 paso 2**: ante `TREND_REGIME`, pausar el lado que acumula | Menos daño en tendencia. |
-| A7 | **N6 backtester** con velas de mainnet (en paralelo) | Validar parámetros contra 6–12 meses, no solo contra el régimen del mes. |
+| A7 | ✅ **N6 backtester** con velas de mainnet (2026-11-11, ver [06-backtester.md](06-backtester.md)) | Validar parámetros contra 6–12 meses, no solo contra el régimen del mes. |
 
 **Criterio para desbloquear los 100 USD reales** (4 semanas seguidas con el
 perfil A2 activo):

@@ -75,3 +75,6 @@ scripts/dashboard/dashboard.html
 scripts/dashboard/db.conf
 rouvy_session.json
 rouvy_workouts.json
+
+# Caché de velas del backtester (N6): se regenera con python -m app.backtest
+backend-python/backtest_data/
