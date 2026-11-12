@@ -88,6 +88,17 @@ memoria de sesiones de IA y no estaba escrito en ningún archivo del repo.
   (actuar ante `TREND_REGIME`: pausar, cancelar el lado, reducir, cerrar):
   tampoco mejora, la señal de ER llega tarde; `REGIME_FILTER_MODE` sigue en
   `OBSERVE`.
+  `07-seguimiento-tendencia.md` (2026-11-12) — hipótesis contraria al grid:
+  seguimiento de tendencia (canal de Donchian, `python -m app.backtest.trend`)
+  sobre 4 años de velas diarias y funding real. +61 % con 100 USD pero no
+  robusto (depende de 3 operaciones de 531, ≈ 0 con 1.000 USD y en el año
+  reservado, drawdown 45 %): no se implementa. Siguiente hipótesis: cobro de
+  funding con posición cubierta.
+  `08-funding-cubierto.md` (2026-11-12) — cobro de funding con spot largo +
+  perpetuo corto (`python -m app.backtest.carry`), 4 años: ingreso real y
+  estable pero pequeño y en descenso (ETH siempre dentro +4,6 %/año, drawdown
+  0,6 %; último año +1,2 %). Elegir monedas por funding alto no mejora y añade
+  riesgo de inversión del funding. No se implementa; resume las tres hipótesis.
 
 ## Puntos de entrada existentes (no duplicar, solo enlazar)
 
