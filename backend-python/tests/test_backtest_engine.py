@@ -153,3 +153,74 @@ def test_tighter_stop_loss_closes_more_grids():
     tight = summarize(run_backtest(lateral_market(), SimConfig(stop_loss_pct=0.001)))
     sl = lambda s: s["by_trigger"].get("STOP_LOSS", {"grids": 0})["grids"]
     assert sl(tight) > sl(wide)
+
+
+# ------------------------------------------------ A6: acción ante tendencia
+
+def _falling_backtest(action, **kw):
+    """Un símbolo en caída limpia (ER≈1) con un grid ya abierto alrededor del precio."""
+    from app.backtest.grid_sim import SimGrid
+
+    bars = {"DOWNUSDT": synthetic_bars(75, 50.0, 30.0, 0.0, drift_per_bar=-0.00002)}
+    market = HistoricalMarket(bars, {"DOWNUSDT": FILTERS})
+    cfg = SimConfig(regime_action=action, **kw)
+    bt = Backtest(market, cfg, ["DOWNUSDT"], 55 * DAY, 70 * DAY)
+    now = 60 * DAY
+    price = market.price("DOWNUSDT", now)
+    grid = SimGrid(cfg, "DOWNUSDT", price * 0.9, price * 1.1, 11, 0.3, 3, 1.0, 3.0, 224.0,
+                   "NEUTRAL", now - DAY, price, FILTERS)
+    bt.running.append(grid)
+    return bt, grid, now, price
+
+
+def test_regime_observe_only_counts_like_production():
+    bt, grid, now, price = _falling_backtest("OBSERVE")
+    assert bt._regime(grid, now, price) is None
+    assert bt._regime(grid, now + BASE_MS, price) is None
+    assert grid.er_trend_strikes == 2
+    assert bt.stats["trend_regime_alerts"] == 1
+    assert grid.regime_block is None and len(grid.open_orders) == 11
+
+
+def test_regime_pause_and_cancel_side_block_buys_in_a_downtrend():
+    bt, grid, now, price = _falling_backtest("PAUSE")
+    bt._regime(grid, now, price)
+    assert grid.regime_block is None                      # un solo strike no alcanza
+    bt._regime(grid, now + BASE_MS, price)
+    assert grid.regime_block == "BUY"
+    assert [o for o in grid.open_orders if o.side == "BUY"]   # PAUSE no cancela
+
+    bt, grid, now, price = _falling_backtest("CANCEL_SIDE")
+    bt._regime(grid, now, price)
+    bt._regime(grid, now + BASE_MS, price)
+    assert grid.regime_block == "BUY"
+    assert not [o for o in grid.open_orders if o.side == "BUY"]
+
+
+def test_regime_close_returns_trigger_and_reduce_acts_once():
+    bt, grid, now, price = _falling_backtest("CLOSE")
+    assert bt._regime(grid, now, price) is None
+    assert bt._regime(grid, now + BASE_MS, price) == "TREND_REGIME"
+
+    bt, grid, now, price = _falling_backtest("REDUCE")
+    grid.apply_bar(high=price, low=price * 0.95)          # acumula largos
+    held = grid.pos_units
+    assert held >= 2
+    bt._regime(grid, now, price * 0.95)
+    bt._regime(grid, now + BASE_MS, price * 0.95)
+    assert grid.pos_units == held - math.ceil(held * 0.5)
+    bt._regime(grid, now + 2 * BASE_MS, price * 0.95)
+    assert grid.pos_units == held - math.ceil(held * 0.5)  # una sola reducción por episodio
+    assert bt.stats["regime_reductions"] == 1
+
+
+def test_regime_action_is_skipped_during_grace_and_threshold_is_configurable():
+    bt, grid, now, price = _falling_backtest("CLOSE")
+    grid.created_ms = now                                  # recién creado: período de gracia
+    assert bt._regime(grid, now, price) is None
+    assert grid.er_trend_strikes == 0
+
+    bt, grid, now, price = _falling_backtest("CLOSE", regime_er_threshold=1.5, regime_strikes=1)
+    assert bt._regime(grid, now, price) is None            # umbral inalcanzable
+    bt, grid, now, price = _falling_backtest("CLOSE", regime_strikes=1, regime_interval="1h")
+    assert bt._regime(grid, now, price) == "TREND_REGIME"

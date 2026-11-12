@@ -24,7 +24,7 @@ from app.backtest.grid_sim import (
     GridRecord, GridRejected, SimConfig, SimGrid, max_duration_hours,
 )
 from app.core.config import settings
-from app.services.indicators import calculate_atr
+from app.services.indicators import calculate_atr, calculate_efficiency_ratio
 
 _DAY_MS = 24 * 60 * 60 * 1000
 _HOUR_MS = 60 * 60 * 1000
@@ -245,6 +245,52 @@ class Backtest:
         self.running.remove(grid)
         self.running.append(child)
 
+    # ---------------------------------------------------------------- régimen
+
+    def _regime(self, grid: SimGrid, now_ms: int, price: float) -> Optional[str]:
+        """
+        Espejo de evaluate_regime_filter (T20 paso 1) más la ACCIÓN que en
+        producción todavía no existe (paso 2 / A6). Devuelve "TREND_REGIME" si
+        la acción es cerrar el grid; en los demás casos actúa sobre el grid y
+        devuelve None.
+        """
+        cfg = self.cfg
+        if (now_ms - grid.created_ms) / 60_000.0 < policy.CHECK_CLOSE_GRACE_MINUTES:
+            return None
+        # Producción lee grids.klines_interval, columna que no existe: siempre "4h".
+        interval = cfg.regime_interval or "4h"
+        klines = self.market.klines_asof(grid.symbol, interval, policy.ER_LOOKBACK + 1, now_ms)
+        if not klines or len(klines) < 2:
+            return None
+        threshold = (cfg.regime_er_threshold if cfg.regime_er_threshold is not None
+                     else float(policy.REGIME_FILTER_ER_THRESHOLD))
+        strikes_needed = (cfg.regime_strikes if cfg.regime_strikes is not None
+                          else policy.REGIME_FILTER_STRIKES_TO_ALERT)
+        trend = float(calculate_efficiency_ratio(klines)) > threshold
+        grid.er_trend_strikes = grid.er_trend_strikes + 1 if trend else 0
+
+        if grid.er_trend_strikes == strikes_needed:
+            self._bump("trend_regime_alerts")
+        if cfg.regime_action == "OBSERVE":
+            return None
+        if grid.er_trend_strikes < strikes_needed:
+            grid.set_regime_block(None, False, price)
+            return None
+        if cfg.regime_action == "CLOSE":
+            return "TREND_REGIME"
+
+        # En bajada el grid acumula largos (se llenan las compras); en subida, cortos.
+        falling = klines[-1]["close"] < klines[0]["close"]
+        side = "BUY" if falling else "SELL"
+        newly_blocked = grid.regime_block != side
+        grid.set_regime_block(side, cfg.regime_action in ("CANCEL_SIDE", "REDUCE"), price)
+        grid.regime_cycles_blocked += 1
+        if cfg.regime_action == "REDUCE" and newly_blocked:
+            against = grid.pos_units > 0 if falling else grid.pos_units < 0
+            if against and grid.reduce_position(cfg.regime_reduce_fraction, price):
+                self._bump("regime_reductions")
+        return None
+
     # ------------------------------------------------------------------ ciclo
 
     def _check_kill_switch(self, now_ms: int) -> None:
@@ -274,8 +320,12 @@ class Backtest:
         recenter_policy = self.cfg.out_of_range_policy or policy.OUT_OF_RANGE_POLICY
         for grid in list(self.running):
             price = self.market.price(grid.symbol, now_ms)
-            grid.replenish(price)
-            trigger = grid.check_close(now_ms, price, lambda g=grid: self._atr_4h(g.symbol, now_ms))
+            # Orden de WF2: refresh (incluye el filtro de régimen) → reposición → check-close.
+            regime_trigger = self._regime(grid, now_ms, price)
+            if regime_trigger is None:
+                grid.replenish(price)
+            trigger = regime_trigger or grid.check_close(
+                now_ms, price, lambda g=grid: self._atr_4h(g.symbol, now_ms))
             if trigger is None:
                 continue
             closed_any = True
