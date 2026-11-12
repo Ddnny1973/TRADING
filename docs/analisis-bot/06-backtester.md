@@ -3,7 +3,7 @@ title: "Backtester offline (N6): qué simula, cómo usarlo y qué dijo la primer
 type: analisis
 status: herramienta lista — resultados de línea base en §5
 started: 2026-11-11
-updated: 2026-11-11
+updated: 2026-11-12
 related: ["04-estrategia-y-portafolio.md", "05-arranque-capital-real-100usd.md"]
 ---
 
@@ -50,6 +50,7 @@ Parámetros que cambian la política (lo que se quiere experimentar):
 | `--sl-pct`, `--tp-pct` | SL/TP como fracción del balance | los del código (1 % / 3 %) |
 | `--er-max` | ER máximo para lanzar | el del código (0,35) |
 | `--policy`, `--max-recenters` | Qué hacer ante `OUT_OF_RANGE` | `RECENTER`, sin tope |
+| `--regime-action`, `--regime-interval`, `--regime-er`, `--regime-strikes` | A6: acción ante tendencia con el grid abierto (§8) | `OBSERVE`, 4h, 0,35, 2 |
 | `--fill-mode` | `through`: el precio debe cruzar el nivel; `touch`: basta tocarlo | `through` |
 | `--slippage-bps` | Slippage del cierre a mercado | 3 |
 | `--source` | Precios de `mainnet` o del exchange `demo` | `mainnet` |
@@ -271,6 +272,7 @@ Lectura:
    - **A6: actuar ante tendencia mientras el grid corre** (pausar el lado que
      acumula, o reducir inventario antes del stop). El arrastre viene de
      inventario cargado contra la tendencia, no de la entrada.
+     **Probado el 2026-11-12: no mejora (§8).**
    - **Sesgo direccional del grid** (no reponer contra una tendencia medida en
      un plazo mayor), que es la versión barata del flip a breakout (T21).
    - **Selección por desempeño propio**: HYPE, SOL y WLD suman; TAO, ADA y NEAR
@@ -285,3 +287,84 @@ Lectura:
 5. **Mejoras del backtester** cuando hagan falta: universo histórico por fecha
    (quita el sesgo de supervivencia), funding real, y fills con trades (aggTrades)
    en vez de velas para acotar la brecha `through`/`touch`.
+
+## 8. Experimento A6: actuar ante tendencia con el grid abierto (2026-11-12)
+
+**Resultado: ninguna acción ante `TREND_REGIME` mejora el resultado de forma
+que se distinga del ruido.** A6, tal como está planteada (reaccionar a la señal
+de ER que ya calcula T20), no es la mejora que falta.
+
+### Qué se probó
+
+El simulador replica el filtro de régimen de producción (`evaluate_regime_filter`:
+ER de 48 velas de 4h, umbral 0,35, 2 ciclos seguidos, tras el período de gracia)
+y le agrega la acción que en producción no existe (`--regime-action`):
+
+| Acción | Qué hace mientras dura la tendencia |
+|---|---|
+| `OBSERVE` | Nada (producción hoy). |
+| `PAUSE` | No repone el lado que acumula (compras en bajada, ventas en subida). Es la propuesta del doc 05. |
+| `CANCEL_SIDE` | `PAUSE` + cancela las órdenes vivas de ese lado; al volver a lateral repone las que el precio no cruzó. |
+| `REDUCE` | `CANCEL_SIDE` + cierra a mercado el 50 % del inventario contra la tendencia (una vez por episodio). |
+| `CLOSE` | Cierra el grid a mercado (trigger `TREND_REGIME`) y relanza WF1. |
+
+La señal también se varió: velas de 4h, 1h y 15m (`--regime-interval`) y umbral
+de ER (`--regime-er`). Cada variante se corrió en 6 escenarios, con la regla del
+§7: 180 días `through`, lo mismo empezando 3 y 7 días después, 180 días `touch`
+y las dos mitades del periodo.
+
+### Resultado (USD sobre 100, 15-may → 11-nov 2026)
+
+| Variante | through | +3 d | +7 d | touch | 1.ª mitad | 2.ª mitad | Drawdown | Grids |
+|---|---|---|---|---|---|---|---|---|
+| **Base (`OBSERVE`)** | −3,6 | +2,0 | −0,8 | +17,8 | −4,8 | −13,8 | 12,3 | 77 |
+| `PAUSE` 4h | −3,2 | +2,4 | −0,3 | +6,1 | −4,9 | −13,8 | 12,0 | 77 |
+| `PAUSE` 1h | −4,8 | +0,8 | −2,0 | +3,0 | −3,7 | −13,8 | 9,4 | 83 |
+| `CANCEL_SIDE` 4h | +2,0 | +7,5 | +1,9 | +4,8 | −0,8 | +6,6 | 11,6 | 90 |
+| `CANCEL_SIDE` 1h | −1,2 | +4,5 | −8,6 | +10,0 | −3,9 | −12,9 | 12,3 | 80 |
+| `CANCEL_SIDE` 15m | −16,9 | −13,2 | −15,5 | +3,0 | −2,4 | −15,7 | 17,8 | 79 |
+| `CANCEL_SIDE` 4h, ER 0,25 | −5,5 | +12,3 | −6,1 | −4,1 | −9,6 | −0,2 | 17,6 | 80 |
+| `CANCEL_SIDE` 1h, ER 0,50 | −3,3 | +2,3 | −0,5 | +14,9 | −4,8 | −13,8 | 12,0 | 77 |
+| `REDUCE` 4h | −14,7 | +13,5 | −18,0 | −12,3 | −18,4 | 0,0 | 26,0 | 92 |
+| `REDUCE` 1h | −3,7 | +3,5 | −4,9 | −1,6 | −6,3 | +4,6 | 11,0 | 99 |
+| `REDUCE` 1h, 100 % | −8,0 | +6,6 | +7,5 | −6,4 | −9,0 | −0,4 | 13,7 | 104 |
+| `CLOSE` 4h | −14,9 | −9,6 | −15,7 | −5,6 | −5,9 | −9,7 | 20,1 | 254 |
+| `CLOSE` 1h | −8,9 | −5,0 | −11,0 | −7,4 | −2,3 | −3,2 | 16,3 | 424 |
+| `CLOSE` 15m | +2,4 | +3,4 | +2,3 | +5,2 | +1,4 | +0,6 | 11,5 | 411 |
+| `CLOSE` 4h, ER 0,25 | −6,8 | −5,9 | −6,8 | −11,1 | −0,2 | −3,9 | 20,1 | 688 |
+| `CLOSE` 1h, ER 0,50 | −4,0 | +1,6 | −1,2 | −21,4 | −0,4 | −1,5 | 18,8 | 127 |
+
+### Lectura
+
+- **`PAUSE` (la propuesta original) no hace casi nada en `through` y resta en
+  `touch`.** En una bajada lo que carga inventario son las compras que ya
+  estaban en el libro, no las reposiciones; pausar reposiciones no las toca.
+- **`CANCEL_SIDE` 4h es la única que mejora en los tres `through` y en las dos
+  mitades** (media +3,8 contra −0,8), pero pierde 13 USD en `touch` y sus
+  vecinas (1h, 15m, ER 0,25) empeoran. Una mejora de ~5 USD que cambia de signo
+  al mover un parámetro está dentro del ruido (§6).
+- **`CLOSE` 15m es positiva en los 6 escenarios**, pero por muy poco (+0,6 a
+  +5,2 USD en 6 meses, ≈ 0,4 %/mes) y es 1 de 15 variantes: con tantas pruebas,
+  una así aparece por azar. `CLOSE` 1h y 4h, que deberían parecerse, pierden.
+  Sirve como pista, no como resultado.
+- **La señal llega tarde o no llega.** Con `CLOSE` activo siguen cayendo 29–38
+  grids por `STOP_LOSS` (base: 34): la mayoría de los stops ocurre sin que el ER
+  haya marcado tendencia antes. El ER de 48 velas mide días; el daño ocurre en
+  horas. Es el mismo límite que mostró el filtro de ER al lanzar (§6).
+- **Cerrar por la señal recorta más ganadores que perdedores:** los cierres
+  `TREND_REGIME` suman ≈ +10 USD, pero los `TAKE_PROFIT` bajan de 9 a 4–5 y los
+  stops no bajan.
+- **`REDUCE` a 4h duplica el drawdown** (26 USD): vende inventario en el peor
+  punto y el grid re-centrado vuelve a cargar.
+
+### Qué cambia en el plan
+
+- **A6 no se despliega.** `REGIME_FILTER_MODE` sigue en `OBSERVE`.
+- El problema no es *qué hacer* ante la señal sino que **la señal no anticipa
+  el daño**. El siguiente experimento debe cambiar la señal o la estructura, no
+  la reacción: límite de inventario por grid más estricto, tamaño por nivel
+  decreciente hacia los bordes, o una señal rápida (ruptura del rango por ATR de
+  corto plazo) en vez del ER.
+- Tres experimentos seguidos (parámetros, ER al lanzar, A6) dan expectativa ≈ 0.
+  Eso refuerza la lectura del doc 04: el grid neutral cobra una prima pequeña y
+  la devuelve en los movimientos; afinarlo no la convierte en ventaja.

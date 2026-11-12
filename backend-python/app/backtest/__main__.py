@@ -54,6 +54,11 @@ def main(argv=None) -> int:
     ap.add_argument("--er-max", type=float, help="ER máximo para considerar el mercado lateral")
     ap.add_argument("--policy", choices=["RECENTER", "CLOSE"], help="qué hacer ante OUT_OF_RANGE")
     ap.add_argument("--max-recenters", type=int, help="tope de re-centrados por grid")
+    ap.add_argument("--regime-action", choices=["OBSERVE", "PAUSE", "CANCEL_SIDE", "REDUCE", "CLOSE"],
+                    default="OBSERVE", help="A6: qué hacer ante tendencia con el grid abierto")
+    ap.add_argument("--regime-interval", help="velas del ER de régimen (por defecto 4h, como producción)")
+    ap.add_argument("--regime-er", type=float, help="umbral de ER de régimen (por defecto 0.35)")
+    ap.add_argument("--regime-strikes", type=int, help="ciclos seguidos en tendencia antes de actuar")
     ap.add_argument("--fill-mode", choices=["through", "touch"], default="through")
     ap.add_argument("--slippage-bps", type=float, default=3.0)
     ap.add_argument("--no-kill-switch", action="store_true")
@@ -106,6 +111,8 @@ def main(argv=None) -> int:
         out_of_range_policy=args.policy, max_recenters=args.max_recenters,
         fill_mode=args.fill_mode, slippage_bps=args.slippage_bps,
         kill_switch=not args.no_kill_switch,
+        regime_action=args.regime_action, regime_interval=args.regime_interval,
+        regime_er_threshold=args.regime_er, regime_strikes=args.regime_strikes,
     )
     market = HistoricalMarket(bars, filters, volume_bars)
     t0 = time.time()

@@ -54,6 +54,18 @@ class SimConfig:
     out_of_range_policy: Optional[str] = None      # "RECENTER" | "CLOSE"
     max_recenters: Optional[int] = None            # None = sin tope (como el código hoy)
 
+    # A6 / T20 paso 2: qué hacer cuando el filtro de régimen detecta tendencia
+    # con el grid abierto. OBSERVE = como producción hoy (solo avisa).
+    #   PAUSE        no reponer el lado que acumula
+    #   CANCEL_SIDE  PAUSE + cancelar las órdenes vivas de ese lado
+    #   REDUCE       CANCEL_SIDE + cerrar a mercado una fracción del inventario
+    #   CLOSE        cerrar el grid a mercado
+    regime_action: str = "OBSERVE"
+    regime_interval: Optional[str] = None          # None = "4h" (lo que usa producción)
+    regime_er_threshold: Optional[float] = None    # None = REGIME_FILTER_ER_THRESHOLD
+    regime_strikes: Optional[int] = None           # None = REGIME_FILTER_STRIKES_TO_ALERT
+    regime_reduce_fraction: float = 0.5
+
     # Ejecución
     maker_fee: float = 0.0002
     taker_fee: float = 0.0005
@@ -198,6 +210,13 @@ class SimGrid:
         self.out_of_range_strikes = 0
         self.replenish_paused_cycles = 0
 
+        # Filtro de régimen (T20): contador como grids.er_trend_strikes y, si
+        # la acción lo pide, el lado bloqueado y las órdenes retiradas.
+        self.er_trend_strikes = 0
+        self.regime_block: Optional[str] = None
+        self.parked_orders: List[SimOrder] = []
+        self.regime_cycles_blocked = 0
+
         # Inventario heredado de un re-centrado: entra como un fill sintético al
         # precio de marca (A1a, GridService._orders_for_pnl), sin comisión.
         if inherited_units:
@@ -280,6 +299,7 @@ class SimGrid:
             tolerance = max_net_position_units(self.levels) * float(policy.REPLENISH_POSITION_TOLERANCE_RATIO)
             if tolerance > 0 and abs(self.pos_units) > tolerance:
                 blocked = "BUY" if self.pos_units > 0 else "SELL"
+        blocked_sides = {blocked, self.regime_block} - {None}
 
         placed = 0
         remaining: List[SimOrder] = []
@@ -292,7 +312,7 @@ class SimGrid:
                 new_idx, new_side = o.level_index - 1, "BUY"
             else:
                 continue  # fill en el borde: no hay nivel adyacente
-            if new_side == blocked:
+            if new_side in blocked_sides:
                 remaining.append(o)  # queda reclamable para cuando baje la posición
                 continue
             new_order = SimOrder(new_side, self.price_levels[new_idx], new_idx,
@@ -310,6 +330,56 @@ class SimGrid:
         if blocked and remaining:
             self.replenish_paused_cycles += 1
         return placed
+
+    # ------------------------------------------------- acción ante tendencia
+
+    def set_regime_block(self, side: Optional[str], cancel_orders: bool, price: float) -> None:
+        """
+        Bloquea la reposición de `side` (el lado que acumula inventario en la
+        tendencia). Con `cancel_orders` además retira las órdenes vivas de ese
+        lado. `side=None` levanta el bloqueo y devuelve al libro las órdenes
+        retiradas que todavía no cruzan el mercado (las demás se pierden: el
+        precio ya pasó por ese nivel).
+        """
+        if side == self.regime_block:
+            return
+        if self.parked_orders:
+            for o in self.parked_orders:
+                if (o.side == "BUY" and o.price < price) or (o.side == "SELL" and o.price > price):
+                    self.open_orders.append(o)
+            self.parked_orders = []
+        self.regime_block = side
+        if side is not None and cancel_orders:
+            self.parked_orders = [o for o in self.open_orders if o.side == side]
+            self.open_orders = [o for o in self.open_orders if o.side != side]
+
+    def reduce_position(self, fraction: float, price: float) -> int:
+        """
+        Cierra a mercado una fracción del inventario (redondeada hacia arriba a
+        órdenes enteras). Entra en la contabilidad como un fill taker más, así
+        el PnL del bot lo ve. Devuelve cuántas unidades cerró.
+        """
+        units = min(abs(self.pos_units), math.ceil(abs(self.pos_units) * fraction - 1e-12))
+        if units <= 0:
+            return 0
+        long = self.pos_units > 0
+        slip = self.cfg.slippage_bps / 10_000.0
+        exec_price = price * (1 - slip) if long else price * (1 + slip)
+        q = units * self.qty
+        fee = q * exec_price * self.cfg.taker_fee
+        if long:
+            self.sell_qty += q
+            self.sell_proceeds += q * exec_price
+            self.cash += q * exec_price
+            self.pos_units -= units
+        else:
+            self.buy_qty += q
+            self.buy_cost += q * exec_price
+            self.cash -= q * exec_price
+            self.pos_units += units
+        self.cash -= fee
+        self.fees += fee
+        return units
 
     # --------------------------------------------------------------------- PnL
 

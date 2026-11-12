@@ -232,3 +232,44 @@ def test_grid_with_step_below_fee_floor_is_rejected():
         make_grid(lower=99.9, upper=100.1, levels=11)
     with pytest.raises(GridRejected):
         make_grid(qty=0.01)  # nocional por debajo del mínimo
+
+
+# ------------------------------------------------ A6: acción ante tendencia
+
+def test_regime_block_stops_replenishing_the_accumulating_side():
+    grid = make_grid()
+    grid.apply_bar(high=102.0, low=100.0)        # se llena el SELL de 101.52
+    grid.set_regime_block("BUY", cancel_orders=False, price=102.0)
+    assert grid.replenish(102.0) == 0            # su reposición sería un BUY: bloqueada
+    assert len(grid.pending_replenish) == 1      # queda reclamable
+    grid.set_regime_block(None, cancel_orders=False, price=102.0)
+    assert grid.replenish(102.0) == 1
+
+
+def test_regime_cancel_side_parks_orders_and_restores_only_those_not_crossed():
+    grid = make_grid()
+    buys = [o for o in grid.open_orders if o.side == "BUY"]
+    grid.set_regime_block("BUY", cancel_orders=True, price=100.0)
+    assert not [o for o in grid.open_orders if o.side == "BUY"]
+    assert len(grid.parked_orders) == len(buys) == 6
+    assert grid.apply_bar(high=100.0, low=92.0) == 0   # la caída ya no llena compras
+
+    grid.set_regime_block(None, cancel_orders=False, price=95.0)
+    restored = sorted(o.price for o in grid.open_orders if o.side == "BUY")
+    assert restored == [p for p in grid.price_levels if p < 95.0]   # 90, 91.83, 93.69
+    assert grid.parked_orders == []
+
+
+def test_reduce_position_closes_a_fraction_and_bot_pnl_still_matches():
+    grid = make_grid(cfg=SimConfig(slippage_bps=0.0))
+    fills = record_fills(grid)
+    grid.apply_bar(high=100.0, low=94.0)         # 3 compras: 99.50, 97.53, 95.59
+    assert grid.pos_units == 3
+    assert grid.reduce_position(0.5, 94.0) == 2  # ceil(3 × 0.5)
+    assert grid.pos_units == 1
+    orders = fills + [{"side": "SELL", "price": Decimal("94"), "quantity": Decimal("0.12"),
+                       "executed_qty": Decimal("0.12"), "avg_fill_price": Decimal("94")}]
+    expected = calculate_grid_pnl(orders, Decimal("93"), Decimal("0.0002"))
+    assert grid.bot_pnl(93.0) == pytest.approx(float(expected["total_pnl"]), abs=1e-9)
+    assert grid.reduce_position(0.5, 94.0) == 1  # nunca más de lo que hay
+    assert grid.reduce_position(0.5, 94.0) == 0

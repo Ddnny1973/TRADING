@@ -220,7 +220,7 @@ real no existirían. Lo que gane ese demo no predice lo que ganarían 100 USD.
 | A3 | 🟡 **T13 paso 2**: puerta determinista decide, LLM solo notifica. PR 2026-10-26 | Sin punto único de falla. |
 | A4 | **N3 órdenes post-only (GTX)** + medir % de fills taker | Fees reales garantizados. |
 | A5 | **Recalibrar SL/TP (T4)** al margen/rango del grid + **N4 stop de emergencia en el exchange** | Pérdida acotada aun con el backend caído. |
-| A6 | **T20 paso 2**: ante `TREND_REGIME`, pausar el lado que acumula | Menos daño en tendencia. |
+| A6 | ❌ **T20 paso 2**: ante `TREND_REGIME`, pausar el lado que acumula. Probado en el backtester el 2026-11-12 (pausar, cancelar el lado, reducir, cerrar): no mejora, la señal de ER llega tarde. No se despliega (ver [06-backtester.md](06-backtester.md) §8) | Menos daño en tendencia. |
 | A7 | ✅ **N6 backtester** con velas de mainnet (2026-11-11, ver [06-backtester.md](06-backtester.md)) | Validar parámetros contra 6–12 meses, no solo contra el régimen del mes. |
 
 **Criterio para desbloquear los 100 USD reales** (4 semanas seguidas con el
