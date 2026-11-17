@@ -8,7 +8,7 @@ related:
   - "[[infra-multi-servidor]]"
   - "[[n8n-sync-y-gotchas]]"
   - "[[decisiones-tecnicas]]"
-updated: 2026-11-12
+updated: 2026-11-17
 owner: dueño del repo
 ---
 
@@ -99,6 +99,10 @@ memoria de sesiones de IA y no estaba escrito en ningún archivo del repo.
   estable pero pequeño y en descenso (ETH siempre dentro +4,6 %/año, drawdown
   0,6 %; último año +1,2 %). Elegir monedas por funding alto no mejora y añade
   riesgo de inversión del funding. No se implementa; resume las tres hipótesis.
+  `09-funding-senal.md` (2026-11-17) — funding extremo como señal de dirección
+  (`python -m app.backtest.fundsig`), con criterios de aprobación fijados antes
+  de correr: no pasa (5 de 7). El +25 % de la base sale casi todo de una sola
+  operación (RAVEUSDT, ×3,7 en 5 días); sin ella ≈ 1 %/año. Línea cerrada.
 
 ## Puntos de entrada existentes (no duplicar, solo enlazar)
 

@@ -142,6 +142,10 @@ class TrendConfig:
     taker_fee: float = 0.0005
     slippage_bps: float = 5.0
     use_funding: bool = True
+    # Parte del funding del día de entrada que se cobra/paga: la posición abre a las
+    # 00:00 UTC, después del primer cobro del día (2 de 3). 1.0 conserva los números
+    # del doc 07; las estrategias de funding usan 2/3.
+    entry_funding_share: float = 1.0
 
 
 @dataclass
@@ -185,6 +189,8 @@ Bars = Dict[int, Tuple[float, float, float, float, float]]
 
 
 class TrendBacktest:
+    exit_reason = "CHANNEL"      # etiqueta de las salidas decididas por la señal
+
     def __init__(self, bars: Dict[str, Bars], filters: Dict[str, Dict[str, Decimal]],
                  funding: Dict[str, Dict[int, float]], cfg: TrendConfig,
                  start_day: int, end_day: int):
@@ -287,6 +293,41 @@ class TrendBacktest:
                                  pos.qty, pnl, fees, pos.funding, reason))
         del self.positions[pos.symbol]
 
+    # --------------------------------------------------------------- señales
+
+    def _decide(self, day: int) -> Tuple[List[str], List[Tuple[float, str, int, float]]]:
+        """
+        Con los cierres hasta `day` incluido, decide las órdenes que se ejecutan a
+        la apertura de mañana. Devuelve (salidas, entradas); cada entrada es
+        (fuerza, símbolo, lado, distancia al stop). Las subclases cambian la señal.
+        """
+        cfg = self.cfg
+        exits: List[str] = []
+        entries: List[Tuple[float, str, int, float]] = []
+        for s, pos in self.positions.items():
+            bar = self.bars[s].get(day)
+            w = self._window(s, day, cfg.exit_days)
+            if bar is None or w is None:
+                continue
+            if (pos.side > 0 and bar[3] < min(x[2] for x in w)) or \
+               (pos.side < 0 and bar[3] > max(x[1] for x in w)):
+                exits.append(s)
+        for s in self.universe(day):
+            bar = self.bars[s].get(day)
+            w = self._window(s, day, cfg.entry_days)
+            atr = self._atr(s, day)
+            if bar is None or w is None or not atr:
+                continue
+            side = 1 if bar[3] > max(x[1] for x in w) else -1 if bar[3] < min(x[2] for x in w) else 0
+            if side == 0 or (side < 0 and not cfg.allow_short):
+                continue
+            held = self.positions.get(s)
+            if held is not None and held.side == side:
+                continue
+            channel = max(x[1] for x in w) if side > 0 else min(x[2] for x in w)
+            entries.append((abs(bar[3] - channel) / atr, s, side, cfg.stop_atr * atr))
+        return exits, entries
+
     # ------------------------------------------------------------------ run
 
     def run(self) -> TrendResult:
@@ -301,7 +342,7 @@ class TrendBacktest:
             for s in pending_exits:
                 bar = self.bars[s].get(day)
                 if s in self.positions and bar is not None:
-                    self._close(self.positions[s], day, bar[0], "CHANNEL")
+                    self._close(self.positions[s], day, bar[0], self.exit_reason)
             pending_entries.sort(reverse=True)
             for _, s, side, stop_dist in pending_entries:
                 bar = self.bars[s].get(day)
@@ -332,33 +373,13 @@ class TrendBacktest:
                 self.last_close[pos.symbol] = bar[3]
                 if cfg.use_funding:
                     rate = self.funding.get(pos.symbol, {}).get(day, 0.0)
-                    pos.funding -= pos.side * pos.qty * bar[3] * rate   # el largo paga si la tasa es > 0
+                    share = cfg.entry_funding_share if pos.entry_day == day else 1.0
+                    pos.funding -= pos.side * pos.qty * bar[3] * rate * share   # el largo paga si la tasa es > 0
             equity_prev = self.equity()
             equity_curve.append((day, equity_prev))
 
             # 4. Señales con los cierres hasta hoy → órdenes para mañana.
-            for s, pos in self.positions.items():
-                bar = self.bars[s].get(day)
-                w = self._window(s, day, cfg.exit_days)
-                if bar is None or w is None:
-                    continue
-                if (pos.side > 0 and bar[3] < min(x[2] for x in w)) or \
-                   (pos.side < 0 and bar[3] > max(x[1] for x in w)):
-                    pending_exits.append(s)
-            for s in self.universe(day):
-                bar = self.bars[s].get(day)
-                w = self._window(s, day, cfg.entry_days)
-                atr = self._atr(s, day)
-                if bar is None or w is None or not atr:
-                    continue
-                side = 1 if bar[3] > max(x[1] for x in w) else -1 if bar[3] < min(x[2] for x in w) else 0
-                if side == 0 or (side < 0 and not cfg.allow_short):
-                    continue
-                held = self.positions.get(s)
-                if held is not None and held.side == side:
-                    continue
-                channel = max(x[1] for x in w) if side > 0 else min(x[2] for x in w)
-                pending_entries.append((abs(bar[3] - channel) / atr, s, side, cfg.stop_atr * atr))
+            pending_exits, pending_entries = self._decide(day)
 
         last = self.end_day - 1
         for pos in list(self.positions.values()):
