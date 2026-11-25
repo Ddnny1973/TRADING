@@ -7,7 +7,7 @@ tags: [monitoreo, analitica, postgres, grid-trading]
 related:
   - "[[_index]]"
   - "[[decisiones-tecnicas]]"
-updated: 2026-09-05
+updated: 2026-11-25
 owner: dueño del repo
 ---
 
@@ -244,3 +244,23 @@ mostrar grids RUNNING con: símbolo, leverage, modo, rango, niveles, órdenes
 `create_grid` ahora cierra automáticamente cualquier posición residual antes
 de crear un NEUTRAL grid (común después de cancelar un grid con redondeo).
 Ver `decisiones-tecnicas.md`.
+
+## Huecos de monitoreo diarios y errores de WF2 (2026-11-24)
+
+Medido con `pnl_snapshots` (huecos > 12 min) y las ejecuciones de n8n del 2026-11-12 al
+2026-11-24:
+
+- **Todos los días hacia las 02:01 UTC** hay un hueco de 15–80 min (típico 35) sin
+  snapshots. **Desde el 2026-11-21 hay otro hacia las 07:01 UTC**, de 25–40 min.
+- En esos tramos n8n tampoco ejecuta ningún ciclo de WF2 (faltan las ejecuciones de las
+  07:06 a las 07:26 del 24-nov en el historial), así que no es solo el backend caído: algo
+  programado en el servidor (backup, actualización o reinicio) detiene n8n o el host.
+  **Causa sin investigar.** Efecto: ≈ 1 h/día sin monitoreo, con grids vivos y sin stop en
+  el exchange.
+- WF2 con errores visibles desde el 2026-10-27: solo 2 (n8n conserva pocas ejecuciones, el
+  conteo es un mínimo). 2026-11-23 14:01 UTC: `Notify: Grid Closed` (Telegram) falló con
+  `ExpressionError: invalid syntax` al notificar el stop-loss de ZEC y abortó ese ciclo; no
+  se repitió en otros cierres. 2026-11-22 07:36 UTC: error de 0,1 s sin investigar. WF1:
+  0 errores.
+- Pendiente: revisar el cron del servidor (`/data/odoo`, backups) y, si el hueco es
+  inevitable, valorar el stop de emergencia en el exchange (N4, doc 05).

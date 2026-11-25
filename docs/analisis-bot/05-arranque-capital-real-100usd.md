@@ -381,3 +381,56 @@ confianza hacen falta la ventana completa y, como referencia, 40–60 grids cerr
 - Pendiente de código detectado: que `RESIDUAL_POSITION` no dependa de
   intervención manual (cierre reduce-only automático o alerta repetida hasta
   resolverse).
+
+## 12. Corte final de la ventana A2 (2026-11-24, provisional al 2026-11-25 12:00 UTC)
+
+Ventana: del 2026-10-26 18:43 Bogotá al 2026-11-24. Fuentes: Postgres `trading` (restar 5 h
+a las columnas de hora) y ejecuciones de n8n por MCP. **Provisional:** falta la cifra oficial
+de Binance (`GET /api/v1/account/income-summary?days=28`, que ejecuta el dueño en Swagger) y
+el cierre manual del corto de HYPE (ver abajo).
+
+### Rendimiento: ligeramente negativo, el mismo patrón
+
+| Medida | USD |
+|---|---|
+| 22 grids cerrados (bot, `total_pnl`): 6 ganan, 16 pierden | −4,75 |
+| + HYPE abierto (+3,02 con el dato del 23-nov 22:51; el corto sigue abierto) | +3,02 |
+| + UNI abierto (25-nov 12:01) | −0,61 |
+| **Estrategia según el bot, estimada** | **≈ −2,3 (−2,3 %)** |
+
+- Por motivo de cierre: STOP_LOSS 12 grids (−14,38; ninguno gana), TAKE_PROFIT 3 (+9,25),
+  RECENTERED 6 (−1,04; 2 ganan), EXPIRED 1 (+1,43).
+- Por semana (lunes): 26-oct +4,41 (4 grids), 2-nov −6,73 (9), 9-nov −3,28 (4), 16-nov
+  +2,12 (4), 23-nov −1,26 (1, parcial). Dos de cuatro semanas completas son positivas.
+- La cosecha sigue funcionando: 222 ciclos, +33,61 USD netos y 0,56 de comisiones (incluyen
+  los grids abiertos). Los cierres devolvieron ≈ 36 USD: el mismo patrón short-vol del §10 y
+  del backtester (doc 06: ≈ −0,6 %/mes).
+- Drawdown sobre la curva de grids cerrados: 10,01 USD (pico +4,41 el 1-nov, valle −5,60
+  hacia el 14-nov).
+
+### Criterio del §9
+
+| Criterio | Estado |
+|---|---|
+| Resultado > 0 con ≥ 3 de 4 semanas positivas | ❌ ≈ −2,3 USD; 2 de 4 semanas |
+| ROI ≥ 2 %/mes | ❌ ≈ −2,3 % |
+| Drawdown < 10 % | ❌ en el límite (10,01 %) |
+| 0 caídas operativas / 0 inventarios sin protección | ❌ residual de ETH del 4-nov (sin verificar si sigue abierto) e incidente de HYPE |
+
+### Operación
+
+- WF1: 0 errores. WF2: 2 errores visibles (n8n conserva pocas ejecuciones). Eventos de
+  salud: 1 `RESIDUAL_POSITION` (ETH, 4-nov) y 14 avisos `TREND_REGIME` (solo observación).
+- **Incidente abierto:** el grid HYPE alcanzó el take-profit (+3,02) el 23-nov y no se pudo
+  cerrar la posición (`-2022`): sigue RUNNING y alerta cada 5 min (≈ 440 alertas). Detalle y
+  pendientes de código en `docs/brain/decisiones-tecnicas.md`.
+- Huecos diarios de monitoreo (hacia las 02:01 y las 07:01 UTC, ≈ 1 h/día) sin explicar:
+  `docs/brain/analisis-bot-monitoreo.md`.
+
+### Qué se concluye
+
+- El grid de 100 USD no cumplió el criterio de desbloqueo: **no se pasa a dinero real**.
+  Coincide con los docs 06–09: ninguna calibración ni estrategia alternativa simple mostró
+  ventaja.
+- Pendiente para cerrar el corte: cifra oficial de Binance, cerrar HYPE y verificar el
+  residual de ETH.

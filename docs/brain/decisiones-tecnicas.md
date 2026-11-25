@@ -7,7 +7,7 @@ tags: [decisiones, ia, alcance]
 related:
   - "[[_index]]"
   - "[[n8n-sync-y-gotchas]]"
-updated: 2026-10-28
+updated: 2026-11-25
 owner: dueño del repo
 ---
 
@@ -673,3 +673,92 @@ dejar que el grid siga (el OUT_OF_RANGE y MAX_POSITION ya son backstops);
 Opción C: dejar de avisar y volver a OBSERVE silente. Hay que decidirlo tras
 observar episodios reales (falsos positivos vs. tendencias reales) — anotado
 para revisar y analizar en una sesión posterior. Ver `03-plan` T20 paso 2.
+**Actualización 2026-11-12:** el backtester (doc 06 §8) probó actuar ante la tendencia
+y no mejora; se mantiene `OBSERVE` (ver «Búsqueda de una estrategia mejor» más abajo).
+
+## Búsqueda de una estrategia mejor: nada con ventaja demostrada (2026-11-11 → 2026-11-17)
+
+Contexto: el perfil A2 (100 USD en demo) daba ≈ 0 y se quiso saber si el problema era
+de calibración o de estrategia. Se construyó un backtester offline (N6/A7, PR #29) y con
+él se probaron varias hipótesis. Detalle y números en `docs/analisis-bot/06` a `09` (no
+se repiten aquí).
+
+| Hipótesis | Doc | Resultado |
+|---|---|---|
+| Grid actual: 180 días de mainnet y 13 variantes de parámetros (SL, TP, ER, política de re-centrado, capital) | 06 §6 | ≈ −3,6 USD (−0,6 %/mes): cosecha +160, arrastre de cierres −164. Ninguna variante crea ventaja |
+| A6: actuar ante tendencia con el grid abierto (pausar, cancelar el lado, reducir, cerrar) | 06 §8 | 15 variantes × 6 escenarios, ninguna mejora más allá del ruido: la señal de ER llega tarde |
+| Seguimiento de tendencia (canal de Donchian, 4 años) | 07 | +61 % con 100 USD, pero depende de 3 operaciones de 531, ≈ 0 con 1.000 USD y drawdown de 45 % |
+| Funding cubierto (spot largo + perpetuo corto) | 08 | Ingreso real y estable pero pequeño y en descenso: ETH siempre dentro +4,6 %/año (drawdown 0,6 %), último año +1,2 % |
+| Funding extremo como señal de dirección | 09 | No pasa (5 de 7 criterios fijados antes de correr): una sola operación explica el 84 % de la ganancia |
+
+**Decisiones:**
+
+- No se cambia la estrategia del bot por ninguna de las hipótesis y **no se pasa a dinero
+  real**. El grid sigue en demo.
+- **A6 no se despliega y `REGIME_FILTER_MODE` sigue en `OBSERVE`.** Esto responde la
+  decisión abierta de T20 paso 2 (sección anterior): queda vigente la opción B (solo
+  observar y avisar); actuar automáticamente no mostró ventaja en simulación.
+- Los simuladores (`app/backtest/trend.py`, `carry.py`, `fundsig.py`) son herramientas
+  aparte: no comparten lógica con el bot ni cambian su comportamiento. `fundsig` reusa el
+  motor de `trend` mediante el gancho `_decide`; `entry_funding_share` (1.0 por defecto)
+  conserva los números del doc 07.
+- **Regla de método acordada:** todo experimento de estrategia lleva criterios de
+  aprobación por escrito antes de correr, tramo reservado (último año), vecinos de
+  parámetros, resultado sin las mejores operaciones, capital de 1.000 USD y controles
+  (placebo o señal invertida). Si falla, se cierra la línea sin afinar parámetros para
+  rescatarla.
+- Para retomar: vigilar el funding medio de 30 días de BTC y ETH; si se sostiene sobre
+  10 %/año, la versión simple del funding cubierto (un activo grande, siempre dentro)
+  vuelve a tener sentido. Sin probar: reversión tras cascadas de liquidación (exige datos
+  intradía de varios años).
+- Sesgos a recordar al leer los backtests: universo con supervivencia (solo símbolos hoy
+  listados), filtros del exchange de hoy, un solo ciclo de mercado, y el demo sobrestima la
+  cosecha por mechas que mainnet no tuvo (doc 06 §5).
+- Pendientes de código que salieron del backtester: `MAX_RECENTERS_PER_GRID` se importa
+  pero no se aplica, y un re-centrado fallido deja el padre CANCELED con el inventario sin
+  dueño (doc 06 §4).
+
+## Incidente: cierre fallido (`-2022`) deja el grid RUNNING y alerta cada 5 min (2026-11-23, abierto)
+
+**Qué pasó.** El grid HYPEUSDT `1c8f951d-761b-45f0-918f-aa1f255e2c88` (NEUTRAL, 7 niveles,
+0,11 por orden, creado el 2026-11-14) llegó a +3,02 USD a las 22:46 UTC del 23-nov y
+`check-close` disparó TAKE_PROFIT (+3). `cancel_grid` hizo `DELETE /fapi/v1/allOpenOrders`
+(200) y la orden de cierre (MARKET + `reduceOnly`, compra de 0,11) fue rechazada por Binance:
+
+`400 {"code":-2022,"msg":"ReduceOnly Order is rejected."}`
+
+`cancel_grid` lanza `ValueError("Orders canceled but position -0.11 HYPEUSDT could NOT be
+closed — manual intervention required")` **antes** de pasar el grid a CANCELED. Resultado:
+el grid queda `RUNNING` en SQLite, sin órdenes y sin snapshots (el último es de las 22:51
+UTC), y cada ciclo de WF2 repite cancelar-todo + cierre → mismo error → Telegram
+"CHECK-CLOSE FALLIDO". Al 2026-11-25 12:01 UTC iban ≈ 440 alertas (una por ciclo, ≈ 37 h).
+Las ejecuciones de WF2 salen en `success` porque el aviso es una rama del flujo.
+
+**Qué se verificó.**
+
+- El backend ve la posición real: `replenish_position_amt = -0.11` en la respuesta de
+  `/refresh`, y cuadra con los fills del propio grid (9 compras y 10 ventas = −1 unidad).
+- Filtros de HYPE en el demo: paso 0,01, mínimo 0,01, nocional mínimo 5 (la posición vale
+  ≈ 7 USD) y libro de órdenes sano. No es un problema de cantidad, nocional ni liquidez.
+- El dueño no encontró órdenes abiertas en la interfaz de Binance (todas canceladas).
+- **Causa del `-2022`: no identificada.** Binance documenta ese código como una orden
+  reduce-only que choca con órdenes abiertas existentes. Hipótesis sin verificar: una orden
+  condicional que `allOpenOrders` no cancela, una configuración de la cuenta (modo de
+  posición o de activos) o una rareza del demo.
+
+**Acción pendiente del dueño:** cerrar a mano el corto de 0,11 HYPE desde la interfaz de
+Binance demo (revisando también las órdenes condicionales). Después, el siguiente ciclo ve
+la posición en cero, cierra el grid como TAKE_PROFIT y WF1 relanza. Receta de diagnóstico
+en [[n8n-sync-y-gotchas]].
+
+**Pendiente de código (no iniciado; esperaba el corte de la ventana):**
+
+1. Tras `cancel_all_open_orders`, verificar en Binance que no queden órdenes (normales y
+   condicionales) antes de intentar el cierre; hoy se da por buena la cancelación con solo
+   un status 200.
+2. Guardar el código y el texto del error de Binance en `bot_health_events` (hoy solo se
+   imprime en stdout y no se puede consultar desde Postgres).
+3. Un estado explícito para grids con cierre fallido (p. ej. `CLOSE_FAILED`) y alerta
+   deduplicada (una vez y luego cada N ciclos) en vez de `RUNNING` + una alerta por ciclo.
+4. Misma familia que el re-centrado fallido (doc 06 §4) y que el residual de ETH del
+   2026-11-04: inventario que queda sin dueño.

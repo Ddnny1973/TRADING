@@ -8,7 +8,7 @@ related:
   - "[[infra-multi-servidor]]"
   - "[[n8n-sync-y-gotchas]]"
   - "[[decisiones-tecnicas]]"
-updated: 2026-11-17
+updated: 2026-11-25
 owner: dueño del repo
 ---
 
@@ -51,14 +51,16 @@ memoria de sesiones de IA y no estaba escrito en ningún archivo del repo.
   gotchas de la API de n8n (payload aceptado, encoding UTF-8 en PowerShell,
   Community Edition sin `$vars`). Incluye el **acceso por MCP** para que un
   agente diagnostique ejecuciones y compare repo↔desplegado, y la receta
-  "el bot no crea grids".
+  "el bot no crea grids", la receta "CHECK-CLOSE FALLIDO" repetido y el desfase de +5 h
+  de `postgres-trading`.
 - [[decisiones-tecnicas]] — decisiones de producto/arquitectura tomadas y su
   razón (proveedor de IA, límites de seguridad, alcance de la fase actual).
   Desde 2026-10-26 (A3) la puerta determinista decide y el LLM de WF1
   (`gpt-4o-mini`) solo registra y avisa si discrepa: un modelo retirado ya no
   deja al bot sin grids. También documenta A2 (perfil microcapital de 100 USD
   en el demo), la deriva repo↔producción de WF1, la convención de merge por
-  squash y la higiene de ramas.
+  squash y la higiene de ramas. Desde 2026-11-25 también la búsqueda de estrategia (docs
+  06–09, sin ventaja) y el incidente abierto del cierre fallido `-2022` (grid HYPE).
 - [[analisis-bot-monitoreo]] — línea de trabajo en curso: diseño de tablas
   de monitoreo en Postgres (`grid_cycles`, `pnl_snapshots`) para poder medir
   rentabilidad real del bot antes de decidir el paso a dinero real, más el
@@ -78,7 +80,8 @@ memoria de sesiones de IA y no estaba escrito en ningún archivo del repo.
   switch de entorno, backtester).
   Su §11 (2026-11-08) es el corte de mitad de ventana del perfil A2: operación
   sana, rendimiento ≈ 0 (bot −1,2 / Binance +1,4 USD), muestra insuficiente y
-  un residual ETH sin cerrar.
+  un residual ETH sin cerrar. Su §12 (2026-11-25) es el corte final provisional: ≈ −2,3
+  USD, ningún criterio del §9 cumplido y el incidente del grid HYPE sin resolver.
   `06-backtester.md` (2026-11-11) — backtester offline (N6) en
   `backend-python/app/backtest/` (`python -m app.backtest`): reusa
   `auto_derive_params` con velas de mainnet y replica WF1/WF2. Validado contra
@@ -103,6 +106,11 @@ memoria de sesiones de IA y no estaba escrito en ningún archivo del repo.
   (`python -m app.backtest.fundsig`), con criterios de aprobación fijados antes
   de correr: no pasa (5 de 7). El +25 % de la base sale casi todo de una sola
   operación (RAVEUSDT, ×3,7 en 5 días); sin ella ≈ 1 %/año. Línea cerrada.
+
+- **Estado al 2026-11-25:** la ventana de medición A2 cerró (≈ −2,3 USD, ver doc 05 §12) y
+  ninguna alternativa de estrategia mostró ventaja (docs 06–09). Hay un incidente abierto:
+  el grid HYPE no cierra por `-2022` y alerta cada 5 min ([[decisiones-tecnicas]]), y huecos
+  diarios de monitoreo sin explicar ([[analisis-bot-monitoreo]]).
 
 ## Puntos de entrada existentes (no duplicar, solo enlazar)
 

@@ -7,7 +7,7 @@ tags: [n8n, ci-cd, api, powershell]
 related:
   - "[[_index]]"
   - "[[infra-multi-servidor]]"
-updated: 2026-10-25
+updated: 2026-11-25
 owner: dueño del repo
 ---
 
@@ -106,6 +106,23 @@ en `error` y duran 5–10 s, `get_workflow_execution` de la última con
 `includeData: true` y leer `resultData.error` (nodo + mensaje). Un 410 en el
 nodo del LLM = modelo retirado.
 
+**Receta "CHECK-CLOSE FALLIDO" repetido** (caso real 2026-11-23, ver
+[[decisiones-tecnicas]]): Telegram avisa "Orders canceled but position X could NOT be
+closed" cada 5 min.
+
+1. `search_workflow_executions` de WF2 (salen en `success` aunque haya alerta: el aviso es
+   una rama del flujo, no un error del flujo) y `get_workflow_execution` con
+   `includeData: true`, `nodeNames: ["Interpret Check-Close Result", "Interpret Refresh
+   Result"]` y `truncateData: 3`. El refresh trae `replenish_position_amt`: la posición que
+   ve Binance.
+2. El motivo real del rechazo **solo está en el log del backend** (no en Postgres): en
+   `/data/odoo/43` del servidor Alma, `docker compose logs --since 24h | grep "Error closing
+   position"` (contenedor `trading-backend`). `-2022 ReduceOnly Order is rejected` = Binance
+   no acepta la orden reduce-only.
+3. Revisar en la interfaz de Binance demo las órdenes abiertas (incluidas las condicionales)
+   y la posición; cerrarla a mano si hace falta. El siguiente ciclo cierra el grid y WF1 lo
+   relanza. Mientras tanto se puede silenciar el chat del bot.
+
 ## MCP de consultas Postgres de solo lectura (2026-10-25)
 
 Para que un agente lea bases Postgres sin túneles ni accesos directos, se
@@ -165,6 +182,13 @@ memoria de agentes siguen legibles. La solución definitiva es `claude_ro` con
 
 ⚠️ Gotcha: el nodo Postgres de n8n **se come el `$`** de las regex del SQL (p. ej.
 `'^(a|b)$'` llega sin el `$'` y rompe la consulta). Usar `\Z` como fin de cadena.
+
+⚠️ Gotcha de husos horarios: las columnas `timestamp` de `postgres-trading`
+(`historical_grid_logs.opened_at/closed_at`, `pnl_snapshots.taken_at`,
+`bot_health_events.occurred_at`…) y su `now()` **van 5 h adelantadas** respecto a UTC. Para
+compararlas con las ejecuciones de n8n (UTC real) restar `interval '5 hours'`; no usar
+`now()` como hora actual (el 2026-11-12 eso hizo creer que n8n llevaba 5 h caído). El inicio
+de la ventana A2 es `> '2026-10-27 04:43'` en esas columnas.
 
 Registro en Claude Code (token en la variable de usuario de Windows
 `N8N_DB_MCP_TOKEN`, nunca en archivos):
