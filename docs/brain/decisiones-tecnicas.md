@@ -328,7 +328,7 @@ mouse (antes había un `<circle>` por snapshot). `scripts/dashboard/export_data.
 ## T10: relanzar WF1 al cerrar un grid (2026-09-03, rama `feat/continuidad-t10-t12-20260903`)
 
 > ⚠️ **Actualización 2026-11-27:** en producción el relanzamiento no se ejecuta porque
-> el aviso previo falla; ver «Bug abierto: el aviso "GRID CERRADO"…» al final de este archivo.
+> el aviso previo falla; ver «Bug del aviso "GRID CERRADO"…» al final de este archivo.
 
 WF2 (`workflow2-monitor.json`), rama `IF: Grid closed? = true`:
 `Notify: Grid Closed → Execute WF1: Relanzar grid → Wait`. El nodo
@@ -771,7 +771,8 @@ TAKE_PROFIT con **+3,059 USD** y las alertas pararon.
 2. **Residual de ETH sigue abierto:** corto de 0,020 ETH desde el 2026-11-04 (entrada
    2.325,34, margen aislado, no realizado +12,77 USD el 26-nov), sin ningún grid dueño ni stop.
    Es casi todo el no realizado de la cuenta (+13,35).
-3. **El aviso "GRID CERRADO" falla** y bloquea el relanzamiento de T10 (sección siguiente).
+3. **El aviso "GRID CERRADO" falla** y bloquea el relanzamiento de T10 (sección siguiente;
+   arreglo en PR sin mergear).
 
 **Pendiente de código (no iniciado).**
 
@@ -787,34 +788,49 @@ TAKE_PROFIT con **+3,059 USD** y las alertas pararon.
 5. Misma familia: el re-centrado fallido (doc 06 §4) y el residual de ETH dejan inventario
    sin dueño.
 
-## Bug abierto: el aviso "GRID CERRADO" falla y bloquea el relanzamiento de T10 (detectado 2026-11-27)
+## Bug del aviso "GRID CERRADO": falla y bloquea el relanzamiento de T10 (detectado 2026-11-27, arreglo en PR sin mergear)
 
 **Síntoma.** Cada ciclo de WF2 que cierra un grid por `check-close` termina en `error` en el
 nodo `Notify: Grid Closed` (Telegram) con `ExpressionError: invalid syntax`. Visto el
 2026-11-23 14:01 UTC (ZEC, stop-loss) y el 2026-11-27 01:06 UTC (HYPE, take-profit), los dos
 cierres cuyas ejecuciones conserva n8n.
 
-**Causa probable.** El texto del nodo (`n8n-workflows/workflow2-monitor.json`, desde el
-commit `db853e1` del 2026-09-03) tiene saltos de línea **reales** dentro de cadenas
-JavaScript con comillas simples (`'\n\n📌 Motivo: '`), lo que es un error de sintaxis. El
-otro aviso ("CHECK-CLOSE FALLIDO") escapa la barra (`\\n` en el JSON) y sí funciona.
+**Causa (verificada).** El texto del nodo (`n8n-workflows/workflow2-monitor.json`) guardaba
+`\n` como escape JSON, que n8n recibe como un salto de línea **real** dentro de cadenas
+JavaScript con comillas simples (`'\n\n📌 Motivo: '`): error de sintaxis. Comprobado con Node:
+la expresión original da `SyntaxError: Invalid or unexpected token` en tres casos de prueba y
+la corregida se evalúa bien. De los tres workflows del repositorio es el único nodo con ese
+defecto; el otro aviso ("CHECK-CLOSE FALLIDO") ya escapaba la barra (`\\n` en el JSON) y
+funciona. El texto no cambia desde el commit `db853e1` (2026-09-03) y WF2 se desplegó por
+última vez el 2026-10-03. Las dos ejecuciones con error tienen rastros con números de línea
+distintos dentro de n8n (versiones distintas), así que no es efecto de una actualización. No se
+pudo verificar desde cuándo falla: n8n conserva pocas ejecuciones.
 
 **Consecuencias.**
 
-- `Execute WF1: Relanzar grid` (T10) cuelga de ese aviso, así que **no se ejecuta**: el
-  cupo libre se llena en el siguiente WF1 programado (cada 4 h, a las :01 de las 1, 5, 9, 13,
-  17 y 21 UTC), no a los minutos del cierre. Datos: HUMA cerró el 18-nov 17:21 → siguiente
-  grid a las 21:01; ICNT cerró el 21-nov 06:26 → 09:01; ZEC cerró el 23-nov 14:01 → 17:01;
-  HYPE cerró el 27-nov 01:06 y no hubo ninguna ejecución de WF1 después (la siguiente es la
-  de las 05:00).
+- `Execute WF1: Relanzar grid` (T10) cuelga de ese aviso, así que no se ejecuta cuando falla.
+  Verificado en el cierre de HYPE (27-nov 01:06 UTC): no hubo ninguna ejecución de WF1
+  posterior (la siguiente fue la programada de las 05:00). En cierres anteriores no se puede
+  comprobar si WF1 se lanzó y decidió no abrir grid (esas ejecuciones ya no existen); lo que sí
+  consta es que los grids siguientes a HUMA, ICNT y ZEC aparecieron en marcas de 4 h (21:01,
+  09:01 y 17:01), no a los minutos del cierre.
 - El ciclo se aborta en ese punto: los grids que quedaban en el lote no hacen refresh ni
   check-close hasta el ciclo siguiente.
 - El aviso de cierre por Telegram no se envía (el nodo falla antes).
 - Contexto: el doc 05 §11 contó 10 errores de WF2 en ≈ 3.400 ejecuciones hasta el 8-nov,
-  compatibles con un error por cierre. n8n conserva pocas ejecuciones, así que no se pudo
-  verificar el resto.
+  compatibles con un error por cierre.
 
-**Arreglo propuesto (no hecho).** Escapar los saltos de línea como `\\n` en el JSON (igual
-que el otro aviso) y poner `onError: continueRegularOutput` en los nodos de Telegram para que
-un fallo de aviso no bloquee el relanzamiento. Cambiar `n8n-workflows/*.json` y empujar a
-`main` sincroniza producción: hacerlo por rama + PR y con el visto bueno del dueño.
+**Arreglo (rama `fix/wf2-aviso-cierre-relanzamiento`, PR abierto, sin mergear).**
+
+1. Escapar los saltos de línea del aviso (`\\n` en el JSON).
+2. `onError: continueRegularOutput` en los 6 nodos de Telegram de WF2 (Grid Closed, Check-close
+   Error, Refresh Error, No Running Grids, Order Canceled Externally y Bot sin grids 15 min),
+   para que un fallo de aviso no aborte el ciclo ni impida el relanzamiento o el watchdog.
+   Contrapartida: un aviso que falle ya no marca la ejecución como `error`; hay que mirar el
+   nodo.
+
+Verificación hecha: el archivo conserva sus saltos de línea (CRLF) y las conexiones; solo
+cambian el texto del aviso y `onError` en esos 6 nodos (7 líneas). Al mergear, el push a `main`
+que toca `n8n-workflows/*.json` sincroniza solo WF2 con producción (`n8n-sync.yml`) y no
+despliega el backend. Al volver a funcionar el relanzamiento, WF1 usará su chat de respaldo
+(`1060878323`), porque WF2 no le pasa `chatId`; conviene confirmar que es el chat deseado.

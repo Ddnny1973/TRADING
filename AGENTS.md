@@ -36,7 +36,7 @@ Grid trading bot para Binance Futures (testnet). Un único backend FastAPI de ap
 - ⚠️ **Nota:** n8n Community Edition no tiene UI de "Environment Variables" en Settings — las vars se pasan por `docker-compose.yml` o `.env` en el servidor, no por la interfaz.
 - Nombres de red Docker iguales entre hosts ≠ red compartida: `BACKEND_URL` entre servidores SIEMPRE por IP privada + puerto publicado (`http://10.0.0.6:8043`), nunca por nombre de contenedor.
 - Diagnóstico de cierres fallidos: el motivo exacto de un rechazo de Binance solo está en el log del contenedor `trading-backend` (`docker compose logs` en `/data/odoo/43`), no en Postgres; receta y guiones en `docs/brain/diagnostico-binance.md`. Las columnas de hora de `postgres-trading` van 5 h adelantadas respecto a UTC.
-- n8n es Community Edition: no hay `$vars` → los workflows usan `$env.*`; requiere `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`. Los JSON del repo contienen emojis/tildes en mensajes de Telegram — preservarlos.
+- n8n es Community Edition: no hay `$vars` → los workflows usan `$env.*`; requiere `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`. Los JSON del repo contienen emojis/tildes en mensajes de Telegram — preservarlos. En las expresiones, un salto de línea dentro de una cadena con comillas simples debe escribirse `\\n` en el JSON (un `\n` JSON se vuelve salto real y da `invalid syntax`); ver `docs/brain/n8n-sync-y-gotchas.md`.
 
 ## Convenciones
 

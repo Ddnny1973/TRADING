@@ -42,7 +42,7 @@
     {
       "parameters": {
         "chatId": "={{ $json.chatId }}",
-        "text": "={{ '🔒 GRID CERRADO - ' + $json.grid.symbol + '\n\n📌 Motivo: ' + ($json.triggered === 'STOP_LOSS' ? '❌ Stop Loss' : $json.triggered === 'TAKE_PROFIT' ? '✅ Take Profit' : $json.triggered === 'EXPIRED' ? '⏰ Expiración' : $json.triggered === 'OUT_OF_RANGE' ? '📉 Precio fuera de rango' : $json.triggered === 'MAX_POSITION' ? '⚖️ Posición neta excedida' : $json.triggered === 'RECONCILIATION_FAILED' ? '👻 Órdenes sin confirmar en Binance' : '🤷 Manual') + '\n📊 PnL Total: ' + ($json.grid.total_pnl || 'N/A') + ' USDT\n🆔 Grid ID: ' + $json.grid.id + '\n✨ Ciclos: ' + ($json.grid.cycles_completed || '0') }}",
+        "text": "={{ '🔒 GRID CERRADO - ' + $json.grid.symbol + '\\n\\n📌 Motivo: ' + ($json.triggered === 'STOP_LOSS' ? '❌ Stop Loss' : $json.triggered === 'TAKE_PROFIT' ? '✅ Take Profit' : $json.triggered === 'EXPIRED' ? '⏰ Expiración' : $json.triggered === 'OUT_OF_RANGE' ? '📉 Precio fuera de rango' : $json.triggered === 'MAX_POSITION' ? '⚖️ Posición neta excedida' : $json.triggered === 'RECONCILIATION_FAILED' ? '👻 Órdenes sin confirmar en Binance' : '🤷 Manual') + '\\n📊 PnL Total: ' + ($json.grid.total_pnl || 'N/A') + ' USDT\\n🆔 Grid ID: ' + $json.grid.id + '\\n✨ Ciclos: ' + ($json.grid.cycles_completed || '0') }}",
         "additionalFields": {}
       },
       "id": "558ca711-6c09-4e04-8302-5bd2a3263ec0",
@@ -54,6 +54,7 @@
         272
       ],
       "webhookId": "9f608c9d-b6a9-442c-bcef-dbe8c9c65a06",
+      "onError": "continueRegularOutput",
       "credentials": {
         "telegramApi": {
           "id": "zurDfqIC4Qy17sUA",
@@ -123,6 +124,7 @@
         144
       ],
       "webhookId": "cb1770e5-6368-43e9-bb8a-1501b90d3c65",
+      "onError": "continueRegularOutput",
       "credentials": {
         "telegramApi": {
           "id": "zurDfqIC4Qy17sUA",
@@ -227,6 +229,7 @@
         32
       ],
       "webhookId": "d7da2109-ba7c-429d-bd87-d515ceaed2ac",
+      "onError": "continueRegularOutput",
       "credentials": {
         "telegramApi": {
           "id": "zurDfqIC4Qy17sUA",
@@ -331,6 +334,7 @@
         256
       ],
       "webhookId": "3e1d2c4b-5f6a-7b8c-9d0e-1f2a3b4c5d6e",
+      "onError": "continueRegularOutput",
       "credentials": {
         "telegramApi": {
           "id": "zurDfqIC4Qy17sUA",
@@ -506,6 +510,7 @@
         420
       ],
       "webhookId": "external-cancel-webhook-0001",
+      "onError": "continueRegularOutput",
       "credentials": {
         "telegramApi": {
           "id": "zurDfqIC4Qy17sUA",
@@ -622,6 +627,7 @@
         672
       ],
       "webhookId": "e363d379-90af-4ba8-8ecb-d7bb30889cb5",
+      "onError": "continueRegularOutput",
       "credentials": {
         "telegramApi": {
           "id": "zurDfqIC4Qy17sUA",
