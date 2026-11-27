@@ -7,7 +7,7 @@ tags: [n8n, ci-cd, api, powershell]
 related:
   - "[[_index]]"
   - "[[infra-multi-servidor]]"
-updated: 2026-11-25
+updated: 2026-11-27
 owner: dueño del repo
 ---
 
@@ -117,11 +117,13 @@ closed" cada 5 min.
    ve Binance.
 2. El motivo real del rechazo **solo está en el log del backend** (no en Postgres): en
    `/data/odoo/43` del servidor Alma, `docker compose logs --since 24h | grep "Error closing
-   position"` (contenedor `trading-backend`). `-2022 ReduceOnly Order is rejected` = Binance
-   no acepta la orden reduce-only.
-3. Revisar en la interfaz de Binance demo las órdenes abiertas (incluidas las condicionales)
-   y la posición; cerrarla a mano si hace falta. El siguiente ciclo cierra el grid y WF1 lo
-   relanza. Mientras tanto se puede silenciar el chat del bot.
+   position"` (contenedor `trading-backend`). `-2022 ReduceOnly Order is rejected`: ver el caso HYPE en
+   [[diagnostico-binance]] (rechazo del `reduceOnly` incluso sin órdenes abiertas).
+3. Guion de diagnóstico de solo lectura, cancelación de órdenes huérfanas por ID y cierre en
+   dos pasos de la posición: todo en [[diagnostico-binance]]. Los ejecuta el dueño. El siguiente
+   ciclo cierra el grid. Mientras tanto se puede silenciar el chat del bot.
+4. Ojo: al cerrar el grid, WF2 puede terminar en `error` en `Notify: Grid Closed` y no relanzar
+   WF1 (bug abierto, ver [[decisiones-tecnicas]]); el cupo se llena en el siguiente WF1 de las 4 h.
 
 ## MCP de consultas Postgres de solo lectura (2026-10-25)
 

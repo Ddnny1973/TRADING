@@ -7,7 +7,7 @@ tags: [decisiones, ia, alcance]
 related:
   - "[[_index]]"
   - "[[n8n-sync-y-gotchas]]"
-updated: 2026-11-25
+updated: 2026-11-27
 owner: dueño del repo
 ---
 
@@ -326,6 +326,9 @@ mouse (antes había un `<circle>` por snapshot). `scripts/dashboard/export_data.
 (offline) no se cambió. Tests: `tests/test_dashboard_equity.py` (8).
 
 ## T10: relanzar WF1 al cerrar un grid (2026-09-03, rama `feat/continuidad-t10-t12-20260903`)
+
+> ⚠️ **Actualización 2026-11-27:** en producción el relanzamiento no se ejecuta porque
+> el aviso previo falla; ver «Bug abierto: el aviso "GRID CERRADO"…» al final de este archivo.
 
 WF2 (`workflow2-monitor.json`), rama `IF: Grid closed? = true`:
 `Notify: Grid Closed → Execute WF1: Relanzar grid → Wait`. El nodo
@@ -718,7 +721,7 @@ se repiten aquí).
   pero no se aplica, y un re-centrado fallido deja el padre CANCELED con el inventario sin
   dueño (doc 06 §4).
 
-## Incidente: cierre fallido (`-2022`) deja el grid RUNNING y alerta cada 5 min (2026-11-23, abierto)
+## Incidente: cierre fallido (`-2022`) deja el grid RUNNING y alerta cada 5 min (2026-11-23 → resuelto 2026-11-27)
 
 **Qué pasó.** El grid HYPEUSDT `1c8f951d-761b-45f0-918f-aa1f255e2c88` (NEUTRAL, 7 niveles,
 0,11 por orden, creado el 2026-11-14) llegó a +3,02 USD a las 22:46 UTC del 23-nov y
@@ -729,36 +732,89 @@ se repiten aquí).
 
 `cancel_grid` lanza `ValueError("Orders canceled but position -0.11 HYPEUSDT could NOT be
 closed — manual intervention required")` **antes** de pasar el grid a CANCELED. Resultado:
-el grid queda `RUNNING` en SQLite, sin órdenes y sin snapshots (el último es de las 22:51
-UTC), y cada ciclo de WF2 repite cancelar-todo + cierre → mismo error → Telegram
-"CHECK-CLOSE FALLIDO". Al 2026-11-25 12:01 UTC iban ≈ 440 alertas (una por ciclo, ≈ 37 h).
-Las ejecuciones de WF2 salen en `success` porque el aviso es una rama del flujo.
+el grid quedó `RUNNING` en SQLite, sin órdenes y sin snapshots (el último es de las 22:51
+UTC), y cada ciclo de WF2 repitió cancelar-todo + cierre → mismo error → Telegram
+"CHECK-CLOSE FALLIDO". Fueron ≈ 890 alertas en ≈ 74 h. Las ejecuciones de WF2 salían en
+`success` porque el aviso es una rama del flujo.
 
 **Qué se verificó.**
 
-- El backend ve la posición real: `replenish_position_amt = -0.11` en la respuesta de
-  `/refresh`, y cuadra con los fills del propio grid (9 compras y 10 ventas = −1 unidad).
-- Filtros de HYPE en el demo: paso 0,01, mínimo 0,01, nocional mínimo 5 (la posición vale
-  ≈ 7 USD) y libro de órdenes sano. No es un problema de cantidad, nocional ni liquidez.
-- El dueño no encontró órdenes abiertas en la interfaz de Binance (todas canceladas).
-- **Causa del `-2022`: no identificada.** Binance documenta ese código como una orden
-  reduce-only que choca con órdenes abiertas existentes. Hipótesis sin verificar: una orden
-  condicional que `allOpenOrders` no cancela, una configuración de la cuenta (modo de
-  posición o de activos) o una rareza del demo.
+- El backend veía la posición real: `replenish_position_amt = -0.11` en `/refresh`, y
+  cuadraba con los fills del propio grid (9 compras y 10 ventas = −1 unidad).
+- Cuenta en modo de una sola dirección, sin multi-activos, sin órdenes condicionales
+  (`openAlgoOrders` vacío), margen aislado, apalancamiento 2. Filtros de HYPE: paso 0,01,
+  mínimo 0,01, nocional mínimo 5 (la posición valía ≈ 7 USD) y libro sano.
+- La orden de prueba (`/fapi/v1/order/test`) salió aceptada, pero ese endpoint solo valida
+  formato y filtros: no sirve para este diagnóstico.
+- **Hipótesis descartada:** había 2 órdenes abiertas (ver «órdenes fantasma» abajo) y se
+  pensó que chocaban con la compra de cierre. Se cancelaron el 2026-11-26 23:38 UTC y el
+  ciclo de las 23:41 siguió fallando con el mismo `-2022`.
 
-**Acción pendiente del dueño:** cerrar a mano el corto de 0,11 HYPE desde la interfaz de
-Binance demo (revisando también las órdenes condicionales). Después, el siguiente ciclo ve
-la posición en cero, cierra el grid como TAKE_PROFIT y WF1 relanza. Receta de diagnóstico
-en [[n8n-sync-y-gotchas]].
+**Causa (confirmada por prueba, mecanismo sin explicar).** El demo rechaza con `-2022` la
+orden MARKET con `reduceOnly` sobre esa posición, incluso con una cantidad un paso mayor
+(0,12), sin órdenes abiertas ni condicionales. Una orden MARKET **sin** `reduceOnly` por la
+cantidad exacta de la posición (0,11) se ejecutó y la dejó en cero. No se sabe por qué el
+demo rechaza solo la variante reduce-only.
 
-**Pendiente de código (no iniciado; esperaba el corte de la ventana):**
+**Resolución.** El 2026-11-27 hacia las 01:03 UTC el dueño ejecutó el guion de cierre de
+dos pasos (receta en [[diagnostico-binance]]): el intento reduce-only dio `-2022`, el
+intento sin `reduceOnly` cerró la posición. A las 01:06:41 UTC WF2 cerró el grid como
+TAKE_PROFIT con **+3,059 USD** y las alertas pararon.
 
-1. Tras `cancel_all_open_orders`, verificar en Binance que no queden órdenes (normales y
-   condicionales) antes de intentar el cierre; hoy se da por buena la cancelación con solo
-   un status 200.
-2. Guardar el código y el texto del error de Binance en `bot_health_events` (hoy solo se
-   imprime en stdout y no se puede consultar desde Postgres).
-3. Un estado explícito para grids con cierre fallido (p. ej. `CLOSE_FAILED`) y alerta
-   deduplicada (una vez y luego cada N ciclos) en vez de `RUNNING` + una alerta por ciclo.
-4. Misma familia que el re-centrado fallido (doc 06 §4) y que el residual de ETH del
-   2026-11-04: inventario que queda sin dueño.
+**Hallazgos laterales.**
+
+1. **Órdenes fantasma.** Dos compras límite del grid `afe4a317` (creado el 2026-10-13, uno de
+   los 4 heredados), ids `882442412` (0,08 @ 78,904) y `882490369` (0,08 @ 79,482), seguían
+   `NEW` en Binance desde octubre mientras la base las daba por `CANCELED`. Cada
+   `DELETE allOpenOrders` respondía 200 sin cancelarlas; se cancelaron por ID. El refresh no
+   las detectó (`extra_order_ids` salía vacío; no se revisó qué compara ese campo).
+2. **Residual de ETH sigue abierto:** corto de 0,020 ETH desde el 2026-11-04 (entrada
+   2.325,34, margen aislado, no realizado +12,77 USD el 26-nov), sin ningún grid dueño ni stop.
+   Es casi todo el no realizado de la cuenta (+13,35).
+3. **El aviso "GRID CERRADO" falla** y bloquea el relanzamiento de T10 (sección siguiente).
+
+**Pendiente de código (no iniciado).**
+
+1. Cierre: si Binance rechaza el MARKET `reduceOnly` con `-2022`, reintentar sin `reduceOnly`
+   por la cantidad exacta releída de la posición (en modo una dirección no puede invertirla).
+   Subir un paso la cantidad **no** sirvió.
+2. Tras `cancel_all_open_orders`, listar las órdenes abiertas del símbolo y cancelar por ID
+   las que sobrevivan; no fiarse del 200. Registrar las huérfanas.
+3. Guardar el código y el texto del error de Binance en `bot_health_events` (hoy solo
+   `print`, y no se puede consultar desde Postgres).
+4. Estado explícito para cierres fallidos (p. ej. `CLOSE_FAILED`) y alerta deduplicada (una
+   vez y luego cada N ciclos) en vez de `RUNNING` + una alerta por ciclo.
+5. Misma familia: el re-centrado fallido (doc 06 §4) y el residual de ETH dejan inventario
+   sin dueño.
+
+## Bug abierto: el aviso "GRID CERRADO" falla y bloquea el relanzamiento de T10 (detectado 2026-11-27)
+
+**Síntoma.** Cada ciclo de WF2 que cierra un grid por `check-close` termina en `error` en el
+nodo `Notify: Grid Closed` (Telegram) con `ExpressionError: invalid syntax`. Visto el
+2026-11-23 14:01 UTC (ZEC, stop-loss) y el 2026-11-27 01:06 UTC (HYPE, take-profit), los dos
+cierres cuyas ejecuciones conserva n8n.
+
+**Causa probable.** El texto del nodo (`n8n-workflows/workflow2-monitor.json`, desde el
+commit `db853e1` del 2026-09-03) tiene saltos de línea **reales** dentro de cadenas
+JavaScript con comillas simples (`'\n\n📌 Motivo: '`), lo que es un error de sintaxis. El
+otro aviso ("CHECK-CLOSE FALLIDO") escapa la barra (`\\n` en el JSON) y sí funciona.
+
+**Consecuencias.**
+
+- `Execute WF1: Relanzar grid` (T10) cuelga de ese aviso, así que **no se ejecuta**: el
+  cupo libre se llena en el siguiente WF1 programado (cada 4 h, a las :01 de las 1, 5, 9, 13,
+  17 y 21 UTC), no a los minutos del cierre. Datos: HUMA cerró el 18-nov 17:21 → siguiente
+  grid a las 21:01; ICNT cerró el 21-nov 06:26 → 09:01; ZEC cerró el 23-nov 14:01 → 17:01;
+  HYPE cerró el 27-nov 01:06 y no hubo ninguna ejecución de WF1 después (la siguiente es la
+  de las 05:00).
+- El ciclo se aborta en ese punto: los grids que quedaban en el lote no hacen refresh ni
+  check-close hasta el ciclo siguiente.
+- El aviso de cierre por Telegram no se envía (el nodo falla antes).
+- Contexto: el doc 05 §11 contó 10 errores de WF2 en ≈ 3.400 ejecuciones hasta el 8-nov,
+  compatibles con un error por cierre. n8n conserva pocas ejecuciones, así que no se pudo
+  verificar el resto.
+
+**Arreglo propuesto (no hecho).** Escapar los saltos de línea como `\\n` en el JSON (igual
+que el otro aviso) y poner `onError: continueRegularOutput` en los nodos de Telegram para que
+un fallo de aviso no bloquee el relanzamiento. Cambiar `n8n-workflows/*.json` y empujar a
+`main` sincroniza producción: hacerlo por rama + PR y con el visto bueno del dueño.

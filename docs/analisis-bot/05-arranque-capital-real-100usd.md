@@ -382,55 +382,66 @@ confianza hacen falta la ventana completa y, como referencia, 40–60 grids cerr
   intervención manual (cierre reduce-only automático o alerta repetida hasta
   resolverse).
 
-## 12. Corte final de la ventana A2 (2026-11-24, provisional al 2026-11-25 12:00 UTC)
+## 12. Corte final de la ventana A2 (2026-11-24; actualizado 2026-11-27)
 
-Ventana: del 2026-10-26 18:43 Bogotá al 2026-11-24. Fuentes: Postgres `trading` (restar 5 h
-a las columnas de hora) y ejecuciones de n8n por MCP. **Provisional:** falta la cifra oficial
-de Binance (`GET /api/v1/account/income-summary?days=28`, que ejecuta el dueño en Swagger) y
-el cierre manual del corto de HYPE (ver abajo).
+Ventana: del 2026-10-26 18:43 Bogotá al 2026-11-24. Fuentes: Postgres `trading` (restar 5 h a las
+columnas de hora), ejecuciones de n8n por MCP y `GET /api/v1/account/income-summary?days=28`
+(consulta de solo lectura al backend, 2026-11-26 22:07 UTC). El cierre de HYPE se registró el
+27-nov, pero su take-profit se alcanzó el 23-nov, dentro de la ventana.
 
 ### Rendimiento: ligeramente negativo, el mismo patrón
 
 | Medida | USD |
 |---|---|
-| 22 grids cerrados (bot, `total_pnl`): 6 ganan, 16 pierden | −4,75 |
-| + HYPE abierto (+3,02 con el dato del 23-nov 22:51; el corto sigue abierto) | +3,02 |
-| + UNI abierto (25-nov 12:01) | −0,61 |
-| **Estrategia según el bot, estimada** | **≈ −2,3 (−2,3 %)** |
+| 23 grids cerrados (bot, `total_pnl`): 7 ganan, 16 pierden | −1,69 |
+| + UNI abierto (26-nov 23:36 UTC) | +0,43 |
+| **Estrategia según el bot** | **≈ −1,3 (−1,3 %)** |
+| **Binance, resultado neto de operar** (28 días hasta el 26-nov 22:07 UTC; realizado −1,04, comisiones −0,52, funding +0,02) | **−1,54** |
 
-- Por motivo de cierre: STOP_LOSS 12 grids (−14,38; ninguno gana), TAKE_PROFIT 3 (+9,25),
-  RECENTERED 6 (−1,04; 2 ganan), EXPIRED 1 (+1,43).
-- Por semana (lunes): 26-oct +4,41 (4 grids), 2-nov −6,73 (9), 9-nov −3,28 (4), 16-nov
-  +2,12 (4), 23-nov −1,26 (1, parcial). Dos de cuatro semanas completas son positivas.
-- La cosecha sigue funcionando: 222 ciclos, +33,61 USD netos y 0,56 de comisiones (incluyen
-  los grids abiertos). Los cierres devolvieron ≈ 36 USD: el mismo patrón short-vol del §10 y
-  del backtester (doc 06: ≈ −0,6 %/mes).
-- Drawdown sobre la curva de grids cerrados: 10,01 USD (pico +4,41 el 1-nov, valle −5,60
-  hacia el 14-nov).
+- El −1,54 de Binance es anterior al cierre del corto de HYPE (que realizó ≈ +0,5). Cubre del
+  29-oct al 26-nov, así que deja fuera los dos primeros días de la ventana. Las dos medidas
+  coinciden en lo importante: cerca de cero y ligeramente negativo.
+- **Binance mostró un no realizado de la cuenta de +13,35 USD, pero casi todo es el residual de
+  ETH** (+12,77): un corto de 0,020 ETH abierto desde el 4-nov, sin grid dueño. El
+  `net_with_open` de Binance (+11,57) **no es resultado de la estrategia**.
+- Por símbolo (Binance, neto): PIPPIN +3,06, HYPE +0,85, SOL +0,63, UNI +0,36; AIN −1,68,
+  HUMA −1,40, SUI −1,21, ENA −1,07, ICNT −1,02. Los días 5-nov y 14-nov concentran las mayores
+  caídas (−3,63 cada uno).
+- Por motivo de cierre (bot): STOP_LOSS 12 grids (−14,38; ninguno gana), TAKE_PROFIT 4
+  (+12,31), RECENTERED 6 (−1,04; 2 ganan), EXPIRED 1 (+1,43).
+- Por semana (lunes): 26-oct +4,41 (4 grids), 2-nov −6,73 (9), 9-nov −3,28 (4), 16-nov +2,12
+  (4), 23-nov +1,80 (2, parcial). Dos de las cuatro semanas completas son positivas.
+- La cosecha sigue funcionando: 222 ciclos, +33,61 USD netos y 0,56 de comisiones al 25-nov.
+  Los cierres devolvieron ≈ 35 USD: el mismo patrón short-vol del §10 y del backtester (doc 06:
+  ≈ −0,6 %/mes).
+- Drawdown sobre la curva de grids cerrados: 10,01 USD (pico +4,41 el 1-nov, valle −5,60 hacia
+  el 14-nov).
 
 ### Criterio del §9
 
 | Criterio | Estado |
 |---|---|
-| Resultado > 0 con ≥ 3 de 4 semanas positivas | ❌ ≈ −2,3 USD; 2 de 4 semanas |
-| ROI ≥ 2 %/mes | ❌ ≈ −2,3 % |
+| Resultado > 0 con ≥ 3 de 4 semanas positivas | ❌ ≈ −1,3 USD; 2 de 4 semanas completas |
+| ROI ≥ 2 %/mes | ❌ ≈ −1,3 % |
 | Drawdown < 10 % | ❌ en el límite (10,01 %) |
-| 0 caídas operativas / 0 inventarios sin protección | ❌ residual de ETH del 4-nov (sin verificar si sigue abierto) e incidente de HYPE |
+| 0 caídas operativas / 0 inventarios sin protección | ❌ residual de ETH **sigue abierto** y el grid de HYPE estuvo atascado 4 días |
 
 ### Operación
 
-- WF1: 0 errores. WF2: 2 errores visibles (n8n conserva pocas ejecuciones). Eventos de
-  salud: 1 `RESIDUAL_POSITION` (ETH, 4-nov) y 14 avisos `TREND_REGIME` (solo observación).
-- **Incidente abierto:** el grid HYPE alcanzó el take-profit (+3,02) el 23-nov y no se pudo
-  cerrar la posición (`-2022`): sigue RUNNING y alerta cada 5 min (≈ 440 alertas). Detalle y
-  pendientes de código en `docs/brain/decisiones-tecnicas.md`.
+- WF1: 0 errores. Eventos de salud: 1 `RESIDUAL_POSITION` (ETH, 4-nov) y 14 avisos
+  `TREND_REGIME` (solo observación).
+- **Incidente de HYPE (23 → 27-nov), resuelto:** el cierre del take-profit fue rechazado por
+  Binance con `-2022` (≈ 890 alertas en ≈ 74 h). Causa, resolución y pendientes de código en
+  `docs/brain/decisiones-tecnicas.md`; receta en `docs/brain/diagnostico-binance.md`.
+- **Bug abierto:** el aviso "GRID CERRADO" de WF2 falla con `invalid syntax` y bloquea el
+  relanzamiento automático (T10): tras cada cierre el cupo se llena solo en el siguiente WF1 de
+  las 4 h. Detalle en `decisiones-tecnicas.md`.
 - Huecos diarios de monitoreo (hacia las 02:01 y las 07:01 UTC, ≈ 1 h/día) sin explicar:
   `docs/brain/analisis-bot-monitoreo.md`.
 
 ### Qué se concluye
 
-- El grid de 100 USD no cumplió el criterio de desbloqueo: **no se pasa a dinero real**.
-  Coincide con los docs 06–09: ninguna calibración ni estrategia alternativa simple mostró
-  ventaja.
-- Pendiente para cerrar el corte: cifra oficial de Binance, cerrar HYPE y verificar el
-  residual de ETH.
+- El grid de 100 USD no cumplió el criterio de desbloqueo: **no se pasa a dinero real**. Coincide
+  con los docs 06–09: ninguna calibración ni estrategia alternativa simple mostró ventaja.
+- Pendiente: decidir qué hacer con el residual de ETH (decisión del dueño), arreglar el aviso
+  de cierre y el relanzamiento, y el arreglo de código del cierre fallido.

@@ -8,7 +8,7 @@ related:
   - "[[infra-multi-servidor]]"
   - "[[n8n-sync-y-gotchas]]"
   - "[[decisiones-tecnicas]]"
-updated: 2026-11-25
+updated: 2026-11-27
 owner: dueño del repo
 ---
 
@@ -60,7 +60,8 @@ memoria de sesiones de IA y no estaba escrito en ningún archivo del repo.
   deja al bot sin grids. También documenta A2 (perfil microcapital de 100 USD
   en el demo), la deriva repo↔producción de WF1, la convención de merge por
   squash y la higiene de ramas. Desde 2026-11-25 también la búsqueda de estrategia (docs
-  06–09, sin ventaja) y el incidente abierto del cierre fallido `-2022` (grid HYPE).
+  06–09, sin ventaja), el incidente del cierre fallido `-2022` (grid HYPE, resuelto el
+  2026-11-27) y el bug abierto del aviso "GRID CERRADO", que bloquea el relanzamiento (T10).
 - [[analisis-bot-monitoreo]] — línea de trabajo en curso: diseño de tablas
   de monitoreo en Postgres (`grid_cycles`, `pnl_snapshots`) para poder medir
   rentabilidad real del bot antes de decidir el paso a dinero real, más el
@@ -80,8 +81,9 @@ memoria de sesiones de IA y no estaba escrito en ningún archivo del repo.
   switch de entorno, backtester).
   Su §11 (2026-11-08) es el corte de mitad de ventana del perfil A2: operación
   sana, rendimiento ≈ 0 (bot −1,2 / Binance +1,4 USD), muestra insuficiente y
-  un residual ETH sin cerrar. Su §12 (2026-11-25) es el corte final provisional: ≈ −2,3
-  USD, ningún criterio del §9 cumplido y el incidente del grid HYPE sin resolver.
+  un residual ETH sin cerrar. Su §12 (2026-11-27) es el corte final: ≈ −1,3 USD según
+  el bot (−1,5 neto en Binance), ningún criterio del §9 cumplido, incidente HYPE resuelto y
+  residual de ETH todavía abierto.
   `06-backtester.md` (2026-11-11) — backtester offline (N6) en
   `backend-python/app/backtest/` (`python -m app.backtest`): reusa
   `auto_derive_params` con velas de mainnet y replica WF1/WF2. Validado contra
@@ -107,10 +109,15 @@ memoria de sesiones de IA y no estaba escrito en ningún archivo del repo.
   de correr: no pasa (5 de 7). El +25 % de la base sale casi todo de una sola
   operación (RAVEUSDT, ×3,7 en 5 días); sin ella ≈ 1 %/año. Línea cerrada.
 
-- **Estado al 2026-11-25:** la ventana de medición A2 cerró (≈ −2,3 USD, ver doc 05 §12) y
-  ninguna alternativa de estrategia mostró ventaja (docs 06–09). Hay un incidente abierto:
-  el grid HYPE no cierra por `-2022` y alerta cada 5 min ([[decisiones-tecnicas]]), y huecos
-  diarios de monitoreo sin explicar ([[analisis-bot-monitoreo]]).
+- [[diagnostico-binance]] — receta para cuando el bot y Binance no coinciden: qué ve la API
+  del backend, dónde está el error real de Binance, guiones de diagnóstico (solo lectura),
+  cancelación de órdenes huérfanas y cierre en dos pasos de una posición atascada; casos
+  conocidos (HYPE `-2022`, órdenes fantasma, residual de ETH).
+- **Estado al 2026-11-27:** la ventana de medición A2 cerró (≈ −1,3 USD, doc 05 §12) y ninguna
+  alternativa de estrategia mostró ventaja (docs 06–09). Abiertos: el residual de ETH (corto
+  de 0,020 sin grid dueño), el aviso "GRID CERRADO" que bloquea el relanzamiento tras cada
+  cierre ([[decisiones-tecnicas]]), huecos diarios de monitoreo sin explicar
+  ([[analisis-bot-monitoreo]]) y el arreglo de código del cierre fallido.
 
 ## Puntos de entrada existentes (no duplicar, solo enlazar)
 
