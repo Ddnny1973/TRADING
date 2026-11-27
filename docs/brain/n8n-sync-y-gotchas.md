@@ -196,6 +196,20 @@ Registro en Claude Code (token en la variable de usuario de Windows
 `N8N_DB_MCP_TOKEN`, nunca en archivos):
 `claude mcp add --scope user --transport http n8n-db https://n8n.gestorconsultoria.com.co/mcp/db-query --header 'Authorization: Bearer ${N8N_DB_MCP_TOKEN}'` (ya registrado a nivel usuario). Si sale `403 Authorization data is wrong`, la app se abrió antes de crear la variable con `setx`: cerrarla del todo (también desde la bandeja) y abrirla de nuevo.
 
+## Gotcha: saltos de línea en expresiones de n8n (2026-11-27)
+
+En el JSON de un workflow, un `\n` dentro del texto de una expresión (`={{ 'a' + '\n' + 'b' }}`)
+es un **escape JSON**: n8n recibe un salto de línea real dentro de una cadena con comillas
+simples y la expresión falla con `ExpressionError: invalid syntax`. Para que la expresión reciba
+el escape de JavaScript hay que escribir **`\\n`** en el archivo (así está "CHECK-CLOSE
+FALLIDO"). Un salto real solo es válido en plantillas con comillas invertidas.
+
+Cómo comprobarlo sin n8n: sacar el código de entre `={{` y `}}` y evaluarlo con Node
+(`new Function('$json', 'return ' + codigo)($json_de_ejemplo)`); si lanza `SyntaxError`, n8n
+también fallará. Caso real: `Notify: Grid Closed` de WF2 (ver [[decisiones-tecnicas]]). Al
+editar `n8n-workflows/*.json` a mano, revisar que no se pierdan los `\\n` ni los saltos de línea
+CRLF del archivo.
+
 ## CI/CD y `docs/`
 
 [.github/workflows/deploy.yml](../../.github/workflows/deploy.yml) ya
