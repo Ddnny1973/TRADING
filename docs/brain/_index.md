@@ -61,8 +61,8 @@ memoria de sesiones de IA y no estaba escrito en ningún archivo del repo.
   en el demo), la deriva repo↔producción de WF1, la convención de merge por
   squash y la higiene de ramas. Desde 2026-11-25 también la búsqueda de estrategia (docs
   06–09, sin ventaja), el incidente del cierre fallido `-2022` (grid HYPE, resuelto el
-  2026-11-27) y el bug del aviso "GRID CERRADO", que bloquea el relanzamiento (T10; arreglo en PR
-  sin mergear).
+  2026-11-27) y el bug del aviso "GRID CERRADO", que bloquea el relanzamiento (T10; arreglado el
+  2026-11-27, falta verificarlo en un cierre real).
 - [[analisis-bot-monitoreo]] — línea de trabajo en curso: diseño de tablas
   de monitoreo en Postgres (`grid_cycles`, `pnl_snapshots`) para poder medir
   rentabilidad real del bot antes de decidir el paso a dinero real, más el
@@ -117,7 +117,7 @@ memoria de sesiones de IA y no estaba escrito en ningún archivo del repo.
 - **Estado al 2026-11-27:** la ventana de medición A2 cerró (≈ −1,3 USD, doc 05 §12) y ninguna
   alternativa de estrategia mostró ventaja (docs 06–09). Abiertos: el residual de ETH (corto
   de 0,020 sin grid dueño), el aviso "GRID CERRADO" que bloquea el relanzamiento tras cada
-  cierre (arreglo en PR sin mergear, [[decisiones-tecnicas]]), huecos diarios de monitoreo sin explicar
+  cierre (arreglado el 2026-11-27, por verificar, [[decisiones-tecnicas]]), huecos diarios de monitoreo sin explicar
   ([[analisis-bot-monitoreo]]) y el arreglo de código del cierre fallido.
 
 ## Puntos de entrada existentes (no duplicar, solo enlazar)

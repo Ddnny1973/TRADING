@@ -772,7 +772,7 @@ TAKE_PROFIT con **+3,059 USD** y las alertas pararon.
    2.325,34, margen aislado, no realizado +12,77 USD el 26-nov), sin ningún grid dueño ni stop.
    Es casi todo el no realizado de la cuenta (+13,35).
 3. **El aviso "GRID CERRADO" falla** y bloquea el relanzamiento de T10 (sección siguiente;
-   arreglo en PR sin mergear).
+   arreglado el mismo día, por verificar).
 
 **Pendiente de código (no iniciado).**
 
@@ -788,7 +788,7 @@ TAKE_PROFIT con **+3,059 USD** y las alertas pararon.
 5. Misma familia: el re-centrado fallido (doc 06 §4) y el residual de ETH dejan inventario
    sin dueño.
 
-## Bug del aviso "GRID CERRADO": falla y bloquea el relanzamiento de T10 (detectado 2026-11-27, arreglo en PR sin mergear)
+## Bug del aviso "GRID CERRADO": falla y bloquea el relanzamiento de T10 (detectado y arreglado el 2026-11-27; falta verificarlo en un cierre real)
 
 **Síntoma.** Cada ciclo de WF2 que cierra un grid por `check-close` termina en `error` en el
 nodo `Notify: Grid Closed` (Telegram) con `ExpressionError: invalid syntax`. Visto el
@@ -820,7 +820,7 @@ pudo verificar desde cuándo falla: n8n conserva pocas ejecuciones.
 - Contexto: el doc 05 §11 contó 10 errores de WF2 en ≈ 3.400 ejecuciones hasta el 8-nov,
   compatibles con un error por cierre.
 
-**Arreglo (rama `fix/wf2-aviso-cierre-relanzamiento`, PR abierto, sin mergear).**
+**Arreglo (PR 33, mergeado el 2026-11-27, commit `20f8d16`).**
 
 1. Escapar los saltos de línea del aviso (`\\n` en el JSON).
 2. `onError: continueRegularOutput` en los 6 nodos de Telegram de WF2 (Grid Closed, Check-close
@@ -831,6 +831,8 @@ pudo verificar desde cuándo falla: n8n conserva pocas ejecuciones.
 
 Verificación hecha: el archivo conserva sus saltos de línea (CRLF) y las conexiones; solo
 cambian el texto del aviso y `onError` en esos 6 nodos (7 líneas). Al mergear, el push a `main`
-que toca `n8n-workflows/*.json` sincroniza solo WF2 con producción (`n8n-sync.yml`) y no
-despliega el backend. Al volver a funcionar el relanzamiento, WF1 usará su chat de respaldo
+sincronizó solo WF2 con producción (`n8n-sync.yml`, éxito) y no desplegó el backend.
+Comprobado en n8n: `updatedAt` 2026-11-27 01:29 UTC, el aviso con `\\n` y `onError` en los
+6 nodos de Telegram. **Pendiente:** confirmar en el siguiente cierre real que la ejecución de
+WF2 queda en `success`, llega el mensaje "GRID CERRADO" y aparece una ejecución de WF1. Al volver a funcionar el relanzamiento, WF1 usará su chat de respaldo
 (`1060878323`), porque WF2 no le pasa `chatId`; conviene confirmar que es el chat deseado.
